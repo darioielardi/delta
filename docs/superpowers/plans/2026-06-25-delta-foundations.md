@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - **Startup target:** <1s; keep dependencies lean, lazy-load diff content per file.
-- **Renderer is isolated:** all `@git-diff-view/*` usage lives behind a single `DiffView` React component. No other file imports git-diff-view.
+- **Renderer is isolated to the `src/diff/` module:** all `@git-diff-view/*` usage is confined to `src/diff/` (the `DiffView` component + its `toDiffFile` adapter). No file outside `src/diff/` imports git-diff-view. (Module-level boundary — the swap unit is the directory.)
 - **Renderer version pinned:** `@git-diff-view/react` and `@git-diff-view/file` at exactly **0.1.6** (no `^`).
 - **Diff modes (preset ids, serialized kebab-case):** `all-changes` (default), `uncommitted`, `last-commit`, `branch-vs-base`.
 - **`all-changes` = `merge-base(base) → working tree`** (the hero/default mode). Base = auto-detected default branch (`origin/HEAD` → `main` → `master`), overridable.
