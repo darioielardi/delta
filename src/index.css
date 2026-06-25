@@ -127,10 +127,17 @@
 }
 
 @theme inline {
-  --font-sans: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 @layer base {
   body { font-family: var(--font-sans); }
+}
+
+/* git-diff-view renders code: force it to the mono font.
+   Unlayered + !important to beat git-diff-view's own unlayered stylesheet. */
+.diff-tailwindcss-wrapper,
+.diff-tailwindcss-wrapper * {
+  font-family: var(--font-mono) !important;
 }

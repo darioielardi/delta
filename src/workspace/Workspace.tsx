@@ -75,7 +75,7 @@ export function Workspace() {
       {error && <div className="px-3 py-1 text-red-600 text-xs">{error}</div>}
       <div className="flex flex-1 min-h-0">
         {summary && (
-          <div className="w-60 border-r min-h-0">
+          <div className="w-80 border-r min-h-0 flex flex-col">
             <FilesPanel files={summary.files} selected={selected} onSelect={selectFile} />
           </div>
         )}

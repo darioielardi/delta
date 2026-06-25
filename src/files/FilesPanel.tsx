@@ -69,7 +69,7 @@ export function FilesPanel({ files, selected, onSelect }: { files: FileEntry[]; 
   const viewed = 0; // viewed checkbox + count wired in Plan 2
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       <div className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-muted-foreground border-b">
         <span>{files.length} files</span>
         <span className="ml-auto">{viewed}/{files.length} viewed</span>
