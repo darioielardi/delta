@@ -1,33 +1,6 @@
 use crate::review::model::{Comment, CommentScope, Review, Side};
 use std::collections::BTreeMap;
 
-fn lang_code(file: &str) -> String {
-    let ext = file.rsplit('.').next().unwrap_or("");
-    match ext {
-        "ts" => "ts",
-        "tsx" => "tsx",
-        "js" => "js",
-        "jsx" => "jsx",
-        "mjs" => "js",
-        "cjs" => "js",
-        "rs" => "rust",
-        "py" => "python",
-        "go" => "go",
-        "java" => "java",
-        "rb" => "ruby",
-        "json" => "json",
-        "css" => "css",
-        "html" => "html",
-        "md" => "markdown",
-        "sh" => "bash",
-        "bash" => "bash",
-        "toml" => "toml",
-        "yml" => "yaml",
-        "yaml" => "yaml",
-        _ => "",
-    }.to_string()
-}
-
 pub fn export_markdown(review: &Review) -> String {
     let mut out = String::new();
     let t = &review.target;
@@ -56,7 +29,10 @@ pub fn export_markdown(review: &Review) -> String {
     for (file, mut comments) in by_file {
         comments.sort_by_key(|c| c.anchor.as_ref().and_then(|a| a.start_line).unwrap_or(0));
         out.push_str(&format!("## {file}\n\n"));
-        let lang = lang_code(&file);
+        let lang = match file.rsplit_once('.') {
+            Some((_, ext)) if !ext.contains('/') => ext,
+            _ => "",
+        };
         for c in comments {
             let a = c.anchor.as_ref().unwrap();
             let header = match c.scope {
