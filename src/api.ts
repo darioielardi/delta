@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Target, DiffSummary, FileDiff } from "./types";
+import type { Target, DiffSummary, FileDiff, Review, ReviewSession } from "./types";
 
 // Transport indirection: a dev-only fixture backend (VITE_MOCK_IPC) can replace
 // the Tauri IPC so the frontend runs in a plain browser for behavioral checks.
@@ -19,4 +19,12 @@ export const api = {
     invokeImpl("compute_diff", { target }),
   getFileDiff: (target: Target, path: string): Promise<FileDiff> =>
     invokeImpl("get_file_diff", { target, path }),
+  openReview: (target: Target): Promise<ReviewSession> =>
+    invokeImpl("open_review", { target }),
+  refreshReview: (review: Review): Promise<ReviewSession> =>
+    invokeImpl("refresh_review", { review }),
+  saveReview: (review: Review): Promise<void> =>
+    invokeImpl("save_review", { review }),
+  exportReview: (review: Review): Promise<string> =>
+    invokeImpl("export_review", { review }),
 };

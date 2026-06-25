@@ -23,4 +23,23 @@ describe("api", () => {
     await api.getFileDiff(target, "a.ts");
     expect(invokeMock).toHaveBeenCalledWith("get_file_diff", { target, path: "a.ts" });
   });
+
+  it("openReview calls open_review with the target", async () => {
+    const target = { repoPath: "/r", mode: "all-changes" as const };
+    invokeMock.mockResolvedValue({ review: { id: "x" }, summary: { files: [], baseLabel: "main", headLabel: "h" } });
+    const res = await api.openReview(target);
+    expect(invokeMock).toHaveBeenCalledWith("open_review", { target });
+    expect(res.review.id).toBe("x");
+  });
+
+  it("saveReview and exportReview pass the review", async () => {
+    const review = { id: "x" } as any;
+    invokeMock.mockResolvedValue(undefined);
+    await api.saveReview(review);
+    expect(invokeMock).toHaveBeenCalledWith("save_review", { review });
+    invokeMock.mockResolvedValue("# md");
+    const md = await api.exportReview(review);
+    expect(invokeMock).toHaveBeenCalledWith("export_review", { review });
+    expect(md).toBe("# md");
+  });
 });

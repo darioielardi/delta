@@ -5,7 +5,7 @@
 // Keep fixtures realistic but small. As Plan 2 adds commands (open_review,
 // refresh_review, save_review, export_review) extend the switch + fixtures here.
 import { __setInvokeForDev } from "../api";
-import type { DiffSummary, FileDiff } from "../types";
+import type { DiffSummary, FileDiff, Review } from "../types";
 
 const SUMMARY: DiffSummary = {
   baseLabel: "main",
@@ -53,6 +53,36 @@ const FILES: Record<string, FileDiff> = {
   },
 };
 
+const REVIEW: Review = {
+  version: 1,
+  id: "mockid",
+  target: { repoPath: "/Users/me/projects/demo", worktree: "feat/auth", mode: "all-changes" },
+  snapshot: { baseOid: "a1b2c3d", headOid: null, capturedAt: "2026-06-25T18:54:00Z" },
+  comments: [
+    {
+      id: "c1",
+      scope: "line",
+      anchor: { file: "src/auth/session.ts", side: "new", startLine: 3, endLine: null, snippet: "  return store.read(user.id)" },
+      body: "Use the store, not the cache.",
+      stale: false,
+      createdAt: "2026-06-25T18:50:00Z",
+      updatedAt: "2026-06-25T18:50:00Z",
+    },
+    {
+      id: "c2",
+      scope: "general",
+      anchor: null,
+      body: "Standardize error handling across `auth/`.",
+      stale: false,
+      createdAt: "2026-06-25T18:51:00Z",
+      updatedAt: "2026-06-25T18:51:00Z",
+    },
+  ],
+  viewed: [],
+  createdAt: "2026-06-25T18:50:00Z",
+  lastOpenedAt: "2026-06-25T18:54:00Z",
+};
+
 export function installMockBackend(): void {
   __setInvokeForDev(async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     switch (cmd) {
@@ -60,6 +90,13 @@ export function installMockBackend(): void {
         return SUMMARY as T;
       case "get_file_diff":
         return FILES[(args?.path as string) ?? ""] as T;
+      case "open_review":
+      case "refresh_review":
+        return { review: REVIEW, summary: SUMMARY } as T;
+      case "save_review":
+        return undefined as T;
+      case "export_review":
+        return "# Review — demo · feat/auth · All changes\n\n## General\n- Standardize error handling.\n" as T;
       default:
         throw new Error(`mockBackend: unhandled command "${cmd}"`);
     }
