@@ -43,7 +43,7 @@ function FileSection({
       <div className={`flex items-center gap-2 px-3 py-1.5 text-xs sticky top-0 bg-background border-b ${viewed ? "opacity-50" : ""}`}>
         <button className="flex items-center gap-1" onClick={() => onToggleViewed(entry.path)} aria-label="toggle viewed">
           {viewed ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
-          <input type="checkbox" checked={viewed} onChange={() => onToggleViewed(entry.path)} aria-label={`viewed ${entry.path}`} />
+          <input type="checkbox" checked={viewed} onChange={() => onToggleViewed(entry.path)} onClick={(e) => e.stopPropagation()} aria-label={`viewed ${entry.path}`} />
         </button>
         <span className="font-mono">{entry.path}</span>
         <span className="ml-auto tabular-nums text-muted-foreground">
