@@ -15,7 +15,7 @@ function FileSection({
   entry: FileEntry; cache: ReturnType<typeof useFileDiffCache>;
   comments: Comment[]; viewed: boolean; theme: "light" | "dark";
   onToggleViewed: (file: string) => void;
-  onAddComment: (a: Anchor) => void; onEditComment: (id: string, body: string) => void; onDeleteComment: (id: string) => void;
+  onAddComment: (a: Anchor, body: string) => void; onEditComment: (id: string, body: string) => void; onDeleteComment: (id: string) => void;
   registerRef: (file: string, el: HTMLDivElement | null) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -80,7 +80,7 @@ export function DiffPane({
   target: Target; files: FileEntry[]; comments: Comment[]; viewedFiles: Set<string>;
   theme: "light" | "dark"; scrollToFile?: string | null;
   onToggleViewed: (file: string) => void;
-  onAddComment: (a: Anchor) => void; onEditComment: (id: string, body: string) => void; onDeleteComment: (id: string) => void;
+  onAddComment: (a: Anchor, body: string) => void; onEditComment: (id: string, body: string) => void; onDeleteComment: (id: string) => void;
 }) {
   const cache = useFileDiffCache(target);
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
