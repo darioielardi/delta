@@ -76,7 +76,7 @@ export function Workspace() {
       <div className="flex flex-1 min-h-0">
         {summary && (
           <div className="w-80 border-r min-h-0 flex flex-col">
-            <FilesPanel files={summary.files} selected={selected} onSelect={selectFile} />
+            <FilesPanel files={summary.files} selected={selected} onSelect={selectFile} viewedFiles={new Set()} onToggleViewed={() => {}} />
           </div>
         )}
         <div className="flex-1 overflow-auto">

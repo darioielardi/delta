@@ -27,36 +27,48 @@ function useSize() {
   return { ref, ...size };
 }
 
-function FileNode({ node, style }: NodeRendererProps<TreeNode>) {
-  const data = node.data;
-  const isDir = data.kind === "dir";
-  return (
-    <div
-      style={style}
-      className={`flex items-center gap-2 px-2 text-xs cursor-pointer rounded-sm ${node.isSelected ? "bg-accent" : "hover:bg-muted"}`}
-      onClick={() => (isDir ? node.toggle() : node.select())}
-    >
-      {isDir ? (
-        node.isOpen ? <ChevronDown className="size-3 shrink-0" /> : <ChevronRight className="size-3 shrink-0" />
-      ) : (
-        <span className={`w-3.5 text-center font-semibold ${STATUS_COLOR[data.entry!.status]}`}>
-          {STATUS_LETTER[data.entry!.status]}
-        </span>
-      )}
-      <span className="truncate flex-1">{data.name}{isDir ? "/" : ""}</span>
-      {!isDir && data.entry && (
-        <span className="shrink-0 tabular-nums">
-          {data.entry.additions > 0 && <span className="text-emerald-600">+{data.entry.additions}</span>}{" "}
-          {data.entry.deletions > 0 && <span className="text-red-600">−{data.entry.deletions}</span>}
-        </span>
-      )}
-    </div>
-  );
-}
-
-export function FilesPanel({ files, selected, onSelect }: { files: FileEntry[]; selected: string | null; onSelect: (path: string) => void }) {
+export function FilesPanel({ files, selected, onSelect, viewedFiles, onToggleViewed }: { files: FileEntry[]; selected: string | null; onSelect: (path: string) => void; viewedFiles: Set<string>; onToggleViewed: (file: string) => void }) {
   const [mode, setMode] = useState<"tree" | "list">("tree");
   const { ref, width, height } = useSize();
+
+  // FileNode closes over viewedFiles/onToggleViewed so it can render the viewed checkbox.
+  function FileNode({ node, style }: NodeRendererProps<TreeNode>) {
+    const data = node.data;
+    const isDir = data.kind === "dir";
+    const isViewed = !isDir && data.entry ? viewedFiles.has(data.entry.path) : false;
+    return (
+      <div
+        style={style}
+        className={`flex items-center gap-2 px-2 text-xs cursor-pointer rounded-sm ${node.isSelected ? "bg-accent" : "hover:bg-muted"} ${isViewed ? "opacity-50" : ""}`}
+        onClick={() => (isDir ? node.toggle() : node.select())}
+      >
+        {isDir ? (
+          node.isOpen ? <ChevronDown className="size-3 shrink-0" /> : <ChevronRight className="size-3 shrink-0" />
+        ) : (
+          <span className={`w-3.5 text-center font-semibold ${STATUS_COLOR[data.entry!.status]}`}>
+            {STATUS_LETTER[data.entry!.status]}
+          </span>
+        )}
+        <span className="truncate flex-1">{data.name}{isDir ? "/" : ""}</span>
+        {!isDir && data.entry && (
+          <>
+            <span className="shrink-0 tabular-nums">
+              {data.entry.additions > 0 && <span className="text-emerald-600">+{data.entry.additions}</span>}{" "}
+              {data.entry.deletions > 0 && <span className="text-red-600">−{data.entry.deletions}</span>}
+            </span>
+            <input
+              type="checkbox"
+              checked={isViewed}
+              onChange={() => onToggleViewed(data.entry!.path)}
+              onClick={(e) => e.stopPropagation()}
+              aria-label={`viewed ${data.entry.path}`}
+              className="shrink-0"
+            />
+          </>
+        )}
+      </div>
+    );
+  }
 
   if (files.length === 0) return <div className="files-empty p-6 text-muted-foreground text-sm">Nothing to review</div>;
 
@@ -66,13 +78,11 @@ export function FilesPanel({ files, selected, onSelect }: { files: FileEntry[]; 
       ? buildTree(files)
       : files.map((e) => ({ id: e.path, name: e.path, path: e.path, kind: "file", entry: e, children: [] }));
 
-  const viewed = 0; // viewed checkbox + count wired in Plan 2
-
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <div className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-muted-foreground border-b">
         <span>{files.length} files</span>
-        <span className="ml-auto">{viewed}/{files.length} viewed</span>
+        <span className="ml-auto">{viewedFiles.size}/{files.length} viewed</span>
         <ToggleGroup type="single" size="sm" value={mode} onValueChange={(v) => v && setMode(v as "tree" | "list")}>
           <ToggleGroupItem value="list">List</ToggleGroupItem>
           <ToggleGroupItem value="tree">Tree</ToggleGroupItem>
