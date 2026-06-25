@@ -24,8 +24,8 @@ fn ratio(a: &str, b: &str) -> f32 {
 /// or None if nothing within ±WINDOW matches above THRESHOLD.
 pub fn reanchor(start_line: u32, snippet: &str, content: &str) -> Option<(u32, Option<u32>)> {
     let lines: Vec<&str> = content.lines().collect();
-    let snippet_lines: Vec<&str> = snippet.lines().collect();
-    let span = snippet_lines.len().max(1);
+    let snippet_norm: String = snippet.lines().collect::<Vec<_>>().join("\n");
+    let span = snippet.lines().count().max(1);
 
     if lines.is_empty() {
         return None;
@@ -42,27 +42,27 @@ pub fn reanchor(start_line: u32, snippet: &str, content: &str) -> Option<(u32, O
 
     // Convert 0-based index back to 1-based result tuple.
     let to_result = |start_idx: usize| -> (u32, Option<u32>) {
-        let start = (start_idx as u32) + 1;
-        let end = if span > 1 { Some(start + span as u32 - 1) } else { None };
+        let start = (start_idx as u32).saturating_add(1);
+        let end = if span > 1 { Some(start.saturating_add(span as u32).saturating_sub(1)) } else { None };
         (start, end)
     };
 
     // 1) Exact match at the recorded position.
     let orig_idx = start_line.saturating_sub(1) as usize;
     if let Some(block) = block_at(orig_idx) {
-        if block == snippet {
+        if block == snippet_norm {
             return Some(to_result(orig_idx));
         }
     }
 
     // 2) Best fuzzy match within ±WINDOW, clamped to valid indices.
     let lo = (start_line.saturating_sub(WINDOW) as usize).saturating_sub(1);
-    let hi = ((start_line + WINDOW) as usize).min(lines.len());
+    let hi = (start_line.saturating_add(WINDOW) as usize).min(lines.len());
 
     let mut best: Option<(f32, usize)> = None;
     for idx in lo..hi {
         if let Some(block) = block_at(idx) {
-            let r = ratio(&block, snippet);
+            let r = ratio(&block, &snippet_norm);
             if best.map(|(br, _)| r > br).unwrap_or(true) {
                 best = Some((r, idx));
             }
