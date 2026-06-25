@@ -1,3 +1,4 @@
+pub mod diff;
 pub mod model;
 
 use git2::{Oid, Repository, Tree};
