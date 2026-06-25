@@ -69,7 +69,7 @@ These were decided during brainstorming and intentionally override the kickoff:
 | Shell | **Tauri 2** | Fast startup, small footprint, native feel; not Electron. |
 | Frontend | **React + TypeScript** | With the diff virtualized, framework reconciliation isn't the bottleneck; React's ecosystem (virtualizer, markdown editor, Tauri examples) speeds the MVP. Solid's perf edge is neutralized by virtualization. |
 | Diff renderer | **`@git-diff-view/react`** behind a `DiffView` interface | Purpose-built for diff + inline comment widgets; Shiki + Web Worker highlighting (beautiful + fast by default), virtual scrolling, split/unified, intra-line (word) diff. Chosen over react-diff-view for out-of-box polish; chosen over CodeMirror 6 (an editor bent into a viewer) and Monaco (too heavy). |
-| Diff engine | **git2 (libgit2)** in Rust | Structured hunks/lines in-process, rename detection (`DiffFindOptions`), `merge_base`, `diff_tree_to_workdir_with_index` for worktree-right modes. No porcelain parsing, no subprocess latency. |
+| Diff engine | **git2 (libgit2)** in Rust | Rust owns the changed-file set, status, rename detection (`DiffFindOptions`), `merge_base`, and per-file old/new **content** (`diff_tree_to_workdir_with_index` for worktree-right modes). The intra-file **line diff is computed by git-diff-view from that content** — Rust does not emit hunk strings. No porcelain parsing, no subprocess latency. |
 | Storage | **JSON document per review** behind a Rust storage trait | A review *is* a document; file-per-review matches it exactly. Tiny scale (single user, hundreds of reviews). No migration ceremony while the schema churns. SQLite deferred (trait keeps the door open). |
 | Syntax highlighting | **Shiki**, client-side, in git-diff-view | Rust only produces diff structure. |
 
@@ -160,6 +160,7 @@ DiffSpec { from: Ref | MergeBase(base), to: Ref | WorkingTree }
 - **Empty default:** if **All changes** is empty (no divergence + clean tree), show a **"Nothing to review" empty state**. No automatic fallback to another mode.
 - **Extensible:** new comparisons are new presets over `DiffSpec` — this is the kickoff's "custom comparisons later," for free.
 - git2 mechanics: `merge_base` for the base; `diff_tree_to_workdir_with_index` for worktree-right modes; `diff_tree_to_tree` for commit-to-commit; `DiffFindOptions` for rename detection.
+- **Line-diffing is delegated to git-diff-view** (computed from each file's old/new content via `generateDiffFile`). Rust is authoritative for *which* files changed, their status, renames, and content; git-diff-view owns the intra-file line diff that is displayed and (in Plan 2) anchored against — keeping anchors consistent with what's rendered.
 
 ## 8. Anchoring & staleness
 

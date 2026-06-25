@@ -20,7 +20,7 @@
 - **Rust↔TS payloads are camelCase** (`#[serde(rename_all = "camelCase")]`); enum values kebab-case/lowercase as specified per type.
 - **Package manager is pnpm.** Use `pnpm` for everything: `pnpm install`, `pnpm <script>`, `pnpm tauri dev`. Add deps with `pnpm add` (`-D` dev, `-E` exact). Scaffold with `--manager pnpm`. (pnpm only affects the JS frontend; the Rust/cargo build is unaffected.)
 
-**Deviation from spec §7 (flagged):** Rust does not emit git hunk strings in this plan; git-diff-view computes the line diff from old/new content. Rust remains the source of truth for *which* files changed, their status, renames, and content. Revisit if exact git-algorithm parity is ever required.
+**Design note (now reflected in spec §5 & §7):** Rust does not emit git hunk strings; git-diff-view computes the line diff from old/new content. Rust remains the source of truth for *which* files changed, their status, renames, and content. Revisit if exact git-algorithm parity is ever required.
 
 ---
 
