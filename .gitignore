@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# SDD + brainstorm scratch (controller/agent working files)
+.superpowers/
