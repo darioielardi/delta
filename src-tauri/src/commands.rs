@@ -48,6 +48,10 @@ pub fn refresh_review_impl(storage: &dyn Storage, review: Review) -> Result<Revi
     Ok(session)
 }
 
+pub fn save_review_impl(storage: &dyn Storage, review: Review) -> Result<(), String> {
+    storage.save(&review)
+}
+
 #[tauri::command]
 pub fn compute_diff(target: Target) -> Result<DiffSummary, String> {
     compute_diff_impl(target)
@@ -73,7 +77,7 @@ pub fn refresh_review(app: tauri::AppHandle, review: Review) -> Result<ReviewSes
 #[tauri::command]
 pub fn save_review(app: tauri::AppHandle, review: Review) -> Result<(), String> {
     let storage = JsonStorage::new(reviews_dir(&app)?);
-    storage.save(&review)
+    save_review_impl(&storage, review)
 }
 
 #[tauri::command]
@@ -118,5 +122,41 @@ mod tests {
         // persisted under the deterministic id
         let loaded = storage.load(&session.review.id).unwrap();
         assert!(loaded.is_some());
+    }
+
+    #[test]
+    fn save_review_impl_persists() {
+        use crate::storage::{JsonStorage, Storage};
+
+        let store_dir = tempfile::TempDir::new().unwrap();
+        let storage = JsonStorage::new(store_dir.path().join("reviews"));
+        let now = chrono::Utc::now().to_rfc3339();
+
+        let target = Target { repo_path: "/repo".into(), worktree: Some("main".into()), mode: DiffMode::Uncommitted, base: None };
+        let snapshot = Snapshot { base_oid: "abc123".into(), head_oid: None, captured_at: now.clone() };
+        let review = Review::new("test_id_001".into(), target, snapshot, now);
+
+        save_review_impl(&storage, review.clone()).unwrap();
+        let loaded = storage.load(&review.id).unwrap();
+        assert!(loaded.is_some());
+        assert_eq!(loaded.unwrap().id, "test_id_001");
+    }
+
+    #[test]
+    fn refresh_review_impl_reconciles_and_persists() {
+        use crate::storage::{JsonStorage, Storage};
+
+        let (dir, _repo) = repo_with_commit();
+        write(dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
+        let store_dir = tempfile::TempDir::new().unwrap();
+        let storage = JsonStorage::new(store_dir.path().join("reviews"));
+
+        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None };
+        let session = open_review_impl(&storage, target).unwrap();
+
+        let refreshed = refresh_review_impl(&storage, session.review.clone()).unwrap();
+        assert!(!refreshed.summary.files.is_empty());
+        let persisted = storage.load(&session.review.id).unwrap();
+        assert!(persisted.is_some());
     }
 }
