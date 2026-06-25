@@ -79,7 +79,9 @@ mod tests {
         let root = dir.path().join("reviews");
         let s = JsonStorage::new(root.clone());
         s.save(&sample()).unwrap();
-        let entries: Vec<_> = std::fs::read_dir(&root).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
-        assert_eq!(entries, vec!["abc123.json".to_string()]);
+        let entries: Vec<String> = std::fs::read_dir(&root).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
+        assert_eq!(entries.len(), 1, "expected exactly one file, got {entries:?}");
+        assert!(!entries.iter().any(|n| n.ends_with(".tmp")), "no temp file should remain, got {entries:?}");
+        assert!(entries.iter().any(|n| n == "abc123.json"), "expected abc123.json, got {entries:?}");
     }
 }
