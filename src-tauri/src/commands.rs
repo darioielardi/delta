@@ -31,6 +31,7 @@ mod tests {
         write(dir.path(), "file.txt", "a\nb\n");
         let summary = compute_diff_impl(Target {
             repo_path: dir.path().to_str().unwrap().into(),
+            worktree: None,
             mode: DiffMode::Uncommitted,
             base: None,
         })
