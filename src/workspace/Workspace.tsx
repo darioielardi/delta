@@ -81,7 +81,7 @@ export function Workspace() {
         )}
         <div className="flex-1 overflow-auto">
           {fileDiff ? (
-            <DiffView fileDiff={fileDiff} mode="unified" theme={theme} />
+            <DiffView fileDiff={fileDiff} filePath={selected ?? ""} mode="unified" theme={theme} />
           ) : (
             <div className="p-6 text-muted-foreground">Select a file</div>
           )}

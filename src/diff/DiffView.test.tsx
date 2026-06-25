@@ -25,13 +25,13 @@ afterAll(() => {
 });
 
 it("DiffView renders modified file without crashing", () => {
-  const { container } = render(<DiffView fileDiff={fd} mode="unified" />);
+  const { container } = render(<DiffView fileDiff={fd} filePath="a.ts" mode="unified" />);
   expect(container.firstChild).toBeTruthy();
 });
 
 it("DiffView shows placeholder for binary", () => {
   const { getByText } = render(
-    <DiffView fileDiff={{ ...fd, binary: true }} mode="unified" />
+    <DiffView fileDiff={{ ...fd, binary: true }} filePath="a.ts" mode="unified" />
   );
   expect(getByText(/binary file/i)).toBeTruthy();
 });
