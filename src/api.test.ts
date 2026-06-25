@@ -32,6 +32,14 @@ describe("api", () => {
     expect(res.review.id).toBe("x");
   });
 
+  it("refreshReview calls refresh_review with the review", async () => {
+    const review = { id: "x" } as any;
+    invokeMock.mockResolvedValue({ review: { id: "x" }, summary: { files: [], baseLabel: "main", headLabel: "h" } });
+    const res = await api.refreshReview(review);
+    expect(invokeMock).toHaveBeenCalledWith("refresh_review", { review });
+    expect(res.review.id).toBe("x");
+  });
+
   it("saveReview and exportReview pass the review", async () => {
     const review = { id: "x" } as any;
     invokeMock.mockResolvedValue(undefined);

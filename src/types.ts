@@ -4,7 +4,7 @@ export interface Target {
   repoPath: string;
   mode: DiffMode;
   base?: string;
-  worktree?: string | null;
+  worktree?: string;
 }
 
 export type FileStatus = "added" | "modified" | "deleted" | "renamed";

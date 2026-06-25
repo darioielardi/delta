@@ -5,7 +5,7 @@
 // Keep fixtures realistic but small. As Plan 2 adds commands (open_review,
 // refresh_review, save_review, export_review) extend the switch + fixtures here.
 import { __setInvokeForDev } from "../api";
-import type { DiffSummary, FileDiff, Review } from "../types";
+import type { DiffSummary, FileDiff, Review, ReviewSession } from "../types";
 
 const SUMMARY: DiffSummary = {
   baseLabel: "main",
@@ -91,8 +91,10 @@ export function installMockBackend(): void {
       case "get_file_diff":
         return FILES[(args?.path as string) ?? ""] as T;
       case "open_review":
-      case "refresh_review":
-        return { review: REVIEW, summary: SUMMARY } as T;
+      case "refresh_review": {
+        const session: ReviewSession = { review: REVIEW, summary: SUMMARY };
+        return structuredClone(session) as T;
+      }
       case "save_review":
         return undefined as T;
       case "export_review":
