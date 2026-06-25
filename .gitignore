@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+build/
+
+# Rust / Tauri
+target/
+src-tauri/target/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.sw?
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Brainstorm companion (transient mockups)
+.superpowers/
