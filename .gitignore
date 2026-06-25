@@ -25,3 +25,12 @@ dist-ssr
 
 # SDD + brainstorm scratch (controller/agent working files)
 .superpowers/
+
+# Rust / Tauri build artifacts (src-tauri/.gitignore also covers /target)
+target/
+src-tauri/target/
+
+# Env
+.env
+.env.*
+!.env.example
