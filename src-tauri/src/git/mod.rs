@@ -33,10 +33,15 @@ pub fn resolve_base(repo: &Repository, base: Option<&str>) -> Result<(String, Oi
         Some(b) => vec![b.to_string()],
         None => vec!["origin/HEAD".into(), "main".into(), "master".into()],
     };
+    let explicit = base.is_some();
     for name in candidates {
         if let Ok(obj) = repo.revparse_single(&name) {
             if let Ok(commit) = obj.peel_to_commit() {
-                let label = name.trim_start_matches("origin/").to_string();
+                let label = if !explicit && name == "origin/HEAD" {
+                    name.trim_start_matches("origin/").to_string()
+                } else {
+                    name.clone()
+                };
                 return Ok((label, commit.id()));
             }
         }
@@ -54,7 +59,7 @@ pub fn resolve_endpoints(repo: &Repository, target: &Target) -> Result<Endpoints
 
     match target.mode {
         DiffMode::Uncommitted => Ok(Endpoints {
-            from_tree: Some(head_commit.tree().unwrap().id()),
+            from_tree: Some(tree_of(repo, head_commit.id())?.id()),
             right: RightSide::WorkTree,
             base_label: head_label.clone(),
             head_label: "working tree".into(),
@@ -64,8 +69,8 @@ pub fn resolve_endpoints(repo: &Repository, target: &Target) -> Result<Endpoints
                 .parent(0)
                 .map_err(|_| "last-commit: HEAD has no parent".to_string())?;
             Ok(Endpoints {
-                from_tree: Some(parent.tree().unwrap().id()),
-                right: RightSide::Tree(head_commit.tree().unwrap().id()),
+                from_tree: Some(tree_of(repo, parent.id())?.id()),
+                right: RightSide::Tree(tree_of(repo, head_commit.id())?.id()),
                 base_label: short_oid(parent.id()),
                 head_label: short_oid(head_commit.id()),
             })
@@ -78,7 +83,7 @@ pub fn resolve_endpoints(repo: &Repository, target: &Target) -> Result<Endpoints
             let from_tree = Some(tree_of(repo, mb)?.id());
             let right = match target.mode {
                 DiffMode::AllChanges => RightSide::WorkTree,
-                _ => RightSide::Tree(head_commit.tree().unwrap().id()),
+                _ => RightSide::Tree(tree_of(repo, head_commit.id())?.id()),
             };
             Ok(Endpoints { from_tree, right, base_label, head_label })
         }
