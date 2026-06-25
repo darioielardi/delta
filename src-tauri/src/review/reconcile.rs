@@ -26,8 +26,8 @@ pub fn reconcile(mut review: Review) -> Result<ReviewSession, GitError> {
     review.id = review_id(&review.target.repo_path, &worktree, review.target.mode);
 
     let summary = compute_diff(&review.target)?;
-    let present: std::collections::HashSet<&str> =
-        summary.files.iter().map(|f| f.path.as_str()).collect();
+    let present: std::collections::HashSet<String> =
+        summary.files.iter().map(|f| f.path.clone()).collect();
 
     // Re-anchor comments.
     let target = review.target.clone();
@@ -62,14 +62,14 @@ pub fn reconcile(mut review: Review) -> Result<ReviewSession, GitError> {
     }
 
     // Reset viewed entries whose file diff changed (or vanished).
-    review.viewed.retain(|v| match get_file_diff(&target, &v.file) {
-        Ok(fd) => {
-            diff_hash(
-                fd.old_content.as_deref().unwrap_or(""),
-                fd.new_content.as_deref().unwrap_or(""),
-            ) == v.diff_hash
+    review.viewed.retain(|v| {
+        if !present.contains(&v.file) {
+            return false; // file no longer in the diff → drop viewed progress
         }
-        Err(_) => false,
+        match get_file_diff(&target, &v.file) {
+            Ok(fd) => diff_hash(fd.old_content.as_deref().unwrap_or(""), fd.new_content.as_deref().unwrap_or("")) == v.diff_hash,
+            Err(_) => true, // present file we couldn't read → keep (don't drop on uncertainty)
+        }
     });
 
     // Refresh snapshot.
@@ -157,6 +157,17 @@ mod tests {
         r.comments.push(line_comment("file.txt", 1, "line1"));
         let session = reconcile(r).unwrap();
         assert_eq!(session.review.comments[0].stale, true);
+    }
+
+    #[test]
+    fn drops_viewed_when_file_absent_from_diff() {
+        // repo_with_commit creates file.txt committed; no working-tree change means
+        // the Uncommitted diff is empty → file.txt is absent from the diff.
+        let (dir, _repo) = repo_with_commit();
+        let mut r = empty_review(dir.path().to_str().unwrap());
+        r.viewed.push(ViewedEntry { file: "file.txt".into(), diff_hash: "anything".into() });
+        let session = reconcile(r).unwrap();
+        assert_eq!(session.review.viewed.len(), 0);
     }
 
     #[test]

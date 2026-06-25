@@ -94,13 +94,13 @@ pub fn resolve_endpoints(repo: &Repository, target: &Target) -> Result<Endpoints
 
 pub fn resolve_worktree(repo: &Repository) -> Result<String, GitError> {
     let head = repo.head().map_err(|e| format!("head: {e}"))?;
-    if let Some(name) = head.shorthand() {
-        if name != "HEAD" {
+    if head.is_branch() {
+        if let Some(name) = head.shorthand() {
             return Ok(name.to_string());
         }
     }
     let oid = head.peel_to_commit().map_err(|e| format!("head commit: {e}"))?.id();
-    Ok(oid.to_string().chars().take(7).collect())
+    Ok(short_oid(oid))
 }
 
 fn short_oid(oid: Oid) -> String {
