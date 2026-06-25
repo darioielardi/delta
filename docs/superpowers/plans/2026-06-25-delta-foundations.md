@@ -18,6 +18,7 @@
 - **Empty diff → "Nothing to review" empty state.** No automatic mode fallback.
 - **Nothing is ever written into the user's repo / working tree.**
 - **Rust↔TS payloads are camelCase** (`#[serde(rename_all = "camelCase")]`); enum values kebab-case/lowercase as specified per type.
+- **Package manager is pnpm.** Use `pnpm` for everything: `pnpm install`, `pnpm <script>`, `pnpm tauri dev`. Add deps with `pnpm add` (`-D` dev, `-E` exact). Scaffold with `--manager pnpm`. (pnpm only affects the JS frontend; the Rust/cargo build is unaffected.)
 
 **Deviation from spec §7 (flagged):** Rust does not emit git hunk strings in this plan; git-diff-view computes the line diff from old/new content. Rust remains the source of truth for *which* files changed, their status, renames, and content. Revisit if exact git-algorithm parity is ever required.
 
@@ -39,8 +40,8 @@ The repo root already contains `.git`, `.gitignore`, and `docs/`, so scaffold el
 
 ```bash
 cd /tmp && rm -rf delta-scaffold
-npm create tauri-app@latest delta-scaffold -- --template react-ts --manager npm
-# In the scaffold prompts/flags: app name "delta", React, TypeScript, npm.
+pnpm dlx create-tauri-app delta-scaffold --template react-ts --manager pnpm
+# In the scaffold prompts/flags: app name "delta", React, TypeScript, pnpm.
 cd /Users/dario.ielardi/projects/delta
 rsync -a --exclude='.git' --exclude='node_modules' /tmp/delta-scaffold/ ./
 rm -rf /tmp/delta-scaffold
@@ -49,8 +50,8 @@ rm -rf /tmp/delta-scaffold
 - [ ] **Step 2: Pin the renderer dependencies and install**
 
 ```bash
-npm install
-npm install --save-exact @git-diff-view/react@0.1.5 @git-diff-view/file@0.1.5
+pnpm install
+pnpm add -E @git-diff-view/react@0.1.5 @git-diff-view/file@0.1.5
 ```
 
 (If 0.1.5 is unavailable, install the current latest with `--save-exact` and record the pinned version in this step.)
@@ -58,7 +59,7 @@ npm install --save-exact @git-diff-view/react@0.1.5 @git-diff-view/file@0.1.5
 - [ ] **Step 3: Verify the app boots**
 
 ```bash
-npm run tauri dev
+pnpm tauri dev
 ```
 Expected: a native window opens showing the default Tauri+React template. Close it (Ctrl-C) to continue.
 
@@ -790,7 +791,7 @@ git commit -m "feat: expose compute_diff and get_file_diff Tauri commands"
 - [ ] **Step 1: Add vitest**
 
 ```bash
-npm install --save-dev vitest @testing-library/react @testing-library/jest-dom jsdom
+pnpm add -D vitest @testing-library/react @testing-library/jest-dom jsdom
 ```
 
 ```ts
@@ -850,7 +851,7 @@ describe("api", () => {
 
 - [ ] **Step 3: Run to verify failure**
 
-Run: `npm test -- src/api.test.ts`
+Run: `pnpm test src/api.test.ts`
 Expected: FAIL — `./api` and `./types` not found.
 
 - [ ] **Step 4: Implement types + client**
@@ -909,7 +910,7 @@ export const api = {
 
 - [ ] **Step 5: Run to verify pass**
 
-Run: `npm test -- src/api.test.ts`
+Run: `pnpm test src/api.test.ts`
 Expected: PASS (2 tests).
 
 - [ ] **Step 6: Commit**
@@ -959,7 +960,7 @@ describe("buildTree", () => {
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `npm test -- src/files/buildTree.test.ts`
+Run: `pnpm test src/files/buildTree.test.ts`
 Expected: FAIL — `./buildTree` not found.
 
 - [ ] **Step 3: Implement `buildTree`**
@@ -1003,7 +1004,7 @@ export function buildTree(files: FileEntry[]): TreeNode[] {
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `npm test -- src/files/buildTree.test.ts`
+Run: `pnpm test src/files/buildTree.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Write the failing FilesPanel test**
@@ -1042,7 +1043,7 @@ describe("FilesPanel", () => {
 
 - [ ] **Step 6: Run to verify failure**
 
-Run: `npm test -- src/files/FilesPanel.test.tsx`
+Run: `pnpm test src/files/FilesPanel.test.tsx`
 Expected: FAIL — `./FilesPanel` not found.
 
 - [ ] **Step 7: Implement `FilesPanel`**
@@ -1119,7 +1120,7 @@ export function FilesPanel({ files, selected, onSelect }: { files: FileEntry[]; 
 
 - [ ] **Step 8: Run to verify pass**
 
-Run: `npm test -- src/files/FilesPanel.test.tsx`
+Run: `pnpm test src/files/FilesPanel.test.tsx`
 Expected: PASS (3 tests).
 
 - [ ] **Step 9: Commit**
@@ -1169,7 +1170,7 @@ describe("toDiffFile", () => {
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `npm test -- src/diff/toDiffFile.test.ts`
+Run: `pnpm test src/diff/toDiffFile.test.ts`
 Expected: FAIL — `./toDiffFile` not found.
 
 - [ ] **Step 3: Implement the adapter**
@@ -1195,7 +1196,7 @@ export function toDiffFile(fd: FileDiff) {
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `npm test -- src/diff/toDiffFile.test.ts`
+Run: `pnpm test src/diff/toDiffFile.test.ts`
 Expected: PASS. (If `splitLineLength` is not the exact accessor, build and assert on the rendered output instead — see Step 5's smoke test — and keep the adapter.)
 
 - [ ] **Step 5: Implement the DiffView component (isolated import)**
@@ -1247,7 +1248,7 @@ it("DiffView shows placeholder for binary", () => {
 });
 ```
 
-Run: `npm test -- src/diff`
+Run: `pnpm test src/diff`
 Expected: PASS.
 
 - [ ] **Step 7: Commit**
@@ -1305,7 +1306,7 @@ describe("Workspace", () => {
 
 - [ ] **Step 2: Run to verify failure**
 
-Run: `npm test -- src/workspace/Workspace.test.tsx`
+Run: `pnpm test src/workspace/Workspace.test.tsx`
 Expected: FAIL — `./Workspace` not found.
 
 - [ ] **Step 3: Implement the Workspace**
@@ -1400,7 +1401,7 @@ export default function App() {
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `npm test -- src/workspace/Workspace.test.tsx`
+Run: `pnpm test src/workspace/Workspace.test.tsx`
 Expected: PASS.
 
 - [ ] **Step 5: Add minimal layout-B styling**
@@ -1431,7 +1432,7 @@ import "./styles.css";
 - [ ] **Step 6: Manual end-to-end verification in the real app**
 
 ```bash
-npm run tauri dev
+pnpm tauri dev
 ```
 - Type this repo's path (`/Users/dario.ielardi/projects/delta`) and click Open. (Make an uncommitted edit to a file first so there's something to show.)
 - Expected: files panel lists changed files; clicking one renders the diff; switching modes refetches; an unchanged clean checkout shows "Nothing to review".
@@ -1439,7 +1440,7 @@ npm run tauri dev
 - [ ] **Step 7: Run the full suite + commit**
 
 ```bash
-npm test && (cd src-tauri && cargo test)
+pnpm test && (cd src-tauri && cargo test)
 git add -A
 git commit -m "feat(ui): read-only review workspace (top bar, mode switch, diff pane)"
 ```
