@@ -6,29 +6,34 @@
 
 **Architecture:** Rust (git2) owns repo access, target/ref resolution, the changed-file set, status, rename detection, and per-file old/new **content**. The React frontend calls two Tauri commands (`compute_diff`, `get_file_diff`) and renders with `@git-diff-view/react`, which computes the intra-file line diff from content via `generateDiffFile`. Diff content is fetched lazily per file (only when selected) to keep large diffs fast.
 
-**Tech Stack:** Tauri 2, Rust + git2, React 18 + TypeScript + Vite, `@git-diff-view/react` + `@git-diff-view/file`, vitest + @testing-library/react (frontend tests), tempfile + git2 (Rust tests).
+**Tech Stack:** Tauri 2; Rust + git2; React 19 + TypeScript + Vite + React Compiler; Tailwind v4 + shadcn/ui (Luma preset) + lucide-react; `react-arborist`; `@git-diff-view/react` + `@git-diff-view/file` 0.1.6; vitest + @testing-library/react + happy-dom; tempfile + git2 (Rust tests).
 
 ## Global Constraints
 
 - **Startup target:** <1s; keep dependencies lean, lazy-load diff content per file.
 - **Renderer is isolated:** all `@git-diff-view/*` usage lives behind a single `DiffView` React component. No other file imports git-diff-view.
-- **Renderer version pinned:** install `@git-diff-view/react` and `@git-diff-view/file` at an exact version (no `^`).
+- **Renderer version pinned:** `@git-diff-view/react` and `@git-diff-view/file` at exactly **0.1.6** (no `^`).
 - **Diff modes (preset ids, serialized kebab-case):** `all-changes` (default), `uncommitted`, `last-commit`, `branch-vs-base`.
 - **`all-changes` = `merge-base(base) → working tree`** (the hero/default mode). Base = auto-detected default branch (`origin/HEAD` → `main` → `master`), overridable.
 - **Empty diff → "Nothing to review" empty state.** No automatic mode fallback.
 - **Nothing is ever written into the user's repo / working tree.**
 - **Rust↔TS payloads are camelCase** (`#[serde(rename_all = "camelCase")]`); enum values kebab-case/lowercase as specified per type.
 - **Package manager is pnpm.** Use `pnpm` for everything: `pnpm install`, `pnpm <script>`, `pnpm tauri dev`. Add deps with `pnpm add` (`-D` dev, `-E` exact). Scaffold with `--manager pnpm`. (pnpm only affects the JS frontend; the Rust/cargo build is unaffected.)
+- **React 19 + React Compiler.** Auto-memoization is on; **do not hand-write `useMemo`/`useCallback`/`React.memo`** unless profiling proves a need. Wired via `babel-plugin-react-compiler` in the Vite React babel config; `eslint-plugin-react-hooks` enforces the Rules of React it relies on.
+- **Ecosystem-first — never reinvent.** Use well-adopted libraries, never hand-roll equivalents: **UI** = Tailwind v4 + shadcn/ui (Radix) + `lucide-react`; **file tree** = `react-arborist`; **command palette / picker** = `cmdk` (Plan 3); **markdown** = `react-markdown` (Plan 2); **diff** = git-diff-view. Hand-write only genuinely app-specific logic (git engine, anchoring, serializer, thin glue). Same principle in Rust (e.g., the `similar` crate for fuzzy matching in Plan 2).
+- **Look & feel — modern + native.** Apply the shadcn **Luma** preset (`b2D0wqNxT`) via `shadcn init --preset b2D0wqNxT`. Then **override the font** to a **monospace UI stack** (`--font-sans`/`--font-mono` = `ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace` — native SF Mono on macOS; this intentionally supersedes Luma's font, per the mono-font requirement). **Follow the system light/dark appearance** (`prefers-color-scheme`); git-diff-view's theme tracks the same.
+- **Frontend tests run on `happy-dom`** (vitest `environment: 'happy-dom'`).
 
 **Design note (now reflected in spec §5 & §7):** Rust does not emit git hunk strings; git-diff-view computes the line diff from old/new content. Rust remains the source of truth for *which* files changed, their status, renames, and content. Revisit if exact git-algorithm parity is ever required.
 
 ---
 
-### Task 1: Project scaffold (Tauri 2 + React-TS + Vite)
+### Task 1: Project scaffold + frontend toolchain (Tauri 2, React 19, Tailwind v4 + shadcn/ui, React Compiler, vitest/happy-dom)
 
 **Files:**
-- Create: `package.json`, `vite.config.ts`, `tsconfig.json`, `index.html`, `src/main.tsx`, `src/App.tsx`
-- Create: `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `src-tauri/src/main.rs`, `src-tauri/src/lib.rs`, `src-tauri/build.rs`, `src-tauri/capabilities/default.json`
+- Scaffold/modify: `package.json`, `vite.config.ts`, `tsconfig.json`, `tsconfig.app.json`, `index.html`, `src/main.tsx`, `src/App.tsx`, `src/index.css`, `src/test-setup.ts`, `src/theme.ts`
+- Create via shadcn: `components.json`, `src/lib/utils.ts`, `src/components/ui/*`
+- Scaffold: `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json`, `src-tauri/src/main.rs`, `src-tauri/src/lib.rs`, `src-tauri/build.rs`, `src-tauri/capabilities/default.json`
 
 **Interfaces:**
 - Consumes: nothing.
@@ -47,36 +52,180 @@ rsync -a --exclude='.git' --exclude='node_modules' /tmp/delta-scaffold/ ./
 rm -rf /tmp/delta-scaffold
 ```
 
-- [ ] **Step 2: Pin the renderer dependencies and install**
+- [ ] **Step 2: Install, then bump to React 19**
 
 ```bash
 pnpm install
-pnpm add -E @git-diff-view/react@0.1.5 @git-diff-view/file@0.1.5
+pnpm add react@^19 react-dom@^19
+pnpm add -D @types/react@^19 @types/react-dom@^19
 ```
 
-(If 0.1.5 is unavailable, install the current latest with `--save-exact` and record the pinned version in this step.)
-
-- [ ] **Step 3: Verify the app boots**
+- [ ] **Step 3: Pin the diff renderer (exact 0.1.6)**
 
 ```bash
-pnpm tauri dev
+pnpm add -E @git-diff-view/react@0.1.6 @git-diff-view/file@0.1.6
 ```
-Expected: a native window opens showing the default Tauri+React template. Close it (Ctrl-C) to continue.
 
-- [ ] **Step 4: Replace `src/App.tsx` with a minimal placeholder**
+- [ ] **Step 4: Add Tailwind v4 + the `@` path alias**
 
-```tsx
-// src/App.tsx
-export default function App() {
-  return <div data-testid="app-root">delta</div>;
+```bash
+pnpm add tailwindcss @tailwindcss/vite
+pnpm add -D @types/node
+```
+
+Add the alias to `tsconfig.json` **and** `tsconfig.app.json` (under `compilerOptions`):
+
+```jsonc
+"baseUrl": ".",
+"paths": { "@/*": ["./src/*"] }
+```
+
+- [ ] **Step 5: Add React Compiler + the compiler ESLint rule**
+
+```bash
+pnpm add -D -E babel-plugin-react-compiler@latest
+pnpm add -D eslint-plugin-react-hooks@latest
+```
+
+- [ ] **Step 6: Add vitest + happy-dom**
+
+```bash
+pnpm add -D vitest @testing-library/react @testing-library/jest-dom happy-dom
+```
+
+```ts
+// src/test-setup.ts
+import "@testing-library/jest-dom";
+```
+
+```jsonc
+// package.json — add to "scripts"
+"test": "vitest run",
+"test:watch": "vitest"
+```
+
+- [ ] **Step 7: Write the consolidated `vite.config.ts`**
+
+Edit the scaffolded config to add the React Compiler babel plugin, Tailwind, the `@` alias, and the vitest block. **Keep any Tauri-specific `server`/`envPrefix` settings the scaffold generated.**
+
+```ts
+/// <reference types="vitest" />
+import path from "path";
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+
+export default defineConfig({
+  plugins: [
+    react({ babel: { plugins: [["babel-plugin-react-compiler", {}]] } }),
+    tailwindcss(),
+  ],
+  resolve: { alias: { "@": path.resolve(__dirname, "./src") } },
+  // --- keep the Tauri settings the scaffold generated, e.g.: ---
+  clearScreen: false,
+  server: { port: 1420, strictPort: true },
+  test: { environment: "happy-dom", setupFiles: ["./src/test-setup.ts"], globals: true },
+});
+```
+
+- [ ] **Step 8: Initialize shadcn/ui with the Luma preset and add the components Plan 1 uses**
+
+```bash
+pnpm dlx shadcn@latest init --preset b2D0wqNxT   # applies the "Luma" theme (colors, radius, fonts) + base config
+pnpm dlx shadcn@latest add button toggle-group checkbox scroll-area tooltip
+```
+
+`init --preset` writes `components.json`, `src/lib/utils.ts`, and Luma's theme tokens (`:root` + `.dark`) into `src/index.css`; `lucide-react` is pulled in as a dependency. (Luma's `.dark` block is what the system-theme hook in Step 9 toggles.)
+
+- [ ] **Step 9: Set the monospace font + system light/dark**
+
+Append to `src/index.css` — this **overrides the font Luma set** with a monospace stack (resolves to native SF Mono on macOS), per the mono-font requirement:
+
+```css
+@theme inline {
+  --font-sans: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+}
+
+@layer base {
+  body { font-family: var(--font-sans); }
 }
 ```
 
-- [ ] **Step 5: Commit**
+Make shadcn's `.dark` follow the OS and expose a hook (git-diff-view's theme reuses it):
+
+```ts
+// src/theme.ts
+import { useEffect, useState } from "react";
+
+const mql = () => window.matchMedia("(prefers-color-scheme: dark)");
+
+export function useSystemTheme(): "light" | "dark" {
+  const [dark, setDark] = useState(() => mql().matches);
+  useEffect(() => {
+    const m = mql();
+    const on = () => setDark(m.matches);
+    m.addEventListener("change", on);
+    return () => m.removeEventListener("change", on);
+  }, []);
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark);
+  }, [dark]);
+  return dark ? "dark" : "light";
+}
+```
+
+- [ ] **Step 10: Prove the toolchain — `src/main.tsx` + `src/App.tsx`**
+
+Ensure `src/main.tsx` imports the stylesheet:
+
+```tsx
+// src/main.tsx (key line)
+import "./index.css";
+```
+
+```tsx
+// src/App.tsx
+import { Button } from "@/components/ui/button";
+import { useSystemTheme } from "./theme";
+
+export default function App() {
+  useSystemTheme();
+  return (
+    <div data-testid="app-root" className="p-4">
+      <span>delta</span>
+      <Button className="ml-2">OK</Button>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 11: Verify boot + a smoke test**
+
+```bash
+pnpm tauri dev   # window shows "delta" + a styled (mono) shadcn Button; Ctrl-C to stop
+```
+
+```tsx
+// src/smoke.test.tsx
+import { render, screen } from "@testing-library/react";
+import { it, expect } from "vitest";
+import App from "./App";
+
+it("renders the app root with the toolchain wired", () => {
+  render(<App />);
+  expect(screen.getByTestId("app-root")).toBeInTheDocument();
+});
+```
+
+Run: `pnpm test smoke`
+Expected: PASS — confirms Tailwind, shadcn, React Compiler, and happy-dom work together.
+
+- [ ] **Step 12: Commit**
 
 ```bash
 git add -A
-git commit -m "chore: scaffold Tauri 2 + React-TS app and pin git-diff-view"
+git commit -m "chore: scaffold Tauri 2 + React 19 toolchain (Tailwind v4, shadcn New York, React Compiler, vitest/happy-dom, mono theme)"
 ```
 
 ---
@@ -778,8 +927,8 @@ git commit -m "feat: expose compute_diff and get_file_diff Tauri commands"
 - Create: `src/types.ts`
 - Create: `src/api.ts`
 - Create: `src/api.test.ts`
-- Modify: `package.json` (vitest), `vite.config.ts` (test config)
-- Create: `src/test-setup.ts`
+
+(vitest + happy-dom, the `vite.config.ts` test block, `src/test-setup.ts`, and the `test` scripts were all set up in Task 1.)
 
 **Interfaces:**
 - Consumes: the invoke command names + payload shapes (Task 5).
@@ -788,34 +937,9 @@ git commit -m "feat: expose compute_diff and get_file_diff Tauri commands"
   - `api.computeDiff(target: Target): Promise<DiffSummary>`
   - `api.getFileDiff(target: Target, path: string): Promise<FileDiff>`
 
-- [ ] **Step 1: Add vitest**
+- [ ] **Step 1: Toolchain check (no-op)**
 
-```bash
-pnpm add -D vitest @testing-library/react @testing-library/jest-dom jsdom
-```
-
-```ts
-// vite.config.ts — add a test block to the existing defineConfig
-/// <reference types="vitest" />
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
-
-export default defineConfig({
-  plugins: [react()],
-  test: { environment: "jsdom", setupFiles: ["./src/test-setup.ts"], globals: true },
-});
-```
-
-```ts
-// src/test-setup.ts
-import "@testing-library/jest-dom";
-```
-
-```jsonc
-// package.json — add to "scripts"
-"test": "vitest run",
-"test:watch": "vitest"
-```
+vitest + happy-dom, the `vite.config.ts` test block, `src/test-setup.ts`, and the `test`/`test:watch` scripts were all created in Task 1. Confirm `pnpm test smoke` still passes, then continue.
 
 - [ ] **Step 2: Write the failing test (client maps invoke args)**
 
@@ -933,7 +1057,7 @@ git commit -m "feat(ui): typed IPC client and shared diff types"
 **Interfaces:**
 - Consumes: `FileEntry`, `FileStatus` (Task 6).
 - Produces:
-  - `function buildTree(files: FileEntry[]): TreeNode[]` where `interface TreeNode { name: string; path: string; kind: "dir" | "file"; entry?: FileEntry; children: TreeNode[] }`
+  - `function buildTree(files: FileEntry[]): TreeNode[]` where `interface TreeNode { id: string; name: string; path: string; kind: "dir" | "file"; entry?: FileEntry; children: TreeNode[] }` (`id` = path, required by react-arborist)
   - `<FilesPanel files={FileEntry[]} selected={string | null} onSelect={(path: string) => void} />` — renders a `List | Tree` toggle, a `N files` header, status badges, and `+adds −dels`; shows "Nothing to review" when `files` is empty.
 
 - [ ] **Step 1: Write the failing tree-builder test**
@@ -970,6 +1094,7 @@ Expected: FAIL — `./buildTree` not found.
 import type { FileEntry } from "../types";
 
 export interface TreeNode {
+  id: string; // = path; required by react-arborist
   name: string;
   path: string;
   kind: "dir" | "file";
@@ -987,7 +1112,7 @@ export function buildTree(files: FileEntry[]): TreeNode[] {
       const path = parts.slice(0, i + 1).join("/");
       let child = node.children.find((c) => c.name === part);
       if (!child) {
-        child = { name: part, path, kind: isFile ? "file" : "dir", children: [], entry: isFile ? entry : undefined };
+        child = { id: path, name: part, path, kind: isFile ? "file" : "dir", children: [], entry: isFile ? entry : undefined };
         node.children.push(child);
       }
       node = child;
@@ -1011,8 +1136,8 @@ Expected: PASS.
 
 ```tsx
 // src/files/FilesPanel.test.tsx
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { describe, it, expect } from "vitest";
+import { render, screen } from "@testing-library/react";
 import { FilesPanel } from "./FilesPanel";
 import type { FileEntry } from "../types";
 
@@ -1021,25 +1146,21 @@ const files: FileEntry[] = [
 ];
 
 describe("FilesPanel", () => {
-  it("shows empty state when no files", () => {
+  it("shows the empty state when there are no files", () => {
     render(<FilesPanel files={[]} selected={null} onSelect={() => {}} />);
     expect(screen.getByText(/nothing to review/i)).toBeInTheDocument();
   });
 
-  it("calls onSelect when a file row is clicked", () => {
-    const onSelect = vi.fn();
-    render(<FilesPanel files={files} selected={null} onSelect={onSelect} />);
-    fireEvent.click(screen.getByText("a.ts"));
-    expect(onSelect).toHaveBeenCalledWith("src/a.ts");
-  });
-
-  it("toggles to List view", () => {
+  it("renders the header, file count, toggle, and tree container", () => {
     render(<FilesPanel files={files} selected={null} onSelect={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: /list/i }));
-    expect(screen.getByText("src/a.ts")).toBeInTheDocument(); // full path in list mode
+    expect(screen.getByText(/1 files/)).toBeInTheDocument();
+    expect(screen.getByTestId("files-tree")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /list/i })).toBeInTheDocument();
   });
 });
 ```
+
+> Note: react-arborist only renders rows once its container is measured (ResizeObserver), which happy-dom doesn't lay out — so row rendering and click-to-select are verified in Task 9's end-to-end step, not here. The pure tree-shaping logic is fully covered by `buildTree`'s unit test above.
 
 - [ ] **Step 6: Run to verify failure**
 
@@ -1050,68 +1171,103 @@ Expected: FAIL — `./FilesPanel` not found.
 
 ```tsx
 // src/files/FilesPanel.tsx
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
+import { Tree, type NodeRendererProps } from "react-arborist";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { ChevronRight, ChevronDown } from "lucide-react";
 import type { FileEntry, FileStatus } from "../types";
 import { buildTree, type TreeNode } from "./buildTree";
 
 const STATUS_LETTER: Record<FileStatus, string> = { added: "A", modified: "M", deleted: "D", renamed: "R" };
+const STATUS_COLOR: Record<FileStatus, string> = {
+  added: "text-emerald-600", modified: "text-amber-600", deleted: "text-red-600", renamed: "text-blue-600",
+};
 
-function Stats({ e }: { e: FileEntry }) {
-  return (
-    <span className="stats">
-      {e.additions > 0 && <span className="adds">+{e.additions}</span>}{" "}
-      {e.deletions > 0 && <span className="dels">−{e.deletions}</span>}
-    </span>
-  );
+// react-arborist needs explicit pixel dimensions; measure the container.
+function useSize() {
+  const ref = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const ro = new ResizeObserver(([entry]) => {
+      const r = entry.contentRect;
+      setSize({ width: r.width, height: r.height });
+    });
+    ro.observe(ref.current);
+    return () => ro.disconnect();
+  }, []);
+  return { ref, ...size };
 }
 
-function Row({ e, label, selected, onSelect }: { e: FileEntry; label: string; selected: boolean; onSelect: (p: string) => void }) {
+function FileNode({ node, style }: NodeRendererProps<TreeNode>) {
+  const data = node.data;
+  const isDir = data.kind === "dir";
   return (
-    <div className={`frow status-${e.status}${selected ? " sel" : ""}`} onClick={() => onSelect(e.path)}>
-      <span className="st">{STATUS_LETTER[e.status]}</span>
-      <span className="fn">{label}</span>
-      <Stats e={e} />
-    </div>
-  );
-}
-
-function TreeView({ nodes, selected, onSelect, depth = 0 }: { nodes: TreeNode[]; selected: string | null; onSelect: (p: string) => void; depth?: number }) {
-  return (
-    <>
-      {nodes.map((n) =>
-        n.kind === "file" ? (
-          <div key={n.path} style={{ paddingLeft: depth * 12 }}>
-            <Row e={n.entry!} label={n.name} selected={selected === n.path} onSelect={onSelect} />
-          </div>
-        ) : (
-          <div key={n.path}>
-            <div className="dirnode" style={{ paddingLeft: depth * 12 }}>{n.name}/</div>
-            <TreeView nodes={n.children} selected={selected} onSelect={onSelect} depth={depth + 1} />
-          </div>
-        )
+    <div
+      style={style}
+      className={`flex items-center gap-2 px-2 text-xs cursor-pointer rounded-sm ${node.isSelected ? "bg-accent" : "hover:bg-muted"}`}
+      onClick={() => (isDir ? node.toggle() : node.select())}
+    >
+      {isDir ? (
+        node.isOpen ? <ChevronDown className="size-3 shrink-0" /> : <ChevronRight className="size-3 shrink-0" />
+      ) : (
+        <span className={`w-3.5 text-center font-semibold ${STATUS_COLOR[data.entry!.status]}`}>
+          {STATUS_LETTER[data.entry!.status]}
+        </span>
       )}
-    </>
+      <span className="truncate flex-1">{data.name}{isDir ? "/" : ""}</span>
+      {!isDir && data.entry && (
+        <span className="shrink-0 tabular-nums">
+          {data.entry.additions > 0 && <span className="text-emerald-600">+{data.entry.additions}</span>}{" "}
+          {data.entry.deletions > 0 && <span className="text-red-600">−{data.entry.deletions}</span>}
+        </span>
+      )}
+    </div>
   );
 }
 
 export function FilesPanel({ files, selected, onSelect }: { files: FileEntry[]; selected: string | null; onSelect: (path: string) => void }) {
   const [mode, setMode] = useState<"tree" | "list">("tree");
-  if (files.length === 0) return <div className="files-empty">Nothing to review</div>;
-  const viewed = 0; // wired in Plan 2
+  const { ref, width, height } = useSize();
+
+  if (files.length === 0) return <div className="files-empty p-6 text-muted-foreground text-sm">Nothing to review</div>;
+
+  // tree mode = nested; list mode = flat leaves (react-arborist renders both shapes).
+  const data: TreeNode[] =
+    mode === "tree"
+      ? buildTree(files)
+      : files.map((e) => ({ id: e.path, name: e.path, path: e.path, kind: "file", entry: e, children: [] }));
+
+  const viewed = 0; // viewed checkbox + count wired in Plan 2
+
   return (
-    <div className="files-panel">
-      <div className="files-header">
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 px-2 py-1.5 text-[11px] text-muted-foreground border-b">
         <span>{files.length} files</span>
-        <span className="viewed-count">{viewed}/{files.length} viewed</span>
-        <span className="toggle">
-          <button aria-pressed={mode === "list"} onClick={() => setMode("list")}>List</button>
-          <button aria-pressed={mode === "tree"} onClick={() => setMode("tree")}>Tree</button>
-        </span>
+        <span className="ml-auto">{viewed}/{files.length} viewed</span>
+        <ToggleGroup type="single" size="sm" value={mode} onValueChange={(v) => v && setMode(v as "tree" | "list")}>
+          <ToggleGroupItem value="list">List</ToggleGroupItem>
+          <ToggleGroupItem value="tree">Tree</ToggleGroupItem>
+        </ToggleGroup>
       </div>
-      <div className="files-list">
-        {mode === "list"
-          ? files.map((e) => <Row key={e.path} e={e} label={e.path} selected={selected === e.path} onSelect={onSelect} />)
-          : <TreeView nodes={buildTree(files)} selected={selected} onSelect={onSelect} />}
+      <div ref={ref} data-testid="files-tree" className="flex-1 min-h-0">
+        {width > 0 && (
+          <Tree<TreeNode>
+            data={data}
+            openByDefault
+            width={width}
+            height={height}
+            rowHeight={24}
+            indent={12}
+            selection={selected ?? undefined}
+            onSelect={(nodes) => {
+              const n = nodes[0];
+              if (n && n.data.kind === "file") onSelect(n.data.path);
+            }}
+          >
+            {FileNode}
+          </Tree>
+        )}
       </div>
     </div>
   );
@@ -1203,21 +1359,18 @@ Expected: PASS. (If `splitLineLength` is not the exact accessor, build and asser
 
 ```tsx
 // src/diff/DiffView.tsx
-import { useMemo } from "react";
 import { DiffView as GitDiffView, DiffModeEnum } from "@git-diff-view/react";
 import "@git-diff-view/react/styles/diff-view.css";
 import type { FileDiff } from "../types";
 import { toDiffFile } from "./toDiffFile";
 
 export function DiffView({ fileDiff, mode, theme = "light" }: { fileDiff: FileDiff; mode: "unified" | "split"; theme?: "light" | "dark" }) {
-  if (fileDiff.binary) return <div className="diff-binary">Binary file — not shown</div>;
-  const file = useMemo(() => {
-    const f = toDiffFile(fileDiff);
-    f.initTheme(theme);
-    f.init();
-    mode === "split" ? f.buildSplitDiffLines() : f.buildUnifiedDiffLines();
-    return f;
-  }, [fileDiff, mode, theme]);
+  if (fileDiff.binary) return <div className="text-muted-foreground p-6 text-sm">Binary file — not shown</div>;
+
+  // No useMemo — React Compiler handles memoization (Global Constraints).
+  const file = toDiffFile(fileDiff); // adapter already calls .init()
+  file.initTheme(theme);
+  mode === "split" ? file.buildSplitDiffLines() : file.buildUnifiedDiffLines();
 
   return (
     <GitDiffView
@@ -1265,8 +1418,7 @@ git commit -m "feat(ui): isolated DiffView wrapping git-diff-view + content adap
 **Files:**
 - Create: `src/workspace/Workspace.tsx`
 - Create: `src/workspace/Workspace.test.tsx`
-- Modify: `src/App.tsx`
-- Create: `src/styles.css`; Modify: `src/main.tsx` (import styles)
+- Modify: `src/App.tsx` (render `<Workspace />`)
 
 **Interfaces:**
 - Consumes: `api` (Task 6), `FilesPanel` (Task 7), `DiffView` (Task 8), `Target`/`DiffMode` (Task 6).
@@ -1295,7 +1447,7 @@ describe("Workspace", () => {
     render(<Workspace />);
     fireEvent.change(screen.getByPlaceholderText(/repo path/i), { target: { value: "/r" } });
     fireEvent.click(screen.getByRole("button", { name: /open/i }));
-    await waitFor(() => expect(screen.getByText("a.ts")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/1 files/)).toBeInTheDocument()); // FilesPanel header (arborist rows need layout; see Task 7 note)
     expect(computeDiff).toHaveBeenCalledWith({ repoPath: "/r", mode: "all-changes" });
 
     fireEvent.click(screen.getByRole("button", { name: /uncommitted/i }));
@@ -1313,11 +1465,14 @@ Expected: FAIL — `./Workspace` not found.
 
 ```tsx
 // src/workspace/Workspace.tsx
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api } from "../api";
 import { FilesPanel } from "../files/FilesPanel";
 import { DiffView } from "../diff/DiffView";
-import type { DiffMode, DiffSummary, FileDiff, Target } from "../types";
+import { useSystemTheme } from "../theme";
+import type { DiffMode, DiffSummary, FileDiff } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
   { id: "all-changes", label: "All changes" },
@@ -1327,6 +1482,7 @@ const MODES: { id: DiffMode; label: string }[] = [
 ];
 
 export function Workspace() {
+  const theme = useSystemTheme();
   const [repoPath, setRepoPath] = useState("");
   const [opened, setOpened] = useState<string | null>(null);
   const [mode, setMode] = useState<DiffMode>("all-changes");
@@ -1335,55 +1491,67 @@ export function Workspace() {
   const [fileDiff, setFileDiff] = useState<FileDiff | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const target = useCallback((): Target => ({ repoPath: opened!, mode }), [opened, mode]);
-
-  const load = useCallback(async () => {
-    if (!opened) return;
+  // No useCallback — React Compiler handles memoization (Global Constraints).
+  async function load(repo: string, m: DiffMode) {
     try {
       setError(null);
       setSelected(null);
       setFileDiff(null);
-      setSummary(await api.computeDiff({ repoPath: opened, mode }));
+      setSummary(await api.computeDiff({ repoPath: repo, mode: m }));
     } catch (e) {
       setError(String(e));
     }
+  }
+
+  useEffect(() => {
+    if (opened) load(opened, mode);
   }, [opened, mode]);
 
-  useEffect(() => { load(); }, [load]);
-
-  const open = () => setOpened(repoPath.trim() || null);
-
-  const selectFile = async (path: string) => {
+  async function selectFile(path: string) {
+    if (!opened) return;
     setSelected(path);
     try {
-      setFileDiff(await api.getFileDiff(target(), path));
+      setFileDiff(await api.getFileDiff({ repoPath: opened, mode }, path));
     } catch (e) {
       setError(String(e));
     }
-  };
+  }
 
   return (
-    <div className="workspace">
-      <div className="topbar">
-        <input placeholder="Repo path" value={repoPath} onChange={(e) => setRepoPath(e.target.value)} />
-        <button onClick={open}>Open</button>
+    <div className="flex flex-col h-screen text-sm">
+      <div className="flex items-center gap-2 px-3 py-1.5 border-b">
+        <input
+          className="border rounded px-2 py-1 text-xs bg-background"
+          placeholder="Repo path"
+          value={repoPath}
+          onChange={(e) => setRepoPath(e.target.value)}
+        />
+        <Button size="sm" variant="secondary" onClick={() => setOpened(repoPath.trim() || null)}>Open</Button>
         {opened && (
           <>
-            <span className="ctx">{summary?.baseLabel} → {summary?.headLabel}</span>
-            <span className="modeseg">
+            <span className="text-xs text-muted-foreground">{summary?.baseLabel} → {summary?.headLabel}</span>
+            <ToggleGroup type="single" size="sm" value={mode} onValueChange={(v) => v && setMode(v as DiffMode)} className="ml-2">
               {MODES.map((m) => (
-                <button key={m.id} aria-pressed={mode === m.id} onClick={() => setMode(m.id)}>{m.label}</button>
+                <ToggleGroupItem key={m.id} value={m.id}>{m.label}</ToggleGroupItem>
               ))}
-            </span>
-            <button onClick={load}>Refresh</button>
+            </ToggleGroup>
+            <Button size="sm" variant="ghost" className="ml-auto" onClick={() => load(opened, mode)}>Refresh</Button>
           </>
         )}
       </div>
-      {error && <div className="error">{error}</div>}
-      <div className="body">
-        {summary && <FilesPanel files={summary.files} selected={selected} onSelect={selectFile} />}
-        <div className="diff-pane">
-          {fileDiff ? <DiffView fileDiff={fileDiff} mode="unified" /> : <div className="diff-placeholder">Select a file</div>}
+      {error && <div className="px-3 py-1 text-red-600 text-xs">{error}</div>}
+      <div className="flex flex-1 min-h-0">
+        {summary && (
+          <div className="w-60 border-r min-h-0">
+            <FilesPanel files={summary.files} selected={selected} onSelect={selectFile} />
+          </div>
+        )}
+        <div className="flex-1 overflow-auto">
+          {fileDiff ? (
+            <DiffView fileDiff={fileDiff} mode="unified" theme={theme} />
+          ) : (
+            <div className="p-6 text-muted-foreground">Select a file</div>
+          )}
         </div>
       </div>
     </div>
@@ -1404,30 +1572,9 @@ export default function App() {
 Run: `pnpm test src/workspace/Workspace.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 5: Add minimal layout-B styling**
+- [ ] **Step 5: Styling — Tailwind + Luma tokens (nothing to add)**
 
-```css
-/* src/styles.css */
-:root { --border: #d1d1d6; --bg2: #fff; --bg3: #f5f5f7; --accent: #0071e3; --add: #1a7f37; --del: #cf222e; }
-.workspace { display: flex; flex-direction: column; height: 100vh; font: 13px system-ui; }
-.topbar { display: flex; gap: 8px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border); }
-.modeseg button[aria-pressed="true"], .toggle button[aria-pressed="true"] { background: var(--accent); color: #fff; }
-.body { flex: 1; display: flex; min-height: 0; }
-.files-panel { width: 240px; border-right: 1px solid var(--border); overflow: auto; }
-.files-header { display: flex; gap: 8px; padding: 6px 8px; font-size: 11px; color: #666; }
-.frow { display: flex; gap: 8px; padding: 3px 8px; cursor: pointer; }
-.frow.sel { background: #e8f4fd; }
-.frow .st { width: 14px; text-align: center; }
-.status-added .st { color: var(--add); } .status-deleted .st { color: var(--del); }
-.adds { color: var(--add); } .dels { color: var(--del); }
-.diff-pane { flex: 1; overflow: auto; }
-.files-empty, .diff-placeholder { padding: 24px; color: #888; }
-```
-
-```tsx
-// src/main.tsx — add this import near the top
-import "./styles.css";
-```
+All components above use Tailwind utilities + shadcn/Luma theme tokens (`bg-background`, `text-muted-foreground`, `bg-accent`, `border`), so light/dark follows the system theme automatically (Task 1). `src/main.tsx` already imports `src/index.css`. No stylesheet to add.
 
 - [ ] **Step 6: Manual end-to-end verification in the real app**
 
@@ -1464,3 +1611,5 @@ git commit -m "feat(ui): read-only review workspace (top bar, mode switch, diff 
 **Type consistency:** `Target`/`DiffMode`/`FileStatus`/`FileEntry`/`FileDiff`/`DiffSummary` are defined once in Rust (Tasks 2–4) and mirrored once in TS (Task 6); command names `compute_diff`/`get_file_diff` match between Task 5 and Task 6; `FilesPanel`/`DiffView` props match their consumers in Task 9.
 
 **Known risk to watch:** the exact `@git-diff-view/file` `DiffFile` accessor names (`buildSplitDiffLines`, `splitLineLength`, `initTheme`) are from docs; if an accessor differs at the pinned version, fix it in Task 8 only (it's isolated) — no ripple.
+
+**Toolchain / look-and-feel coverage:** the Luma preset (`shadcn init --preset b2D0wqNxT`), the mono-font override, system light/dark, the ecosystem stack (Tailwind/shadcn/lucide/react-arborist), React Compiler (no hand-memo), happy-dom, and the 0.1.6 renderer pin all live in Global Constraints + Task 1. Second known risk: **react-arborist renders no rows under happy-dom** (no layout), so file-row rendering/selection is verified in Task 9's manual e2e rather than unit tests — `buildTree` carries the unit-tested tree logic.
