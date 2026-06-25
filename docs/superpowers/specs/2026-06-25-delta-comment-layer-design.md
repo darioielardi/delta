@@ -197,9 +197,10 @@ Keep Plan 1's "type repo path → Open," but **Open now calls `open_review`** �
 
 ## 14. Testing strategy
 
-- **Rust (TDD, headless):** anchoring (exact / fuzzy-move / stale / file-scope), `diffHash` viewed-reset, snapshot OID mapping per mode, storage round-trip + atomic-write (tempfile), reconcile end-to-end, serializer golden tests, review-id stability.
-- **Frontend (vitest + happy-dom):** `useReview` mutations + debounced-save behavior, comment-index rendering/grouping/stale marker, api client arg mapping, `buildTree`/navigator logic.
-- **Live-tested by the user in `pnpm tauri dev`** (the Rust toolchain here is headless): DiffPane scroll/lazy-mount/collapse, comment widget add/edit/delete, gutter affordance, jump-to-comment, clipboard export. (Mirrors Plan 1, where arborist rows and the rendered diff were verified live, not in happy-dom.)
+- **Rust (TDD, headless):** anchoring (exact / fuzzy-move / stale / file-scope), `diffHash` viewed-reset, snapshot OID mapping per mode, storage round-trip + atomic-write (tempfile), reconcile end-to-end, serializer golden tests, review-id stability. Run with `cargo test` (PATH: `~/.cargo/bin`); also `cargo clippy`/`cargo fmt --check`.
+- **Frontend logic (vitest + happy-dom):** `useReview` mutations + debounced-save behavior, comment-index rendering/grouping/stale marker, api client arg mapping, `buildTree`/navigator logic.
+- **Autonomous browser verification (mock-IPC harness):** `VITE_MOCK_IPC=1` (`pnpm dev:mock`, port 5599) runs the real frontend in a headless browser against `src/dev/mockBackend.ts` fixtures — real layout, real `git-diff-view` rendering, real interaction (what happy-dom cannot do). Driven via the preview MCP (navigate/click/fill/eval/screenshot/console). Each UI task **extends the mock fixtures and adds a browser-driven check**. macOS note: `tauri-driver`/WebDriver is unsupported, so this mock-in-browser path — not WebDriver against the real window — is how behavior is verified without a human. Validated end-to-end against Plan 1 (file tree, mode bar, syntax-highlighted word-diff all render).
+- **Human sign-off in `pnpm tauri dev`:** final confirmation against the real Rust backend — true git data, clipboard, native window.
 
 ## 15. Rough task shape (~13 tasks; writing-plans will detail)
 
