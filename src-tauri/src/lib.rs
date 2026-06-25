@@ -1,3 +1,4 @@
+mod anchor;
 mod commands;
 mod git;
 mod review;
