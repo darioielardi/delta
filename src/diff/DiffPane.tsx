@@ -207,6 +207,26 @@ export const DiffPane = memo(function DiffPane({
   // Collapse is independent of viewed. Explicit user choices override the
   // giant-file default; marking a file viewed collapses it (un-marking expands).
   const [collapseOverrides, setCollapseOverrides] = useState<Record<string, boolean>>({});
+
+  // When a file's viewed state flips (tree, list, or diff header), drop any manual
+  // collapse override so the section follows viewed — collapse on view, expand on
+  // un-view. Without this, jumping to a file (which sets override=false to expand
+  // it) blocks the later viewed-collapse. (#1/#2/#11)
+  const prevViewed = useRef(viewedFiles);
+  useEffect(() => {
+    const prev = prevViewed.current;
+    prevViewed.current = viewedFiles;
+    const flipped = files.filter((f) => viewedFiles.has(f.path) !== prev.has(f.path)).map((f) => f.path);
+    if (flipped.length === 0) return;
+    // react-doctor-disable-next-line react-hooks-js/set-state-in-effect
+    setCollapseOverrides((o) => {
+      let changed = false;
+      const n = { ...o };
+      for (const p of flipped) if (p in n) { delete n[p]; changed = true; }
+      return changed ? n : o;
+    });
+  }, [viewedFiles, files]);
+
   const isGiant = (e: FileEntry) => e.additions + e.deletions >= GIANT_CHANGED_LINES;
   // Collapsed when explicitly overridden, else when viewed (#1) or giant.
   const collapsedFor = (e: FileEntry) => collapseOverrides[e.path] ?? (viewedFiles.has(e.path) || isGiant(e));

@@ -38,6 +38,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [installMsg, setInstallMsg] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   async function reload() {
     try {
@@ -174,6 +175,11 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 
   const clampedSel = items.length === 0 ? 0 : Math.min(sel, items.length - 1);
 
+  // Keep the keyboard-selected row scrolled into view when the list overflows.
+  useEffect(() => {
+    listRef.current?.querySelector(`[data-index="${clampedSel}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [clampedSel]);
+
   function onKey(e: React.KeyboardEvent) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -197,7 +203,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   return (
     <div
       data-testid="command-palette"
-      className="absolute inset-0 z-50 flex items-start justify-center bg-black/10 pt-[12vh]"
+      className="absolute inset-0 z-50 flex items-start justify-center bg-black/20 pt-[12vh]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -206,28 +212,32 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         className="flex max-h-[64vh] w-[40rem] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-border bg-popover text-[13px] text-popover-foreground shadow-2xl"
         onKeyDown={onKey}
       >
-        <input
-          ref={inputRef}
-          autoFocus
-          className="h-11 shrink-0 border-b border-border/70 bg-transparent px-4 text-[14px] outline-none placeholder:text-muted-foreground/70"
-          placeholder={placeholder}
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setSel(0);
-          }}
-        />
+        <div className="relative shrink-0 border-b border-border/70">
+          <input
+            ref={inputRef}
+            autoFocus
+            className="h-11 w-full bg-transparent px-4 pr-16 text-[14px] outline-none placeholder:text-muted-foreground/70"
+            placeholder={placeholder}
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setSel(0);
+            }}
+          />
+          <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-border/70 bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">⌘K</kbd>
+        </div>
         {error && <div className="shrink-0 whitespace-pre-wrap bg-destructive/10 px-4 py-1.5 text-[12px] text-destructive">{error}</div>}
         {installMsg && (
           <div className="shrink-0 whitespace-pre-wrap bg-muted/50 px-4 py-1.5 font-mono text-[11px] text-muted-foreground">{installMsg}</div>
         )}
-        <div className="min-h-0 flex-1 overflow-auto p-1.5">
+        <div ref={listRef} className="min-h-0 flex-1 overflow-auto p-1.5">
           {items.length === 0 ? (
             <div className="px-3 py-8 text-center text-muted-foreground">{registry ? "No matches" : "Loading…"}</div>
           ) : (
             items.map((it, i) => (
               <button
                 key={it.key}
+                data-index={i}
                 className={`flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-2 text-left ${i === clampedSel ? "bg-accent text-accent-foreground" : "hover:bg-muted/60"} ${it.dim ? "opacity-60" : ""}`}
                 onMouseMove={() => setSel(i)}
                 onClick={() => it.onActivate()}

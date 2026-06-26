@@ -228,7 +228,7 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
                 ) : copyState === "err" ? (
                   <><Copy className="size-3.5" /> Failed</>
                 ) : (
-                  <><Copy className="size-3.5" /> Copy review</>
+                  <><Copy className="size-3.5" /> Copy for agents</>
                 )}
               </Button>
             </div>

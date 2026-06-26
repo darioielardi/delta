@@ -54,7 +54,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
     <div>
       <div
         data-path={node.path}
-        className={`group flex h-6 select-none items-center gap-1.5 rounded-md pl-1 pr-1.5 ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-50" : ""}`}
+        className={`group flex h-[26px] select-none items-center gap-1.5 rounded-md ${h.flat ? "pl-2.5" : "pl-1"} pr-1.5 ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-50" : ""}`}
         onClick={() => (isDir ? h.onToggleDir(node.path) : h.onSelectFile(node.path))}
       >
         {isDir ? (
@@ -142,6 +142,7 @@ export function FilesPanel({
   // Cheap sums — React Compiler memoizes the render; no manual useMemo needed.
   const totalAdds = files.reduce((n, f) => n + f.additions, 0);
   const totalDels = files.reduce((n, f) => n + f.deletions, 0);
+  const allViewed = files.length > 0 && viewedFiles.size >= files.length;
 
   // All hooks must run unconditionally — keep the empty-state return below them.
   if (files.length === 0) {
@@ -186,7 +187,13 @@ export function FilesPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-[12px]">
-        <span className="text-muted-foreground">{viewedFiles.size}/{files.length} viewed</span>
+        <span
+          className={`inline-flex select-none items-center rounded-md px-1.5 py-0.5 text-[11px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
+          title="Files viewed"
+        >
+          <span className={`font-medium ${allViewed ? "" : "text-foreground"}`}>{viewedFiles.size}</span>
+          <span className="opacity-80">/{files.length} viewed</span>
+        </span>
         <span className="ml-auto tabular-nums">
           {totalAdds > 0 && <span className="text-emerald-500">+{totalAdds}</span>}{" "}
           {totalDels > 0 && <span className="text-rose-500">−{totalDels}</span>}
