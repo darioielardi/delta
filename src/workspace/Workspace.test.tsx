@@ -1,27 +1,43 @@
+// src/workspace/Workspace.test.tsx — mock api.openReview and assert bootstrap renders
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
-const computeDiff = vi.fn();
-const getFileDiff = vi.fn();
-vi.mock("../api", () => ({ api: { computeDiff: (...a: unknown[]) => computeDiff(...a), getFileDiff: (...a: unknown[]) => getFileDiff(...a) } }));
-// DiffView is exercised in its own test; stub it here to keep this test about wiring.
-vi.mock("../diff/DiffView", () => ({ DiffView: () => <div data-testid="diffview" /> }));
+const openReview = vi.fn();
+vi.mock("../api", () => ({ api: { openReview: (...a: unknown[]) => openReview(...a), refreshReview: vi.fn(), saveReview: vi.fn(), exportReview: vi.fn(), getFileDiff: vi.fn() } }));
 
 import { Workspace } from "./Workspace";
 
+const minimalSession = {
+  review: { id: "x", target: { repoPath: "/r", worktree: "main", mode: "all-changes" }, comments: [], viewed: [], snapshot: { baseOid: "b", capturedAt: "t" }, createdAt: "t", lastOpenedAt: "t", version: 1 },
+  summary: { files: [], baseLabel: "main", headLabel: "wt" },
+};
+
 describe("Workspace", () => {
-  beforeEach(() => { computeDiff.mockReset(); getFileDiff.mockReset(); });
+  beforeEach(() => openReview.mockReset());
 
-  it("loads files after Open and refetches on mode change", async () => {
-    computeDiff.mockResolvedValue({ files: [{ path: "a.ts", status: "modified", additions: 1, deletions: 0, binary: false }], baseLabel: "main", headLabel: "feat" });
+  it("opens a review and shows the toolbar", async () => {
+    openReview.mockResolvedValue(minimalSession);
     render(<Workspace />);
-    fireEvent.change(screen.getByPlaceholderText(/repo path/i), { target: { value: "/r" } });
+    fireEvent.change(screen.getByPlaceholderText("Repo path"), { target: { value: "/r" } });
     fireEvent.click(screen.getByRole("button", { name: /open/i }));
-    await waitFor(() => expect(screen.getByText(/1 files/)).toBeInTheDocument()); // FilesPanel header (arborist rows need layout; see Task 7 note)
-    expect(computeDiff).toHaveBeenCalledWith({ repoPath: "/r", mode: "all-changes" });
+    await waitFor(() => expect(screen.getByRole("button", { name: /copy for claude/i })).toBeInTheDocument());
+    expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "all-changes" });
+  });
 
-    // ToggleGroupItems render role="radio" in this shadcn version (confirmed Task 7)
+  it("re-opens when mode is switched", async () => {
+    openReview.mockResolvedValue(minimalSession);
+    render(<Workspace />);
+    fireEvent.change(screen.getByPlaceholderText("Repo path"), { target: { value: "/r" } });
+    fireEvent.click(screen.getByRole("button", { name: /open/i }));
+    await waitFor(() => expect(screen.getByRole("button", { name: /copy for claude/i })).toBeInTheDocument());
+
+    openReview.mockResolvedValue({
+      ...minimalSession,
+      review: { ...minimalSession.review, target: { ...minimalSession.review.target, mode: "uncommitted" } },
+    });
     fireEvent.click(screen.getByRole("radio", { name: /uncommitted/i }));
-    await waitFor(() => expect(computeDiff).toHaveBeenCalledWith({ repoPath: "/r", mode: "uncommitted" }));
+    await waitFor(() =>
+      expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "uncommitted" })
+    );
   });
 });

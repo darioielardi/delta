@@ -2,7 +2,7 @@
 import type { FileEntry } from "../types";
 
 export interface TreeNode {
-  id: string; // = path; required by react-arborist
+  id: string; // = path; stable node identifier
   name: string;
   path: string;
   kind: "dir" | "file";

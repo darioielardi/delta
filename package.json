@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "VITE_MOCK_IPC=1 vite --port 5599 --strictPort",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
@@ -26,8 +27,8 @@
     "lucide-react": "^1.21.0",
     "radix-ui": "^1.6.0",
     "react": "^19",
-    "react-arborist": "^3.10.5",
     "react-dom": "^19",
+    "react-markdown": "^10.1.0",
     "shadcn": "^4.11.0",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.1",
