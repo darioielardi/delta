@@ -64,20 +64,24 @@ export function DiffView({
       enableMultiSelect
       extendData={extendData}
       renderWidgetLine={({ fromLineNumber, lineNumber, side, onClose }) => (
-        <CommentEditor
-          onSubmit={(body) => {
-            onAddComment?.(buildAnchor(side, fromLineNumber, lineNumber), body);
-            onClose();
-          }}
-          onCancel={onClose}
-        />
+        <div className="bg-muted/30 px-3 py-2">
+          <CommentEditor
+            onSubmit={(body) => {
+              onAddComment?.(buildAnchor(side, fromLineNumber, lineNumber), body);
+              onClose();
+            }}
+            onCancel={onClose}
+          />
+        </div>
       )}
       renderExtendLine={({ data }) => (
-        <CommentThread
-          comments={data}
-          onEdit={(id, body) => onEditComment?.(id, body)}
-          onDelete={(id) => onDeleteComment?.(id)}
-        />
+        <div className="bg-muted/30 px-3 py-2">
+          <CommentThread
+            comments={data}
+            onEdit={(id, body) => onEditComment?.(id, body)}
+            onDelete={(id) => onDeleteComment?.(id)}
+          />
+        </div>
       )}
     />
   );

@@ -1,87 +1,180 @@
 // src/files/FilesPanel.tsx
-import { useLayoutEffect, useRef, useState } from "react";
-import { Tree, type NodeRendererProps } from "react-arborist";
+import { useEffect, useRef, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ChevronRight, ChevronDown } from "lucide-react";
+import { ChevronRight, Folder, FolderOpen, FileCode, FileJson, FileText, Check } from "lucide-react";
 import type { FileEntry, FileStatus } from "../types";
 import { buildTree, type TreeNode } from "./buildTree";
 
-const STATUS_LETTER: Record<FileStatus, string> = { added: "A", modified: "M", deleted: "D", renamed: "R" };
 const STATUS_COLOR: Record<FileStatus, string> = {
-  added: "text-emerald-500", modified: "text-amber-500", deleted: "text-rose-500", renamed: "text-sky-500",
+  added: "text-emerald-500",
+  modified: "text-amber-500",
+  deleted: "text-rose-500",
+  renamed: "text-sky-500",
 };
 
-// react-arborist needs explicit pixel dimensions; measure the container.
-function useSize() {
-  const ref = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 0, height: 0 });
-  useLayoutEffect(() => {
-    if (!ref.current) return;
-    const ro = new ResizeObserver(([entry]) => {
-      const r = entry.contentRect;
-      setSize({ width: r.width, height: r.height });
-    });
-    ro.observe(ref.current);
-    return () => ro.disconnect();
-  }, []);
-  return { ref, ...size };
+const CODE_EXT = new Set([
+  "ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "go", "py", "rb", "java", "kt", "swift",
+  "c", "cc", "cpp", "h", "hpp", "css", "scss", "html", "vue", "svelte", "sh", "toml", "yml", "yaml",
+]);
+
+function FileGlyph({ name, status }: { name: string; status: FileStatus }) {
+  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
+  const Icon = ext === "json" ? FileJson : CODE_EXT.has(ext) ? FileCode : FileText;
+  // Icon colored by git status — one glyph carries both file type and change kind.
+  return <Icon className={`size-3.5 shrink-0 ${STATUS_COLOR[status]}`} />;
 }
 
-export function FilesPanel({ files, selected, onSelect, viewedFiles, onToggleViewed }: { files: FileEntry[]; selected: string | null; onSelect: (path: string) => void; viewedFiles: Set<string>; onToggleViewed: (file: string) => void }) {
-  const [mode, setMode] = useState<"tree" | "list">("tree");
-  const { ref, width, height } = useSize();
+interface RowHandlers {
+  activePath: string | null;
+  collapsed: Set<string>;
+  viewedFiles: Set<string>;
+  onToggleDir: (path: string) => void;
+  onSelectFile: (path: string) => void;
+  onToggleViewed: (file: string) => void;
+}
 
-  // FileNode closes over viewedFiles/onToggleViewed so it can render the viewed checkbox.
-  function FileNode({ node, style }: NodeRendererProps<TreeNode>) {
-    const data = node.data;
-    const isDir = data.kind === "dir";
-    const isViewed = !isDir && data.entry ? viewedFiles.has(data.entry.path) : false;
-    return (
+function TreeRows({ nodes, h }: { nodes: TreeNode[]; h: RowHandlers }) {
+  return (
+    <>
+      {nodes.map((node) => (
+        <TreeBranch key={node.path} node={node} h={h} />
+      ))}
+    </>
+  );
+}
+
+function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
+  const isDir = node.kind === "dir";
+  const open = isDir && !h.collapsed.has(node.path);
+  const active = node.path === h.activePath;
+  const isViewed = !isDir && node.entry ? h.viewedFiles.has(node.entry.path) : false;
+
+  return (
+    <div>
       <div
-        style={style}
-        className={`flex h-full cursor-pointer items-center gap-2 rounded-md px-2 transition-colors ${node.isSelected ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-45" : ""}`}
-        onClick={() => (isDir ? node.toggle() : node.select())}
+        data-path={node.path}
+        className={`group flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md pl-1 pr-1.5 transition-colors ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-50" : ""}`}
+        onClick={() => (isDir ? h.onToggleDir(node.path) : h.onSelectFile(node.path))}
       >
         {isDir ? (
-          node.isOpen ? <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" /> : <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+          <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
         ) : (
-          <span className={`w-3.5 shrink-0 text-center text-[11px] font-bold ${STATUS_COLOR[data.entry!.status]}`}>
-            {STATUS_LETTER[data.entry!.status]}
-          </span>
+          <span className="w-3.5 shrink-0" />
         )}
-        <span className={`flex-1 truncate text-[13px] ${isDir ? "font-medium text-muted-foreground" : "text-foreground"}`}>
-          {data.name}{isDir ? "/" : ""}
+        {isDir ? (
+          open
+            ? <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+            : <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <FileGlyph name={node.name} status={node.entry!.status} />
+        )}
+        <span className={`flex-1 truncate text-[13px] ${isDir ? "font-medium text-foreground" : "text-foreground"} ${isViewed ? "line-through decoration-muted-foreground/40" : ""}`}>
+          {node.name}
         </span>
-        {!isDir && data.entry && (
+        {!isDir && node.entry && (
           <>
             <span className="shrink-0 text-[11px] tabular-nums">
-              {data.entry.additions > 0 && <span className="text-emerald-500">+{data.entry.additions}</span>}{" "}
-              {data.entry.deletions > 0 && <span className="text-rose-500">−{data.entry.deletions}</span>}
+              {node.entry.additions > 0 && <span className="text-emerald-500">+{node.entry.additions}</span>}{" "}
+              {node.entry.deletions > 0 && <span className="text-rose-500">−{node.entry.deletions}</span>}
             </span>
-            <input
-              type="checkbox"
-              checked={isViewed}
-              onChange={() => onToggleViewed(data.entry!.path)}
-              onClick={(e) => e.stopPropagation()}
-              aria-label={`viewed ${data.entry.path}`}
-              className="size-3.5 shrink-0 accent-[var(--primary)]"
-            />
+            <button
+              aria-label={`viewed ${node.entry.path}`}
+              onClick={(e) => { e.stopPropagation(); h.onToggleViewed(node.entry!.path); }}
+              className={`flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors ${isViewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80 text-transparent group-hover:border-foreground/40 group-hover:text-foreground/30 hover:!border-foreground/60 hover:!text-foreground/60"}`}
+            >
+              <Check className="size-2.5" strokeWidth={3} />
+            </button>
           </>
         )}
       </div>
-    );
+      {isDir && (
+        <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
+          <div className="overflow-hidden">
+            <div className="ml-[19px] border-l border-border/40 pl-0">
+              <TreeRows nodes={node.children} h={h} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function FilesPanel({
+  files, selected, onSelect, viewedFiles, onToggleViewed,
+}: {
+  files: FileEntry[];
+  selected: string | null;
+  onSelect: (path: string) => void;
+  viewedFiles: Set<string>;
+  onToggleViewed: (file: string) => void;
+}) {
+  const [mode, setMode] = useState<"tree" | "list">("tree");
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [activePath, setActivePath] = useState<string | null>(selected);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Keep the keyboard-focused row scrolled into view.
+  useEffect(() => {
+    if (!activePath) return;
+    const el = scrollRef.current?.querySelector(`[data-path="${activePath}"]`);
+    (el as HTMLElement | null)?.scrollIntoView?.({ block: "nearest" });
+  }, [activePath]);
+
+  if (files.length === 0) {
+    return <div className="files-empty flex flex-1 items-center justify-center p-6 text-[13px] text-muted-foreground">Nothing to review</div>;
   }
 
-  if (files.length === 0) return <div className="files-empty flex flex-1 items-center justify-center p-6 text-[13px] text-muted-foreground">Nothing to review</div>;
+  const roots: TreeNode[] = mode === "tree"
+    ? buildTree(files)
+    : files.map((e) => ({ id: e.path, name: e.path, path: e.path, kind: "file", entry: e, children: [] }));
 
-  // tree mode = nested; list mode = flat leaves (react-arborist renders both shapes).
-  const data: TreeNode[] =
-    mode === "tree"
-      ? buildTree(files)
-      : files.map((e) => ({ id: e.path, name: e.path, path: e.path, kind: "file", entry: e, children: [] }));
+  // Flatten the currently-visible rows (respecting collapse) for keyboard nav.
+  const visible: TreeNode[] = [];
+  (function walk(nodes: TreeNode[]) {
+    for (const n of nodes) {
+      visible.push(n);
+      if (n.kind === "dir" && !collapsed.has(n.path)) walk(n.children);
+    }
+  })(roots);
+
+  const toggleDir = (path: string) =>
+    setCollapsed((s) => { const n = new Set(s); if (n.has(path)) n.delete(path); else n.add(path); return n; });
+  const selectFile = (path: string) => { setActivePath(path); onSelect(path); };
+
+  function onKeyDown(e: React.KeyboardEvent) {
+    if (!visible.length) return;
+    const idx = visible.findIndex((n) => n.path === activePath);
+    const cur = idx >= 0 ? visible[idx] : undefined;
+    switch (e.key) {
+      case "ArrowDown":
+        e.preventDefault();
+        setActivePath(visible[Math.min(idx + 1, visible.length - 1)]?.path ?? visible[0].path);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        setActivePath(visible[Math.max((idx < 0 ? 0 : idx) - 1, 0)]?.path ?? visible[0].path);
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        if (cur?.kind === "dir" && collapsed.has(cur.path)) toggleDir(cur.path);
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        if (cur?.kind === "dir" && !collapsed.has(cur.path)) toggleDir(cur.path);
+        break;
+      case "Enter":
+        e.preventDefault();
+        if (cur?.kind === "file") selectFile(cur.path);
+        else if (cur?.kind === "dir") toggleDir(cur.path);
+        break;
+    }
+  }
+
+  const h: RowHandlers = { activePath, collapsed, viewedFiles, onToggleDir: toggleDir, onSelectFile: selectFile, onToggleViewed };
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-[12px]">
         <span className="font-medium text-foreground">{files.length} files</span>
         <span className="text-muted-foreground/50">·</span>
@@ -97,24 +190,14 @@ export function FilesPanel({ files, selected, onSelect, viewedFiles, onToggleVie
           <ToggleGroupItem value="tree" className="h-5 rounded-[5px] border-0 px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">Tree</ToggleGroupItem>
         </ToggleGroup>
       </div>
-      <div ref={ref} data-testid="files-tree" className="min-h-0 flex-1 px-1.5 py-1.5">
-        {width > 0 && (
-          <Tree<TreeNode>
-            data={data}
-            openByDefault
-            width={width}
-            height={height}
-            rowHeight={30}
-            indent={14}
-            selection={selected ?? undefined}
-            onSelect={(nodes) => {
-              const n = nodes[0];
-              if (n && n.data.kind === "file") onSelect(n.data.path);
-            }}
-          >
-            {FileNode}
-          </Tree>
-        )}
+      <div
+        ref={scrollRef}
+        data-testid="files-tree"
+        tabIndex={0}
+        onKeyDown={onKeyDown}
+        className="min-h-0 flex-1 overflow-auto px-1.5 py-1.5 outline-none"
+      >
+        <TreeRows nodes={roots} h={h} />
       </div>
     </div>
   );
