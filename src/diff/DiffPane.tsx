@@ -300,10 +300,19 @@ export const DiffPane = memo(function DiffPane({
           return;
         }
       }
-      // Always instant: file-tree navigation should jump, not animate. (The
-      // comment-jump path already centers instantly via centerOn; this is its
-      // fallback when the node never mounts, and was already "auto" there.)
-      sec?.scrollIntoView({ behavior: "auto", block: "start" });
+      // File-only jump (or comment-jump giving up): align the section header to
+      // the pane top, then converge. Sections above settle to real heights
+      // (content-visibility) and shift the target, so a single estimate-based
+      // scroll lands off — re-measure until it stops moving. `sec` is from the
+      // top of attempt(). Instant, never animated.
+      if (!sec) return;
+      const pr = pane.getBoundingClientRect();
+      const nr = sec.getBoundingClientRect();
+      const target = Math.max(0, pane.scrollTop + (nr.top - pr.top));
+      pane.scrollTop = target;
+      if (Math.abs(target - lastTarget) > 2 && tries < 40) {
+        jumpTimer.current = window.setTimeout(() => attempt(tries + 1, target), 32);
+      }
     };
     attempt(0, -1);
     return () => clearTimeout(jumpTimer.current);
