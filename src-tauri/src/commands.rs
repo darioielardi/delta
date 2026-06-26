@@ -3,8 +3,9 @@ use crate::git::diff::{compute_diff as engine_compute, get_file_diff as engine_f
 use crate::git::model::{DiffMode, Target};
 use crate::git::{open_repo, resolve_worktree};
 use crate::launch::{
-    hide_picker as launch_hide_picker, list_worktrees as launch_list_worktrees, open_target_window,
-    repo_entry, show_picker as launch_show_picker,
+    hide_picker as launch_hide_picker, install_cli as launch_install_cli,
+    list_worktrees as launch_list_worktrees, open_target_window, repo_entry,
+    show_picker as launch_show_picker, InstallOutcome,
 };
 use crate::registry::model::{repo_name_from_path, Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
@@ -219,6 +220,11 @@ pub fn show_picker(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn hide_picker(app: tauri::AppHandle) {
     launch_hide_picker(&app);
+}
+
+#[tauri::command]
+pub fn install_cli() -> Result<InstallOutcome, String> {
+    launch_install_cli()
 }
 
 #[cfg(test)]

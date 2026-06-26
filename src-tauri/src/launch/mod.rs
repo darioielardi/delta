@@ -2,7 +2,9 @@ use crate::git::model::DiffMode;
 use crate::git::{open_repo, resolve_base, resolve_worktree};
 use crate::registry::model::{repo_name_from_path, RepoEntry, WorktreeEntry};
 use crate::review::model::review_id;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
+use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
@@ -174,6 +176,81 @@ pub fn route_launch(app: &AppHandle, args: &[String], cwd: &Path) {
     }
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum InstallOutcome {
+    Linked { path: String },
+    ManualNeeded { command: String, reason: String },
+}
+
+/// Pure: pick the install dir. Prefer /usr/local/bin, else the first writable PATH dir.
+pub fn choose_install_dir(path_dirs: &[PathBuf], is_writable: impl Fn(&Path) -> bool) -> Option<PathBuf> {
+    path_dirs
+        .iter()
+        .find(|p| p.ends_with("usr/local/bin") && is_writable(p.as_path()))
+        .or_else(|| path_dirs.iter().find(|p| is_writable(p.as_path())))
+        .cloned()
+}
+
+fn dir_is_writable(dir: &Path) -> bool {
+    if !dir.is_dir() {
+        return false;
+    }
+    let probe = dir.join(".delta-write-probe");
+    match fs::write(&probe, b"") {
+        Ok(()) => {
+            let _ = fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+fn link_into(dir: &Path, exe: &Path) -> Result<InstallOutcome, String> {
+    let link = dir.join("delta");
+    if fs::symlink_metadata(&link).is_ok() {
+        let _ = fs::remove_file(&link); // replace stale link/file
+    }
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(exe, &link).map_err(|e| format!("symlink: {e}"))?;
+        Ok(InstallOutcome::Linked { path: link.display().to_string() })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (exe, link);
+        Err("CLI install is only supported on Unix".into())
+    }
+}
+
+pub fn install_cli() -> Result<InstallOutcome, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("current exe: {e}"))?;
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let dirs: Vec<PathBuf> = std::env::split_paths(&path_var).collect();
+
+    if let Some(dir) = choose_install_dir(&dirs, dir_is_writable) {
+        return link_into(&dir, &exe);
+    }
+    // Fall back to ~/.local/bin (create it); note if it isn't on PATH.
+    if let Ok(home) = std::env::var("HOME") {
+        let local_bin = PathBuf::from(home).join(".local/bin");
+        if fs::create_dir_all(&local_bin).is_ok() && dir_is_writable(&local_bin) {
+            let outcome = link_into(&local_bin, &exe)?;
+            if !dirs.iter().any(|d| d == &local_bin) {
+                return Ok(InstallOutcome::ManualNeeded {
+                    command: "export PATH=\"$HOME/.local/bin:$PATH\"  # add to your shell profile".to_string(),
+                    reason: format!("Linked delta into {} — add that directory to your PATH.", local_bin.display()),
+                });
+            }
+            return Ok(outcome);
+        }
+    }
+    Ok(InstallOutcome::ManualNeeded {
+        command: format!("sudo ln -sf '{}' /usr/local/bin/delta", exe.display()),
+        reason: "No writable directory found on your PATH.".into(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,5 +330,24 @@ mod tests {
         let l = parse_launch(&["--uncommitted".into(), "/abs/repo".into()], Path::new("/c"));
         assert_eq!(l.repo_path, PathBuf::from("/abs/repo"));
         assert_eq!(l.mode, DiffMode::Uncommitted);
+    }
+
+    #[test]
+    fn choose_prefers_usr_local_bin_when_writable() {
+        let dirs = vec![PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")];
+        assert_eq!(choose_install_dir(&dirs, |_| true), Some(PathBuf::from("/usr/local/bin")));
+    }
+
+    #[test]
+    fn choose_falls_back_to_first_writable() {
+        let dirs = vec![PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")];
+        let chosen = choose_install_dir(&dirs, |p: &Path| p.ends_with("homebrew/bin"));
+        assert_eq!(chosen, Some(PathBuf::from("/opt/homebrew/bin")));
+    }
+
+    #[test]
+    fn choose_none_when_nothing_writable() {
+        let dirs = vec![PathBuf::from("/usr/local/bin")];
+        assert_eq!(choose_install_dir(&dirs, |_| false), None);
     }
 }
