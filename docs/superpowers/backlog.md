@@ -57,3 +57,14 @@ actionable cold.
   git-diff-view in `src/diff/DiffView.tsx`) and the file-header "add file comment" button
   in `src/diff/DiffPane.tsx`.
 - **Want:** include these in the squircle pass from item 4 so they match the rest.
+
+## 9. Split / Unified toggle in the header (feature, not a bug)
+- **Want:** a segmented Split | Unified control in the workspace top bar to switch the diff
+  layout, matching the FilesPanel List/Tree segmented control.
+- **Already wired:** `src/diff/DiffView.tsx` accepts `mode: "unified" | "split"` and maps it
+  to git-diff-view's `diffViewMode`. `src/diff/DiffPane.tsx` currently hardcodes
+  `mode="unified"` (~line 119) — add a `mode` prop and pass it through.
+- **Where:** add `viewMode` state + the control in `src/workspace/Workspace.tsx` top bar;
+  thread Workspace → DiffPane → DiffView. Default `unified`; persist to `localStorage`
+  (key e.g. `delta:diffViewMode`) so it's consistent across review windows and survives the
+  per-window reload.
