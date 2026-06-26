@@ -5,7 +5,7 @@
 // Keep fixtures realistic but small. As Plan 2 adds commands (open_review,
 // refresh_review, save_review, export_review) extend the switch + fixtures here.
 import { __setInvokeForDev } from "../api";
-import type { DiffSummary, FileDiff, Review, ReviewSession } from "../types";
+import type { DiffSummary, FileDiff, Registry, Review, ReviewSession } from "../types";
 
 const SUMMARY: DiffSummary = {
   baseLabel: "main",
@@ -127,6 +127,44 @@ const REVIEW: Review = {
   lastOpenedAt: "2026-06-25T18:54:00Z",
 };
 
+const REGISTRY: Registry = {
+  version: 1,
+  repos: [
+    {
+      id: "r1",
+      root: "/Users/me/projects/demo",
+      name: "demo",
+      defaultBranch: "main",
+      worktrees: [
+        { path: "/Users/me/projects/demo", branch: "feat/auth", isMain: true },
+        { path: "/Users/me/projects/demo-main", branch: "main", isMain: false },
+      ],
+    },
+  ],
+  reviews: [
+    {
+      id: "abc123",
+      repoName: "demo",
+      target: { repoPath: "/Users/me/projects/demo", worktree: "feat/auth", mode: "all-changes", base: "main" },
+      lastOpenedAt: "2026-06-26T10:00:00Z",
+      commentCount: 3,
+      staleCount: 1,
+      viewedCount: 2,
+      fileCount: 7,
+    },
+    {
+      id: "def456",
+      repoName: "demo",
+      target: { repoPath: "/Users/me/projects/demo", worktree: "main", mode: "uncommitted" },
+      lastOpenedAt: "2026-06-25T09:00:00Z",
+      commentCount: 0,
+      staleCount: 0,
+      viewedCount: 0,
+      fileCount: 2,
+    },
+  ],
+};
+
 // ---------------------------------------------------------------------------
 // Large synthetic fixture for performance profiling. Activated with `?large=N`
 // (file count) on the dev:mock URL; absent, the small fixture above is served
@@ -213,13 +251,36 @@ export function installMockBackend(): void {
         return ds.files[(args?.path as string) ?? ""] as T;
       case "open_review":
       case "refresh_review": {
-        const session: ReviewSession = { review: ds.review, summary: ds.summary };
+        const session: ReviewSession = { review: ds.review, summary: ds.summary, repoName: "demo" };
         return structuredClone(session) as T;
       }
       case "save_review":
         return undefined as T;
       case "export_review":
         return "# Review — demo · feat/auth · All changes\n\n## General\n- Standardize error handling.\n" as T;
+      case "list_worktrees":
+        return [
+          { path: "/Users/me/projects/demo", branch: "feat/auth", isMain: true },
+          { path: "/Users/me/projects/demo-main", branch: "main", isMain: false },
+        ] as T;
+      case "import_repo":
+        return {
+          id: "imported",
+          root: "/Users/me/projects/imported",
+          name: "imported",
+          defaultBranch: "main",
+          worktrees: [{ path: "/Users/me/projects/imported", branch: "main", isMain: true }],
+        } as T;
+      case "open_target":
+        console.info("[delta mock] open_target", args);
+        return undefined as T;
+      case "list_registry":
+        return structuredClone(REGISTRY) as T;
+      case "delete_review":
+        console.info("[delta mock] delete_review", args);
+        return undefined as T;
+      case "install_cli":
+        return { kind: "linked", path: "/usr/local/bin/delta" } as T;
       default:
         throw new Error(`mockBackend: unhandled command "${cmd}"`);
     }

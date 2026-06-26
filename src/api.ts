@@ -1,5 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Target, DiffSummary, FileDiff, Review, ReviewSession } from "./types";
+import type {
+  Target,
+  DiffSummary,
+  FileDiff,
+  Review,
+  ReviewSession,
+  Registry,
+  WorktreeEntry,
+  RepoEntry,
+  InstallOutcome,
+  DiffMode,
+} from "./types";
 
 // Transport indirection: a dev-only fixture backend (VITE_MOCK_IPC) can replace
 // the Tauri IPC so the frontend runs in a plain browser for behavioral checks.
@@ -27,4 +38,12 @@ export const api = {
     invokeImpl("save_review", { review }),
   exportReview: (review: Review): Promise<string> =>
     invokeImpl("export_review", { review }),
+  listRegistry: (): Promise<Registry> => invokeImpl("list_registry"),
+  listWorktrees: (repoPath: string): Promise<WorktreeEntry[]> =>
+    invokeImpl("list_worktrees", { repoPath }),
+  importRepo: (): Promise<RepoEntry | null> => invokeImpl("import_repo"),
+  openTarget: (repoPath: string, mode: DiffMode, base?: string): Promise<void> =>
+    invokeImpl("open_target", { repoPath, mode, base }),
+  deleteReview: (id: string): Promise<void> => invokeImpl("delete_review", { id }),
+  installCli: (): Promise<InstallOutcome> => invokeImpl("install_cli"),
 };

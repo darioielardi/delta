@@ -146,6 +146,22 @@ pub(crate) mod test_support {
         repo.commit(Some("HEAD"), &sig, &sig, msg, &tree, &parents)
             .unwrap()
     }
+
+    /// Add a linked worktree checked out on a new branch `branch`, at a sibling dir.
+    /// Returns the worktree's path.
+    pub fn add_worktree(repo: &Repository, root: &Path, name: &str, branch: &str) -> std::path::PathBuf {
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch(branch, &head, false).unwrap();
+        // Unique sibling path (keyed by the TempDir's random name) so parallel
+        // tests and re-runs don't collide on a fixed path.
+        let unique = format!("{}--{name}", root.file_name().unwrap().to_string_lossy());
+        let wt_path = root.parent().unwrap().join(unique);
+        let reference = repo.find_reference(&format!("refs/heads/{branch}")).unwrap();
+        let mut opts = git2::WorktreeAddOptions::new();
+        opts.reference(Some(&reference));
+        repo.worktree(name, &wt_path, Some(&opts)).unwrap();
+        wt_path
+    }
 }
 
 #[cfg(test)]

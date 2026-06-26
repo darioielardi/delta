@@ -1,4 +1,43 @@
+import { useEffect, useState } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { Workspace } from "./workspace/Workspace";
+import { Home } from "./Home";
+import { CommandPalette } from "./picker/CommandPalette";
+import { resolveRoute } from "./route";
+
+function readLabel(): string | null {
+  if (import.meta.env.VITE_MOCK_IPC) return null;
+  try {
+    return getCurrentWindow().label;
+  } catch {
+    return null;
+  }
+}
+
 export default function App() {
-  return <Workspace />;
+  const route = resolveRoute(readLabel(), window.location.search);
+  // The home window opens with the palette up; a review opens with it closed (⌘K to summon).
+  const [paletteOpen, setPaletteOpen] = useState(route.kind === "home");
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.key === "k" || e.key === "o") && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setPaletteOpen((o) => !o);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  return (
+    <>
+      {route.kind === "review" ? (
+        <Workspace target={route.target} onOpenPalette={() => setPaletteOpen(true)} />
+      ) : (
+        <Home />
+      )}
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+    </>
+  );
 }

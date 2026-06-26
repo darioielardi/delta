@@ -7,8 +7,8 @@ import { DiffPane } from "../diff/DiffPane";
 import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
 import { useSystemTheme } from "../theme";
-import { ArrowRight, Check, ChevronDown, Copy, MessageSquare, RefreshCw } from "lucide-react";
-import type { Anchor, Comment, DiffMode, DiffSummary } from "../types";
+import { ArrowRight, Check, ChevronDown, Copy, GitBranch, MessageSquare, RefreshCw, Search } from "lucide-react";
+import type { Anchor, Comment, DiffMode, DiffSummary, Target } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
   { id: "all-changes", label: "All changes" },
@@ -17,12 +17,11 @@ const MODES: { id: DiffMode; label: string }[] = [
   { id: "branch-vs-base", label: "Branch vs base" },
 ];
 
-export function Workspace() {
+export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPalette?: () => void }) {
   const theme = useSystemTheme();
-  const [repoPath, setRepoPath] = useState("");
-  const [opened, setOpened] = useState<string | null>(null);
-  const [mode, setMode] = useState<DiffMode>("all-changes");
+  const mode = target.mode;
   const [summary, setSummary] = useState<DiffSummary | null>(null);
+  const [repoName, setRepoName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [indexOpen, setIndexOpen] = useState(false);
   // Jump target for the diff pane. `n` is a nonce so re-selecting the same
@@ -34,12 +33,13 @@ export function Workspace() {
 
   const { review, setReview, addComment, updateCommentBody, deleteComment, toggleViewed } = useReview(null);
 
-  async function open(repo: string, m: DiffMode) {
+  async function open() {
     try {
       setError(null);
-      const session = await api.openReview({ repoPath: repo, mode: m });
+      const session = await api.openReview({ repoPath: target.repoPath, mode: target.mode, base: target.base });
       setReview(session.review);
       setSummary(session.summary);
+      setRepoName(session.repoName);
     } catch (e) {
       setError(String(e));
       setSummary(null);
@@ -48,9 +48,12 @@ export function Workspace() {
   }
 
   useEffect(() => {
-    if (opened) void open(opened, mode);
+    // Async bootstrap — openReview setState happens after `await`, not synchronously;
+    // standard fetch-on-target-change, not a cascading-render anti-pattern.
+    // react-doctor-disable-next-line react-hooks-js/set-state-in-effect
+    void open();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened, mode]);
+  }, [target.repoPath, target.mode, target.base]);
 
   async function refresh() {
     if (!review) return;
@@ -58,6 +61,7 @@ export function Workspace() {
       const session = await api.refreshReview(review);
       setReview(session.review);
       setSummary(session.summary);
+      setRepoName(session.repoName);
     } catch (e) {
       setError(String(e));
     }
@@ -133,22 +137,29 @@ export function Workspace() {
     <div data-testid="app-root" className="flex h-screen flex-col overflow-hidden bg-background text-[13px] text-foreground">
       {/* Overlay titlebar: the macOS traffic lights float over the top-left, so
           inset the controls past them and make the bar a drag region. */}
-      <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border/70 pl-20 pr-3">
-        <input
-          className="h-7 w-60 rounded-md border border-input bg-muted/40 px-2.5 text-[13px] outline-none transition-[color,background-color] placeholder:text-muted-foreground/70 focus:bg-background"
-          placeholder="Repo path"
-          value={repoPath}
-          onChange={(e) => setRepoPath(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") setOpened(repoPath.trim() || null); }}
-        />
-        <Button size="sm" variant="secondary" className="h-7" onClick={() => setOpened(repoPath.trim() || null)}>Open</Button>
-        {opened && summary && (
+      <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border/70 pl-24 pr-3">
+        <button
+          type="button"
+          onClick={onOpenPalette}
+          title="Open command palette (⌘K)"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <Search className="size-3.5 text-muted-foreground" />
+          {repoName || target.repoPath.split("/").filter(Boolean).pop()}
+          {review?.target.worktree ? (
+            <span className="ml-0.5 flex items-center gap-1 font-normal text-muted-foreground">
+              <GitBranch className="size-3" />
+              {review.target.worktree}
+            </span>
+          ) : null}
+        </button>
+        {summary && (
           <>
             <div className="relative ml-1">
               <select
                 aria-label="Diff mode"
                 value={mode}
-                onChange={(e) => setMode(e.target.value as DiffMode)}
+                onChange={(e) => void api.openTarget(target.repoPath, e.target.value as DiffMode, target.base ?? undefined)}
                 className="h-7 appearance-none rounded-md border border-input bg-muted/40 pl-2.5 pr-7 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus:bg-background"
               >
                 {MODES.map((m) => (
@@ -234,7 +245,7 @@ export function Workspace() {
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center">
-            <p className="text-[13px] text-muted-foreground">Open a repo to start a review</p>
+            <p className="text-[13px] text-muted-foreground">{error ? "Couldn’t open this review." : "Loading review…"}</p>
           </div>
         )}
       </div>
