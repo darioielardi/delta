@@ -16,6 +16,7 @@ const SUMMARY: DiffSummary = {
     { path: "src/api/routes.ts", status: "modified", additions: 2, deletions: 2, binary: false },
     { path: "src/legacy/cache.ts", status: "deleted", additions: 0, deletions: 9, binary: false },
     { path: "README.md", status: "added", additions: 3, deletions: 0, binary: false },
+    { path: "assets/logo.png", status: "added", additions: 0, deletions: 0, binary: true },
   ],
 };
 
@@ -95,6 +96,17 @@ const FILES: Record<string, FileDiff> = {
     oldContent: null,
     newContent: "# delta\n\nReview code diffs and leave structured comments for Claude.\n",
   },
+  // Binary file: exercises the "Unsupported file" treatment in the diff view.
+  "assets/logo.png": {
+    oldFileName: null,
+    newFileName: "assets/logo.png",
+    oldLang: null,
+    newLang: null,
+    status: "added",
+    binary: true,
+    oldContent: null,
+    newContent: null,
+  },
 };
 
 const REVIEW: Review = {
@@ -129,6 +141,7 @@ const REVIEW: Review = {
 
 const REGISTRY: Registry = {
   version: 1,
+  home: "/Users/me",
   repos: [
     {
       id: "r1",
@@ -259,9 +272,12 @@ export function installMockBackend(): void {
       case "export_review":
         return "# Review — demo · feat/auth · All changes\n\n## General\n- Standardize error handling.\n" as T;
       case "list_worktrees":
+        // Varied timestamps + dirty flags exercise the recency sort and the
+        // enriched worktree picker (#1/#6).
         return [
-          { path: "/Users/me/projects/demo", branch: "feat/auth", isMain: true },
-          { path: "/Users/me/projects/demo-main", branch: "main", isMain: false },
+          { path: "/Users/me/projects/demo", branch: "feat/auth", isMain: true, lastCommitAt: "2026-06-26T09:30:00Z", dirty: true },
+          { path: "/Users/me/projects/demo-main", branch: "main", isMain: false, lastCommitAt: "2026-06-20T12:00:00Z", dirty: false },
+          { path: "/Users/me/projects/demo-spike", branch: "spike/new-idea", isMain: false, lastCommitAt: "2026-06-26T15:45:00Z", dirty: false },
         ] as T;
       case "import_repo":
         return {

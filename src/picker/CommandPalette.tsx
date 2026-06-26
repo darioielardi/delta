@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { rankReviews } from "./fuzzy";
+import { Folder, GitBranch, MessageSquare, TriangleAlert } from "lucide-react";
 import type { Registry, RepoEntry, ReviewEntry, WorktreeEntry } from "../types";
 
 function relTime(iso: string): string {
@@ -14,14 +15,22 @@ function relTime(iso: string): string {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
+/** Display-only: collapse a $HOME prefix to "~". Never use the result as a path. */
+function tildify(path: string, home?: string | null): string {
+  if (home && (path === home || path.startsWith(home + "/"))) return "~" + path.slice(home.length);
+  return path;
+}
+
 type Page = { kind: "root" } | { kind: "repo" } | { kind: "worktree"; repo: RepoEntry };
 
 type Item = {
   key: string;
+  leading?: ReactNode;
   primary: string;
   badge?: string;
-  secondary?: string;
-  meta?: string;
+  subtitle?: string; // second line (e.g. path) — renders a taller, two-line row
+  secondary?: string; // inline secondary (single-line rows)
+  meta?: ReactNode;
   dim?: boolean;
   onActivate: () => void;
   onDelete?: () => void;
@@ -39,6 +48,10 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const [installMsg, setInstallMsg] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  // Last real pointer position. Scrolling the list under a stationary cursor
+  // fires `mousemove` with *unchanged* coordinates; we ignore those so keyboard
+  // navigation doesn't get hijacked when the selected row scrolls into view (#15).
+  const lastPointer = useRef<{ x: number; y: number } | null>(null);
 
   async function reload() {
     try {
@@ -129,6 +142,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
 
   const q = query.toLowerCase();
   const match = (s: string) => q === "" || s.toLowerCase().includes(q);
+  const home = registry?.home;
+
+  // Find a saved review for a worktree so the picker can surface it (#6).
+  function reviewForWorktree(repo: RepoEntry, w: WorktreeEntry): ReviewEntry | undefined {
+    return registry?.reviews.find(
+      (r) => r.target.repoPath === w.path || (r.repoName === repo.name && r.target.worktree === w.branch),
+    );
+  }
 
   let items: Item[] = [];
   let placeholder = "Search reviews…";
@@ -137,17 +158,26 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     const reviews = registry ? rankReviews(registry.reviews, query) : [];
     items = reviews.map((r) => ({
       key: r.id,
+      leading: <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />,
       primary: r.target.worktree ?? "(detached)",
       secondary: r.repoName,
-      meta: [r.commentCount ? `💬 ${r.commentCount}` : "", r.staleCount ? `⚠ ${r.staleCount}` : "", relTime(r.lastOpenedAt)]
-        .filter(Boolean)
-        .join("   "),
+      meta: (
+        <span className="flex items-center gap-2.5">
+          {r.commentCount > 0 && (
+            <span className="inline-flex items-center gap-1 tabular-nums"><MessageSquare className="size-3.5" />{r.commentCount}</span>
+          )}
+          {r.staleCount > 0 && (
+            <span className="inline-flex items-center gap-1 tabular-nums text-amber-500"><TriangleAlert className="size-3.5" />{r.staleCount}</span>
+          )}
+          <span className="whitespace-nowrap">{relTime(r.lastOpenedAt)}</span>
+        </span>
+      ),
       dim: r.fileCount > 0 && r.viewedCount >= r.fileCount,
       onActivate: () => openReview(r),
       onDelete: () => void deleteReview(r),
     }));
     if (match("new review")) {
-      items.push({ key: "__new", primary: "＋ New review", meta: "⌘N", onActivate: () => goto({ kind: "repo" }) });
+      items.push({ key: "__new", primary: "＋ New review", meta: <kbd className="rounded border border-border/70 bg-muted px-1 py-0.5 text-[10px]">⌘N</kbd>, onActivate: () => goto({ kind: "repo" }) });
     }
     if (match("install delta cli")) {
       items.push({ key: "__install", primary: "Install delta CLI", dim: true, onActivate: () => void install() });
@@ -156,21 +186,51 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     placeholder = "Pick a repository…";
     items = (registry?.repos ?? [])
       .filter((r) => match(r.name) || match(r.root))
-      .map((r) => ({ key: r.id, primary: r.name, secondary: r.root, onActivate: () => void chooseRepo(r) }));
+      .map((r) => ({
+        key: r.id,
+        leading: <Folder className="size-4 shrink-0 text-muted-foreground" />,
+        primary: r.name,
+        subtitle: tildify(r.root, home),
+        meta: r.worktrees.length > 1 ? <span className="whitespace-nowrap">{r.worktrees.length} worktrees</span> : undefined,
+        onActivate: () => void chooseRepo(r),
+      }));
     if (match("import")) {
-      items.push({ key: "__import", primary: "Import a repository…", dim: true, onActivate: () => void doImport() });
+      items.push({ key: "__import", leading: <Folder className="size-4 shrink-0 text-muted-foreground" />, primary: "Import a repository…", dim: true, onActivate: () => void doImport() });
     }
   } else {
     placeholder = `Pick a worktree in ${page.repo.name}…`;
-    items = worktrees
+    const repo = page.repo;
+    // Most-recently-active worktree first (#1).
+    const sorted = [...worktrees].sort((a, b) => (b.lastCommitAt ?? "").localeCompare(a.lastCommitAt ?? ""));
+    items = sorted
       .filter((w) => match(w.branch) || match(w.path))
-      .map((w) => ({
-        key: w.path,
-        primary: w.branch,
-        badge: w.isMain ? "main worktree" : undefined,
-        secondary: w.path,
-        onActivate: () => chooseWorktree(w),
-      }));
+      .map((w) => {
+        const ex = reviewForWorktree(repo, w);
+        return {
+          key: w.path,
+          leading: <GitBranch className="size-4 shrink-0 text-muted-foreground" />,
+          primary: w.branch,
+          badge: w.isMain ? "main worktree" : undefined,
+          subtitle: tildify(w.path, home),
+          meta: (
+            <span className="flex items-center gap-2.5">
+              {w.dirty && (
+                <span className="inline-flex items-center gap-1 text-amber-500" title="Uncommitted changes">
+                  <span className="size-1.5 rounded-full bg-amber-500" /> uncommitted
+                </span>
+              )}
+              {ex && (
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-1.5 py-0.5" title="Saved review">
+                  {ex.commentCount > 0 && <span className="inline-flex items-center gap-1 tabular-nums"><MessageSquare className="size-3" />{ex.commentCount}</span>}
+                  {ex.fileCount > 0 && <span className="tabular-nums">{ex.viewedCount} / {ex.fileCount} viewed</span>}
+                </span>
+              )}
+              {w.lastCommitAt && <span className="whitespace-nowrap">{relTime(w.lastCommitAt)}</span>}
+            </span>
+          ),
+          onActivate: () => chooseWorktree(w),
+        };
+      });
   }
 
   const clampedSel = items.length === 0 ? 0 : Math.min(sel, items.length - 1);
@@ -198,6 +258,15 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       if (page.kind === "root") onClose();
       else goto({ kind: "root" });
     }
+  }
+
+  // Real movement only — ignore scroll-induced mousemove (same coords) so it
+  // can't override the keyboard selection mid-scroll. (#15)
+  function onItemMouseMove(e: React.MouseEvent, i: number) {
+    const p = lastPointer.current;
+    if (p && p.x === e.clientX && p.y === e.clientY) return;
+    lastPointer.current = { x: e.clientX, y: e.clientY };
+    setSel(i);
   }
 
   return (
@@ -238,13 +307,19 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
               <button
                 key={it.key}
                 data-index={i}
-                className={`flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-2 text-left ${i === clampedSel ? "bg-accent text-accent-foreground" : "hover:bg-muted/60"} ${it.dim ? "opacity-60" : ""}`}
-                onMouseMove={() => setSel(i)}
+                className={`flex w-full min-w-0 items-center gap-2.5 rounded-md px-3 py-2.5 text-left ${i === clampedSel ? "bg-accent text-accent-foreground" : "hover:bg-muted/60"} ${it.dim ? "opacity-60" : ""}`}
+                onMouseMove={(e) => onItemMouseMove(e, i)}
                 onClick={() => it.onActivate()}
               >
-                <span className="shrink-0 whitespace-nowrap font-medium">{it.primary}</span>
-                {it.badge && <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{it.badge}</span>}
-                {it.secondary && <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{it.secondary}</span>}
+                {it.leading}
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="shrink-0 whitespace-nowrap font-medium">{it.primary}</span>
+                    {it.badge && <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">{it.badge}</span>}
+                    {!it.subtitle && it.secondary && <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{it.secondary}</span>}
+                  </div>
+                  {it.subtitle && <span className="truncate text-[12px] text-muted-foreground">{it.subtitle}</span>}
+                </div>
                 {it.meta && <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">{it.meta}</span>}
               </button>
             ))

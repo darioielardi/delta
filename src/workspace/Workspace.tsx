@@ -2,16 +2,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
 import { FilesPanel } from "../files/FilesPanel";
 import { flattenTreeFiles } from "../files/buildTree";
 import { DiffPane } from "../diff/DiffPane";
 import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
-import { useSystemTheme } from "../theme";
+import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
-import { ArrowRight, Check, ChevronDown, Columns2, Copy, GitBranch, MessageSquare, RefreshCw, Rows2, Search } from "lucide-react";
-import type { Anchor, Comment, DiffMode, DiffSummary, Target } from "../types";
+import { ArrowRight, Check, ChevronDown, Columns2, Copy, GitBranch, MessageSquare, Rows2, Search, Settings } from "lucide-react";
+import type { Anchor, Comment, DiffMode, DiffSummary, Review, Target } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
   { id: "all-changes", label: "All changes" },
@@ -28,8 +29,22 @@ function syncModeParam(next: DiffMode) {
   window.history.replaceState(null, "", u);
 }
 
-export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPalette?: () => void }) {
-  const theme = useSystemTheme();
+// A content signature of what the diff UI renders, so auto-refresh can skip
+// state churn when a filesystem event didn't actually change anything. (#9)
+function reviewSig(s: DiffSummary | null, r: Review | null): string {
+  return JSON.stringify({
+    files: s?.files,
+    base: s?.baseLabel,
+    head: s?.headLabel,
+    // OIDs only — `capturedAt` churns every refresh and would defeat the skip.
+    oids: r ? [r.snapshot.baseOid, r.snapshot.headOid] : null,
+    stale: r?.comments?.map((c) => [c.id, c.stale]),
+    viewed: r?.viewed,
+  });
+}
+
+export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: Target; onOpenPalette?: () => void; onOpenSettings?: () => void }) {
+  const theme = useResolvedTheme();
   const [layout, setLayout] = useDiffLayout();
   // Diff mode is local, controlled state seeded once from the URL-derived target.
   // syncModeParam keeps the URL in sync on every change, so target.mode never
@@ -49,6 +64,19 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
 
   const { review, setReview, addComment, updateCommentBody, deleteComment, toggleViewed } = useReview(null);
 
+  // Auto-refresh plumbing (#9): reviewRef lets the once-mounted fs-watcher
+  // listener always refresh the *current* review; sigRef skips no-op state
+  // churn; diffInval is the bump-able reload signal handed to the diff pane.
+  const reviewRef = useRef(review);
+  const sigRef = useRef("");
+  const invalNonce = useRef(0);
+  const [diffInval, setDiffInval] = useState<{ paths: string[] | null; n: number } | null>(null);
+  // Keep reviewRef current via an effect (not during render — the compiler
+  // forbids ref writes in render, and the listener only reads it on fs events).
+  useEffect(() => {
+    reviewRef.current = review;
+  }, [review]);
+
   async function open() {
     try {
       setError(null);
@@ -56,6 +84,7 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
       setReview(session.review);
       setSummary(session.summary);
       setRepoName(session.repoName);
+      sigRef.current = reviewSig(session.summary, session.review);
     } catch (e) {
       setError(String(e));
       setSummary(null);
@@ -71,17 +100,50 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target.repoPath, diffMode, target.base]);
 
-  async function refresh() {
-    if (!review) return;
+  // Recompute the diff + reconcile comments, updating UI state only when content
+  // actually changed, and tell the diff pane which files to reload. `which` is
+  // "all" (base shifted) or the specific changed paths. (#9)
+  async function doRefresh(which: "all" | string[]) {
+    const cur = reviewRef.current;
+    if (!cur) return;
     try {
-      const session = await api.refreshReview(review);
-      setReview(session.review);
-      setSummary(session.summary);
-      setRepoName(session.repoName);
+      const session = await api.refreshReview(cur);
+      const sig = reviewSig(session.summary, session.review);
+      if (sig !== sigRef.current) {
+        sigRef.current = sig;
+        setReview(session.review);
+        setSummary(session.summary);
+        setRepoName(session.repoName);
+      }
+      setDiffInval({ paths: which === "all" ? null : which, n: ++invalNonce.current });
     } catch (e) {
       setError(String(e));
     }
   }
+
+  // Live auto-refresh: the backend watches this worktree and emits `fs:changed`
+  // with the changed paths (or a git-meta flag) — re-diff in place, no button. (#9)
+  useEffect(() => {
+    if (import.meta.env.VITE_MOCK_IPC) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const un = await listen<{ paths: string[]; gitMeta: boolean }>("fs:changed", (e) => {
+          void doRefresh(e.payload.gitMeta ? "all" : e.payload.paths);
+        });
+        if (cancelled) un();
+        else unlisten = un;
+      } catch {
+        /* not running under Tauri */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function flashCopy(state: "ok" | "err") {
     setCopyState(state);
@@ -142,9 +204,10 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
         e.preventDefault();
         setIndexOpen((o) => !o);
       } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
+        // The diff auto-refreshes; `r` stays as a manual force-reload. (#9)
         const tag = document.activeElement?.tagName ?? "";
         const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-        if (!typing) void refresh();
+        if (!typing) void doRefresh("all");
       }
     }
     window.addEventListener("keydown", onKey);
@@ -161,7 +224,7 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
           type="button"
           onClick={onOpenPalette}
           title="Open command palette (⌘K)"
-          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-muted/40 px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <Search className="size-3.5 text-muted-foreground" />
           {repoName || target.repoPath.split("/").filter(Boolean).pop()}
@@ -206,9 +269,6 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
               <Button size="sm" variant="ghost" aria-label={`Comments (${commentCount})`} aria-pressed={indexOpen} className="h-7 gap-1.5 px-2 text-[13px] text-muted-foreground hover:text-foreground aria-pressed:text-foreground" onClick={() => setIndexOpen((o) => !o)}>
                 <MessageSquare className="size-4" /> {commentCount}
               </Button>
-              <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2.5 text-[13px] text-muted-foreground hover:text-foreground" onClick={refresh}>
-                <RefreshCw className="size-3.5" /> Refresh
-              </Button>
               <Button
                 size="sm"
                 className="h-7 gap-1.5 px-3 text-[13px] transition-colors"
@@ -234,6 +294,18 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
             </div>
           </>
         )}
+        {/* Settings sits last on the right; the spacer keeps it edge-aligned even
+            before the summary (and its toolbar) has loaded. (#5) */}
+        {!summary && <div className="ml-auto" />}
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          title="Settings (⌘,)"
+          aria-label="Settings"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <Settings className="size-4" />
+        </button>
       </header>
       {error && (
         <div className="shrink-0 border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-[12px] text-destructive">{error}</div>
@@ -259,6 +331,7 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
                 theme={theme}
                 layout={layout}
                 jump={jump}
+                invalidate={diffInval}
                 onToggleViewed={onToggleViewedFile}
                 onAddComment={onAddComment}
                 onAddFileComment={onAddFileComment}

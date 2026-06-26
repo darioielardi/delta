@@ -29,6 +29,8 @@ chrono = { version = "0.4", features = ["clock"] }
 tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-window-state = "2"
+notify = "6"
+ignore = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

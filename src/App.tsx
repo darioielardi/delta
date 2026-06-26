@@ -4,7 +4,9 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Workspace } from "./workspace/Workspace";
 import { Home } from "./Home";
 import { CommandPalette } from "./picker/CommandPalette";
+import { SettingsDialog } from "./settings/SettingsDialog";
 import { resolveRoute } from "./route";
+import { useApplyTheme } from "./theme";
 
 function readLabel(): string | null {
   if (import.meta.env.VITE_MOCK_IPC) return null;
@@ -18,11 +20,22 @@ function readLabel(): string | null {
 export default function App() {
   const route = resolveRoute(readLabel(), window.location.search);
   const isReview = route.kind === "review";
+  // Apply the theme preference at the root so BOTH windows (home + review) honor
+  // it — previously only Workspace toggled `.dark`, so the launcher was stuck
+  // light (#7).
+  useApplyTheme();
   // The ⌘K palette is a review-window affordance; the home window is the launcher.
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Settings is global — openable from either window with ⌘, (#5).
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (e.key === "," && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setSettingsOpen((o) => !o);
+        return;
+      }
       if (!isReview) return; // no command palette on the launch screen (#6)
       if ((e.key === "k" || e.key === "o") && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
@@ -64,11 +77,16 @@ export default function App() {
   return (
     <>
       {isReview ? (
-        <Workspace target={route.target} onOpenPalette={() => setPaletteOpen(true)} />
+        <Workspace
+          target={route.target}
+          onOpenPalette={() => setPaletteOpen(true)}
+          onOpenSettings={() => setSettingsOpen(true)}
+        />
       ) : (
-        <Home />
+        <Home onOpenSettings={() => setSettingsOpen(true)} />
       )}
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   );
 }

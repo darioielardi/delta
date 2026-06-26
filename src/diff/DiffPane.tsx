@@ -185,17 +185,29 @@ function FileSection({
 // memo so toggling unrelated Workspace state (e.g. the comments pane) skips the
 // whole diff pane — its props are kept referentially stable by the parent.
 export const DiffPane = memo(function DiffPane({
-  target, files, comments, viewedFiles, theme, layout, jump,
+  target, files, comments, viewedFiles, theme, layout, jump, invalidate,
   onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment,
 }: {
   target: Target; files: FileEntry[]; comments: Comment[]; viewedFiles: Set<string>;
   theme: "light" | "dark"; layout: DiffLayout; jump?: { file: string; commentId?: string; n: number } | null;
+  // Auto-refresh signal: { paths: null } reloads everything, otherwise just the
+  // listed files. The nonce re-fires the effect even for a repeat path set. (#9)
+  invalidate?: { paths: string[] | null; n: number } | null;
   onToggleViewed: (file: string) => void;
   onAddComment: (a: Anchor, body: string) => void;
   onAddFileComment: (file: string, body: string) => void;
   onEditComment: (id: string, body: string) => void; onDeleteComment: (id: string) => void;
 }) {
   const cache = useFileDiffCache(target);
+
+  // Drop + reload changed files (or all, when the base shifted) so the diff
+  // tracks the working tree without a manual Refresh. (#9)
+  useEffect(() => {
+    if (!invalidate) return;
+    if (invalidate.paths === null) cache.refreshAll();
+    else cache.invalidate(invalidate.paths);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invalidate?.n]);
   const paneRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const jumpTimer = useRef(0);

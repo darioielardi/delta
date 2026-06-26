@@ -1,6 +1,7 @@
 import { useMemo, useRef } from "react";
 import { DiffViewWithMultiSelect, DiffModeEnum, SplitSide } from "@git-diff-view/react";
 import type { DiffViewWithMultiSelectRef } from "@git-diff-view/react";
+import { FileQuestion } from "lucide-react";
 // diff-view.css is imported in index.css (into the `gdv` cascade layer).
 import type { Anchor, Comment, FileDiff, Side } from "../types";
 import { toDiffFile } from "./toDiffFile";
@@ -47,7 +48,11 @@ export function DiffView({
 
   if (fileDiff.binary || !file) {
     return (
-      <div className="text-muted-foreground p-6 text-sm">Unsupported file</div>
+      <div className="flex flex-col items-center justify-center gap-2 px-3 py-10 text-center text-muted-foreground">
+        <FileQuestion className="size-6 opacity-70" />
+        <div className="text-[13px] font-medium text-foreground/80">Unsupported file</div>
+        <div className="text-[12px] opacity-70">Binary or non-text content — no diff to show.</div>
+      </div>
     );
   }
 
@@ -69,7 +74,7 @@ export function DiffView({
       diffViewMode={layout === "split" ? DiffModeEnum.Split : DiffModeEnum.Unified}
       diffViewHighlight
       diffViewTheme={theme}
-      diffViewFontSize={12}
+      diffViewFontSize={13}
       diffViewAddWidget
       enableMultiSelect
       extendData={extendData}

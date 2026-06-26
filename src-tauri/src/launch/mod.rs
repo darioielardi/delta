@@ -39,15 +39,36 @@ pub fn parse_launch(args: &[String], cwd: &Path) -> Launch {
     Launch { repo_path, mode }
 }
 
+/// HEAD commit time (RFC3339) + dirty flag for an open worktree repo handle.
+/// Both are best-effort — failures degrade to (None, false) rather than erroring
+/// the whole listing.
+fn worktree_meta(repo: &git2::Repository) -> (Option<String>, bool) {
+    let last_commit_at = repo
+        .head()
+        .ok()
+        .and_then(|h| h.peel_to_commit().ok())
+        .and_then(|c| chrono::DateTime::from_timestamp(c.time().seconds(), 0))
+        .map(|dt| dt.to_rfc3339());
+    let dirty = {
+        let mut opts = git2::StatusOptions::new();
+        opts.include_untracked(true).include_ignored(false);
+        repo.statuses(Some(&mut opts)).map(|s| !s.is_empty()).unwrap_or(false)
+    };
+    (last_commit_at, dirty)
+}
+
 /// All checked-out worktrees of the repo: the main workdir + any linked worktrees.
 pub fn list_worktrees(repo_path: &str) -> Result<Vec<WorktreeEntry>, String> {
     let repo = open_repo(repo_path)?;
     let mut out = Vec::new();
     if let Some(wd) = repo.workdir() {
+        let (last_commit_at, dirty) = worktree_meta(&repo);
         out.push(WorktreeEntry {
             path: wd.display().to_string(),
             branch: resolve_worktree(&repo)?,
             is_main: true,
+            last_commit_at,
+            dirty,
         });
     }
     let names = repo.worktrees().map_err(|e| format!("list worktrees: {e}"))?;
@@ -59,7 +80,14 @@ pub fn list_worktrees(repo_path: &str) -> Result<Vec<WorktreeEntry>, String> {
         let wt_path = wt.path();
         if let Ok(wt_repo) = git2::Repository::open(wt_path) {
             let branch = resolve_worktree(&wt_repo).unwrap_or_else(|_| "(detached)".into());
-            out.push(WorktreeEntry { path: wt_path.display().to_string(), branch, is_main: false });
+            let (last_commit_at, dirty) = worktree_meta(&wt_repo);
+            out.push(WorktreeEntry {
+                path: wt_path.display().to_string(),
+                branch,
+                is_main: false,
+                last_commit_at,
+                dirty,
+            });
         }
     }
     Ok(out)
@@ -159,6 +187,8 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
             .traffic_light_position(tauri::LogicalPosition::new(16.0, 26.0));
     }
     builder.build().map_err(|e| format!("create window: {e}"))?;
+    // Auto-refresh: watch this worktree and notify the window on change. (#9)
+    crate::watch::start(app, &label, Path::new(&canonical));
     Ok(())
 }
 

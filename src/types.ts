@@ -88,6 +88,10 @@ export interface WorktreeEntry {
   path: string;
   branch: string;
   isMain: boolean;
+  /** RFC3339 time of the worktree HEAD's last commit — recency sort + display. */
+  lastCommitAt?: string | null;
+  /** True when the worktree has uncommitted changes (staged or unstaged). */
+  dirty?: boolean;
 }
 
 export interface RepoEntry {
@@ -113,6 +117,9 @@ export interface Registry {
   version: number;
   repos: RepoEntry[];
   reviews: ReviewEntry[];
+  /** Absolute $HOME, supplied by the backend so the UI can render ~-relative
+   *  paths. Display-only — never used as a real path. */
+  home?: string | null;
 }
 
 export type InstallOutcome =

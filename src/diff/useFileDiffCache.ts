@@ -13,6 +13,10 @@ export interface FileDiffStore {
   load(path: string): Promise<void>;
   subscribe(path: string, cb: () => void): () => void;
   clear(): void;
+  /** Drop + re-fetch specific files (changed on disk) — auto-refresh. (#9) */
+  invalidate(paths: string[]): void;
+  /** Drop + re-fetch every mounted file (base/HEAD shifted). (#9) */
+  refreshAll(): void;
 }
 
 interface InternalStore extends FileDiffStore {
@@ -28,6 +32,39 @@ function createStore(): InternalStore {
   const notify = (path: string) => listeners.get(path)?.forEach((cb) => cb());
   const notifyAll = () => listeners.forEach((set) => set.forEach((cb) => cb()));
 
+  async function load(path: string) {
+    if (!target || cache.has(path) || inflight.has(path)) return;
+    inflight.add(path);
+    try {
+      const fd = await api.getFileDiff(target, path);
+      cache.set(path, fd);
+      notify(path); // wake only this path's subscriber
+    } finally {
+      inflight.delete(path);
+    }
+  }
+
+  // Drop these paths and immediately re-fetch any still mounted (have a
+  // subscriber), so the section updates in place instead of getting stuck on a
+  // stale/blank render. Off-screen ones just clear and reload lazily on scroll.
+  function invalidate(paths: string[]) {
+    for (const p of paths) {
+      if (!cache.has(p) && !listeners.has(p)) continue;
+      cache.delete(p);
+      inflight.delete(p);
+      notify(p);
+      if (listeners.has(p)) void load(p);
+    }
+  }
+
+  // Base/HEAD shifted: drop everything and re-fetch all mounted files.
+  function refreshAll() {
+    cache.clear();
+    inflight.clear();
+    notifyAll();
+    for (const p of listeners.keys()) void load(p);
+  }
+
   return {
     get: (path) => cache.get(path),
     subscribe(path, cb) {
@@ -41,22 +78,14 @@ function createStore(): InternalStore {
         if (s.size === 0) listeners.delete(path);
       };
     },
-    async load(path) {
-      if (!target || cache.has(path) || inflight.has(path)) return;
-      inflight.add(path);
-      try {
-        const fd = await api.getFileDiff(target, path);
-        cache.set(path, fd);
-        notify(path); // wake only this path's subscriber
-      } finally {
-        inflight.delete(path);
-      }
-    },
+    load,
     clear() {
       cache.clear();
       inflight.clear();
       notifyAll();
     },
+    invalidate,
+    refreshAll,
     reset(t) {
       target = t;
       cache.clear();

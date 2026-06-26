@@ -8,6 +8,12 @@ pub struct WorktreeEntry {
     pub path: String,
     pub branch: String,
     pub is_main: bool,
+    /// RFC3339 time of the worktree HEAD's last commit (recency sort + display).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_commit_at: Option<String>,
+    /// True when the worktree has uncommitted changes (staged or unstaged).
+    #[serde(default)]
+    pub dirty: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -43,11 +49,15 @@ pub struct Registry {
     pub repos: Vec<RepoEntry>,
     #[serde(default)]
     pub reviews: Vec<ReviewEntry>,
+    /// Absolute $HOME, populated on read (list_registry) so the UI can render
+    /// ~-relative paths. Never persisted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home: Option<String>,
 }
 
 impl Registry {
     pub fn empty() -> Self {
-        Registry { version: 2, repos: Vec::new(), reviews: Vec::new() }
+        Registry { version: 2, repos: Vec::new(), reviews: Vec::new(), home: None }
     }
 
     pub fn upsert_review(&mut self, entry: ReviewEntry) {

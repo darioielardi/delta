@@ -200,7 +200,10 @@ pub fn export_review(review: Review) -> Result<String, String> {
 
 #[tauri::command]
 pub fn list_registry(app: tauri::AppHandle) -> Result<Registry, String> {
-    reg_store(&app)?.load()
+    let mut reg = reg_store(&app)?.load()?;
+    // Supplied on read only (never persisted) so the UI can render ~-paths.
+    reg.home = std::env::var("HOME").ok();
+    Ok(reg)
 }
 
 #[tauri::command]

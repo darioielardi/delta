@@ -6,6 +6,9 @@ mod launch;
 mod registry;
 mod review;
 mod storage;
+mod watch;
+
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -28,6 +31,7 @@ pub fn run() {
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .manage(crate::watch::Watchers::default())
         .invoke_handler(tauri::generate_handler![
             commands::compute_diff,
             commands::get_file_diff,
@@ -50,13 +54,29 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, _event| {
-            // macOS: clicking the dock icon with no open windows reopens the home window.
-            #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = _event {
-                if !has_visible_windows {
-                    let _ = crate::launch::open_home_window(_app_handle);
+        .run(|app_handle, event| {
+            match event {
+                // A window is gone: stop its watcher, and if the last review
+                // window just closed, return to the launcher. (#9 cleanup, #14)
+                tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } => {
+                    crate::watch::stop(app_handle, &label);
+                    let remaining = app_handle
+                        .webview_windows()
+                        .into_keys()
+                        .filter(|l| l != &label)
+                        .count();
+                    if remaining == 0 && label.starts_with("review-") {
+                        let _ = crate::launch::open_home_window(app_handle);
+                    }
                 }
+                // macOS: clicking the dock icon with no open windows reopens home.
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::Reopen { has_visible_windows, .. } => {
+                    if !has_visible_windows {
+                        let _ = crate::launch::open_home_window(app_handle);
+                    }
+                }
+                _ => {}
             }
         });
 }

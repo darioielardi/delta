@@ -16,7 +16,7 @@ describe("FilesPanel", () => {
 
   it("renders the header, viewed count, toggle, and tree container", () => {
     render(<FilesPanel files={files} selected={null} onSelect={() => {}} viewedFiles={new Set()} onToggleViewed={() => {}} />);
-    expect(screen.getByTitle("Files viewed")).toHaveTextContent("0/1 viewed");
+    expect(screen.getByTitle("Files viewed")).toHaveTextContent("0 / 1 viewed");
     expect(screen.getByTestId("files-tree")).toBeInTheDocument();
     // shadcn ToggleGroup renders items as role="radio" within a radiogroup
     expect(screen.getByRole("radio", { name: /list/i })).toBeInTheDocument();
@@ -24,7 +24,7 @@ describe("FilesPanel", () => {
 
   it("shows the viewed count in the header", () => {
     render(<FilesPanel files={files} selected={null} onSelect={() => {}} viewedFiles={new Set(["src/a.ts"])} onToggleViewed={() => {}} />);
-    expect(screen.getByTitle("Files viewed")).toHaveTextContent("1/1 viewed");
+    expect(screen.getByTitle("Files viewed")).toHaveTextContent("1 / 1 viewed");
   });
 
   it("shows the global diff count (sum across files) in the header", () => {

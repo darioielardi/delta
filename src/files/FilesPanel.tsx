@@ -1,7 +1,7 @@
 // src/files/FilesPanel.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ChevronRight, Folder, FolderOpen, FileCode, FileJson, FileText, Check, List, ListTree } from "lucide-react";
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, FileCode, FileJson, FileText, Check, List, ListTree, Search, X } from "lucide-react";
 import type { FileEntry, FileStatus } from "../types";
 import { buildTree, type TreeNode } from "./buildTree";
 
@@ -16,6 +16,9 @@ const CODE_EXT = new Set([
   "ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "go", "py", "rb", "java", "kt", "swift",
   "c", "cc", "cpp", "h", "hpp", "css", "scss", "html", "vue", "svelte", "sh", "toml", "yml", "yaml",
 ]);
+
+// Stable empty set so search-mode (force-open) rendering doesn't allocate per render.
+const NO_COLLAPSE: Set<string> = new Set();
 
 function FileGlyph({ name, status }: { name: string; status: FileStatus }) {
   const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
@@ -111,7 +114,9 @@ export function FilesPanel({
   const [mode, setMode] = useState<"tree" | "list">("tree");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [activePath, setActivePath] = useState<string | null>(selected);
+  const [query, setQuery] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   // Keep the keyboard-focused row scrolled into view.
   useEffect(() => {
@@ -120,24 +125,58 @@ export function FilesPanel({
     (el as HTMLElement | null)?.scrollIntoView?.({ block: "nearest" });
   }, [activePath]);
 
-  const roots: TreeNode[] = useMemo(
-    () => mode === "tree"
-      ? buildTree(files)
-      : files.map((e) => ({ id: e.path, name: e.path, path: e.path, kind: "file" as const, entry: e, children: [] })),
-    [files, mode],
+  // ⌘F focuses the file search (Escape on the input clears, then blurs). (#3)
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.key === "f" || e.key === "F") && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const q = query.trim().toLowerCase();
+  const searching = q.length > 0;
+  const filteredFiles = useMemo(
+    () => (searching ? files.filter((f) => f.path.toLowerCase().includes(q)) : files),
+    [files, q, searching],
   );
 
-  // Flatten the currently-visible rows (respecting collapse) for keyboard nav.
+  const roots: TreeNode[] = useMemo(
+    () => mode === "tree"
+      ? buildTree(filteredFiles)
+      : filteredFiles.map((e) => ({ id: e.path, name: e.path, path: e.path, kind: "file" as const, entry: e, children: [] })),
+    [filteredFiles, mode],
+  );
+
+  // Flatten the currently-visible rows for keyboard nav. While searching, every
+  // dir is force-open so matches are never hidden behind a collapsed parent.
   const visible: TreeNode[] = useMemo(() => {
     const out: TreeNode[] = [];
     (function walk(nodes: TreeNode[]) {
       for (const n of nodes) {
         out.push(n);
-        if (n.kind === "dir" && !collapsed.has(n.path)) walk(n.children);
+        if (n.kind === "dir" && (searching || !collapsed.has(n.path))) walk(n.children);
       }
     })(roots);
     return out;
-  }, [roots, collapsed]);
+  }, [roots, collapsed, searching]);
+
+  // Every directory path, for collapse/expand-all. `roots` is the full tree when
+  // not searching, and the collapse-all button is hidden while searching, so this
+  // stays accurate without rebuilding the tree.
+  const treeDirPaths = useMemo(() => {
+    if (mode !== "tree") return [] as string[];
+    const out: string[] = [];
+    (function walk(nodes: TreeNode[]) {
+      for (const n of nodes) if (n.kind === "dir") { out.push(n.path); walk(n.children); }
+    })(roots);
+    return out;
+  }, [roots, mode]);
+  const anyDirOpen = treeDirPaths.some((p) => !collapsed.has(p));
 
   // Cheap sums — React Compiler memoizes the render; no manual useMemo needed.
   const totalAdds = files.reduce((n, f) => n + f.additions, 0);
@@ -151,6 +190,7 @@ export function FilesPanel({
 
   const toggleDir = (path: string) =>
     setCollapsed((s) => { const n = new Set(s); if (n.has(path)) n.delete(path); else n.add(path); return n; });
+  const toggleAll = () => setCollapsed(anyDirOpen ? new Set(treeDirPaths) : new Set());
   const selectFile = (path: string) => { setActivePath(path); onSelect(path); };
 
   function onKeyDown(e: React.KeyboardEvent) {
@@ -182,7 +222,33 @@ export function FilesPanel({
     }
   }
 
-  const h: RowHandlers = { activePath, collapsed, viewedFiles, flat: mode === "list", onToggleDir: toggleDir, onSelectFile: selectFile, onToggleViewed };
+  // Search-box keys: Escape clears (then blurs), Enter opens the first match,
+  // ArrowDown drops focus into the tree at the first row.
+  function onSearchKey(e: React.KeyboardEvent) {
+    if (e.key === "Escape") {
+      e.stopPropagation();
+      if (query) setQuery("");
+      else searchRef.current?.blur();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const first = visible.find((n) => n.kind === "file");
+      if (first) selectFile(first.path);
+    } else if (e.key === "ArrowDown") {
+      e.preventDefault();
+      const first = visible[0];
+      if (first) { setActivePath(first.path); scrollRef.current?.focus(); }
+    }
+  }
+
+  const h: RowHandlers = {
+    activePath,
+    collapsed: searching ? NO_COLLAPSE : collapsed,
+    viewedFiles,
+    flat: mode === "list",
+    onToggleDir: toggleDir,
+    onSelectFile: selectFile,
+    onToggleViewed,
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -192,23 +258,65 @@ export function FilesPanel({
           title="Files viewed"
         >
           <span className={`font-medium ${allViewed ? "" : "text-foreground"}`}>{viewedFiles.size}</span>
-          <span className="opacity-80">/{files.length} viewed</span>
+          <span className="opacity-80">{" / "}{files.length} viewed</span>
         </span>
         <span className="ml-auto tabular-nums">
           {totalAdds > 0 && <span className="text-emerald-500">+{totalAdds}</span>}{" "}
           {totalDels > 0 && <span className="text-rose-500">−{totalDels}</span>}
         </span>
-        <ToggleGroup
-          type="single"
-          size="sm"
-          value={mode}
-          onValueChange={(v) => v && setMode(v as "tree" | "list")}
-          className="gap-0.5 rounded-md bg-muted/70 p-0.5"
-        >
-          <ToggleGroupItem value="list" aria-label="List" title="List" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><List className="size-3.5" /></ToggleGroupItem>
-          <ToggleGroupItem value="tree" aria-label="Tree" title="Tree" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><ListTree className="size-3.5" /></ToggleGroupItem>
-        </ToggleGroup>
+        <div className="flex items-center gap-1">
+          {mode === "tree" && !searching && (
+            <button
+              type="button"
+              onClick={toggleAll}
+              aria-label={anyDirOpen ? "Collapse all" : "Expand all"}
+              title={anyDirOpen ? "Collapse all" : "Expand all"}
+              className="flex size-5 items-center justify-center rounded-[5px] text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+            >
+              {anyDirOpen ? <ChevronsDownUp className="size-3.5" /> : <ChevronsUpDown className="size-3.5" />}
+            </button>
+          )}
+          <ToggleGroup
+            type="single"
+            size="sm"
+            value={mode}
+            onValueChange={(v) => v && setMode(v as "tree" | "list")}
+            className="gap-0.5 rounded-md bg-muted/70 p-0.5"
+          >
+            <ToggleGroupItem value="list" aria-label="List" title="List" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><List className="size-3.5" /></ToggleGroupItem>
+            <ToggleGroupItem value="tree" aria-label="Tree" title="Tree" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><ListTree className="size-3.5" /></ToggleGroupItem>
+          </ToggleGroup>
+        </div>
       </div>
+
+      {/* Search sits directly on top of the tree/list; ⌘F focuses it. (#3) */}
+      <div className="relative shrink-0 border-b border-border/70 px-2 py-1.5">
+        <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <input
+          ref={searchRef}
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onSearchKey}
+          placeholder="Search files…"
+          aria-label="Search files"
+          className="h-7 w-full rounded-md border border-input bg-muted/40 pl-8 pr-12 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 hover:bg-muted focus:bg-background"
+        />
+        {searching ? (
+          <button
+            type="button"
+            onClick={() => { setQuery(""); searchRef.current?.focus(); }}
+            aria-label="Clear search"
+            title="Clear"
+            className="absolute right-3.5 top-1/2 flex size-4 -translate-y-1/2 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-foreground/10 hover:text-foreground"
+          >
+            <X className="size-3" strokeWidth={2.5} />
+          </button>
+        ) : (
+          <kbd className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 rounded border border-border/70 bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">⌘F</kbd>
+        )}
+      </div>
+
       <div
         ref={scrollRef}
         data-testid="files-tree"
@@ -216,7 +324,11 @@ export function FilesPanel({
         onKeyDown={onKeyDown}
         className="min-h-0 flex-1 overflow-auto px-1.5 py-1.5 outline-none"
       >
-        <TreeRows nodes={roots} h={h} />
+        {searching && roots.length === 0 ? (
+          <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">No files match “{query}”.</div>
+        ) : (
+          <TreeRows nodes={roots} h={h} />
+        )}
       </div>
     </div>
   );
