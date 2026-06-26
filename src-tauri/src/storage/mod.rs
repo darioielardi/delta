@@ -92,6 +92,9 @@ impl JsonRegistryStore {
             }
             if let Ok(text) = fs::read_to_string(&path) {
                 if let Ok(review) = serde_json::from_str::<Review>(&text) {
+                    if review.version < 2 {
+                        continue; // start fresh: ignore pre-v2 review files
+                    }
                     let name = repo_name_from_path(&review.target.repo_path);
                     reg.upsert_review(ReviewEntry::from_review(&review, 0, name));
                 }
@@ -105,7 +108,17 @@ impl RegistryStore for JsonRegistryStore {
     fn load(&self) -> Result<Registry, String> {
         match fs::read_to_string(&self.registry_path) {
             Ok(text) => match serde_json::from_str::<Registry>(&text) {
-                Ok(reg) => Ok(reg),
+                Ok(mut reg) => {
+                    if reg.version < 2 {
+                        // Start fresh: review identity changed (mode dropped), so
+                        // pre-v2 per-mode entries are stale. Keep repos, drop reviews,
+                        // and persist so they don't reappear.
+                        reg.reviews.clear();
+                        reg.version = 2;
+                        let _ = self.save(&reg);
+                    }
+                    Ok(reg)
+                }
                 Err(_) => Ok(self.rebuild()), // corrupt → rebuild
             },
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(self.rebuild()),
@@ -222,5 +235,30 @@ mod tests {
         let store = JsonRegistryStore::new(dir.path().join("registry.json"), dir.path().join("reviews"));
         let reg = store.load().unwrap(); // corrupt → rebuild → empty (no reviews dir)
         assert!(reg.reviews.is_empty());
+    }
+
+    #[test]
+    fn registry_load_v1_drops_reviews_keeps_repos() {
+        let dir = TempDir::new().unwrap();
+        let reg_path = dir.path().join("registry.json");
+        // A v1 registry with one repo and one (stale, per-mode) review entry.
+        std::fs::write(&reg_path, r#"{"version":1,"repos":[{"id":"r1","root":"/p","name":"p","worktrees":[]}],"reviews":[{"id":"0123456789abcdef","repoName":"p","target":{"repoPath":"/p","mode":"uncommitted"},"lastOpenedAt":"t","commentCount":1,"staleCount":0,"viewedCount":0,"fileCount":3}]}"#).unwrap();
+        let store = JsonRegistryStore::new(reg_path, dir.path().join("reviews"));
+        let reg = store.load().unwrap();
+        assert_eq!(reg.version, 2);
+        assert_eq!(reg.repos.len(), 1, "repos preserved");
+        assert!(reg.reviews.is_empty(), "pre-v2 reviews dropped");
+    }
+
+    #[test]
+    fn rebuild_skips_pre_v2_review_files() {
+        let dir = TempDir::new().unwrap();
+        let reviews = dir.path().join("reviews");
+        std::fs::create_dir_all(&reviews).unwrap();
+        // A hand-written v1 review file must be ignored by rebuild (start fresh).
+        std::fs::write(reviews.join("0123456789abcdef.json"), r#"{"version":1,"id":"0123456789abcdef","target":{"repoPath":"/p","worktree":"main","mode":"all-changes"},"snapshot":{"baseOid":"b","capturedAt":"t"},"comments":[],"viewed":[],"createdAt":"t","lastOpenedAt":"t"}"#).unwrap();
+        let store = JsonRegistryStore::new(dir.path().join("registry.json"), reviews);
+        let reg = store.load().unwrap(); // missing registry → rebuild
+        assert!(reg.reviews.is_empty(), "v1 review file skipped by rebuild");
     }
 }

@@ -47,7 +47,7 @@ pub struct Registry {
 
 impl Registry {
     pub fn empty() -> Self {
-        Registry { version: 1, repos: Vec::new(), reviews: Vec::new() }
+        Registry { version: 2, repos: Vec::new(), reviews: Vec::new() }
     }
 
     pub fn upsert_review(&mut self, entry: ReviewEntry) {

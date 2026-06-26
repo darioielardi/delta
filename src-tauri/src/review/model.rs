@@ -79,7 +79,7 @@ pub struct Review {
 impl Review {
     pub fn new(id: String, target: Target, snapshot: Snapshot, now: String) -> Self {
         Review {
-            version: 1,
+            version: 2,
             id,
             target,
             snapshot,
