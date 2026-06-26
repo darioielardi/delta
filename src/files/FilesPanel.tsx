@@ -54,7 +54,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
     <div>
       <div
         data-path={node.path}
-        className={`group flex h-7 select-none items-center gap-1.5 rounded-md pl-1 pr-1.5 ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-50" : ""}`}
+        className={`group flex h-6 select-none items-center gap-1.5 rounded-md pl-1 pr-1.5 ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-50" : ""}`}
         onClick={() => (isDir ? h.onToggleDir(node.path) : h.onSelectFile(node.path))}
       >
         {isDir ? (
@@ -69,7 +69,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
         ) : (
           <FileGlyph name={node.name} status={node.entry!.status} />
         )}
-        <span className={`flex-1 truncate text-[13px] ${isDir ? "font-medium text-foreground" : "text-foreground"} ${isViewed ? "line-through decoration-muted-foreground/40" : ""}`}>
+        <span className={`flex-1 truncate text-[13px] ${isDir ? "font-medium text-foreground" : "text-foreground"}`}>
           {node.name}
         </span>
         {!isDir && node.entry && (
@@ -81,9 +81,9 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
             <button
               aria-label={`viewed ${node.entry.path}`}
               onClick={(e) => { e.stopPropagation(); h.onToggleViewed(node.entry!.path); }}
-              className={`flex size-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors ${isViewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80 text-transparent group-hover:border-foreground/40 group-hover:text-foreground/30 hover:!border-foreground/60 hover:!text-foreground/60"}`}
+              className={`flex size-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors ${isViewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80 group-hover:border-foreground/40 hover:!border-foreground/60"}`}
             >
-              <Check className="size-2.5" strokeWidth={3} />
+              {isViewed && <Check className="size-2.5" strokeWidth={3} />}
             </button>
           </>
         )}
@@ -186,11 +186,11 @@ export function FilesPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-[12px]">
-        <span className="tabular-nums">
+        <span className="text-muted-foreground">{viewedFiles.size}/{files.length} viewed</span>
+        <span className="ml-auto tabular-nums">
           {totalAdds > 0 && <span className="text-emerald-500">+{totalAdds}</span>}{" "}
           {totalDels > 0 && <span className="text-rose-500">−{totalDels}</span>}
         </span>
-        <span className="ml-auto text-muted-foreground">{viewedFiles.size}/{files.length} viewed</span>
         <ToggleGroup
           type="single"
           size="sm"

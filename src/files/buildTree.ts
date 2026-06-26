@@ -37,3 +37,18 @@ export function buildTree(files: FileEntry[]): TreeNode[] {
   sort(root.children);
   return root.children;
 }
+
+/** File entries in the tree's depth-first display order (dirs-first, alphabetical
+    per level). Use this as the single canonical order so the diff pane and the
+    flat list match the tree instead of raw git order. */
+export function flattenTreeFiles(files: FileEntry[]): FileEntry[] {
+  const out: FileEntry[] = [];
+  const walk = (nodes: TreeNode[]) => {
+    for (const n of nodes) {
+      if (n.kind === "file" && n.entry) out.push(n.entry);
+      else walk(n.children);
+    }
+  };
+  walk(buildTree(files));
+  return out;
+}

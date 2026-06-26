@@ -33,5 +33,5 @@ it("DiffView shows placeholder for binary", () => {
   const { getByText } = render(
     <DiffView fileDiff={{ ...fd, binary: true }} filePath="a.ts" layout="unified" />
   );
-  expect(getByText(/binary file/i)).toBeTruthy();
+  expect(getByText(/unsupported file/i)).toBeTruthy();
 });

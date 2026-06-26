@@ -1,8 +1,10 @@
 // src/workspace/Workspace.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api } from "../api";
 import { FilesPanel } from "../files/FilesPanel";
+import { flattenTreeFiles } from "../files/buildTree";
 import { DiffPane } from "../diff/DiffPane";
 import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
@@ -130,6 +132,9 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
   const comments = review?.comments ?? [];
   // General notes were removed; ignore any legacy ones in the count/export gate.
   const commentCount = comments.filter((c) => c.scope !== "general").length;
+  // One canonical order — the tree's depth-first order — so the files list and
+  // the diff pane match the tree instead of raw git order. (#3)
+  const orderedFiles = flattenTreeFiles(summary?.files ?? []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -188,16 +193,16 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
               {summary.headLabel}
             </span>
             <div className="ml-auto flex items-center gap-1">
-              <Button
+              <ToggleGroup
+                type="single"
                 size="sm"
-                variant="ghost"
-                className="h-7 gap-1.5 px-2 text-[13px] text-muted-foreground hover:text-foreground"
-                onClick={() => setLayout(layout === "unified" ? "split" : "unified")}
-                title={layout === "unified" ? "Switch to split view" : "Switch to unified view"}
-                aria-label="Toggle split/unified diff"
+                value={layout}
+                onValueChange={(v) => v && setLayout(v as "unified" | "split")}
+                className="gap-0.5 rounded-md bg-muted/70 p-0.5"
               >
-                {layout === "split" ? <Columns2 className="size-4" /> : <Rows2 className="size-4" />}
-              </Button>
+                <ToggleGroupItem value="unified" aria-label="Unified" title="Unified view" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><Rows2 className="size-3.5" /></ToggleGroupItem>
+                <ToggleGroupItem value="split" aria-label="Split" title="Split view" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><Columns2 className="size-3.5" /></ToggleGroupItem>
+              </ToggleGroup>
               <Button size="sm" variant="ghost" aria-label={`Comments (${commentCount})`} aria-pressed={indexOpen} className="h-7 gap-1.5 px-2 text-[13px] text-muted-foreground hover:text-foreground aria-pressed:text-foreground" onClick={() => setIndexOpen((o) => !o)}>
                 <MessageSquare className="size-4" /> {commentCount}
               </Button>
@@ -223,7 +228,7 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
                 ) : copyState === "err" ? (
                   <><Copy className="size-3.5" /> Failed</>
                 ) : (
-                  <><Copy className="size-3.5" /> Copy for Claude</>
+                  <><Copy className="size-3.5" /> Copy review</>
                 )}
               </Button>
             </div>
@@ -238,7 +243,7 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
           <>
             <aside className="flex w-80 min-h-0 shrink-0 flex-col border-r border-border/70 bg-muted/20">
               <FilesPanel
-                files={summary.files}
+                files={orderedFiles}
                 selected={null}
                 onSelect={onSelectFile}
                 viewedFiles={viewedFiles}
@@ -248,7 +253,7 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
             <main className="min-h-0 min-w-0 flex-1">
               <DiffPane
                 target={review.target}
-                files={summary.files}
+                files={orderedFiles}
                 comments={comments}
                 viewedFiles={viewedFiles}
                 theme={theme}

@@ -34,14 +34,14 @@ describe("Workspace", () => {
   it("opens the review for its target on mount", async () => {
     openReview.mockResolvedValue(minimalSession);
     render(<Workspace target={target} />);
-    await waitFor(() => expect(screen.getByRole("button", { name: /copy for claude/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /copy review/i })).toBeInTheDocument());
     expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "all-changes", base: undefined });
   });
 
   it("switching mode re-opens in place (openReview, not a new window)", async () => {
     openReview.mockResolvedValue(minimalSession);
     render(<Workspace target={target} />);
-    await waitFor(() => expect(screen.getByRole("button", { name: /copy for claude/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /copy review/i })).toBeInTheDocument());
     openReview.mockClear();
 
     fireEvent.change(screen.getByRole("combobox", { name: /diff mode/i }), { target: { value: "uncommitted" } });

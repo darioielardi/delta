@@ -197,7 +197,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   return (
     <div
       data-testid="command-palette"
-      className="absolute inset-0 z-50 flex items-start justify-center bg-black/30 pt-[12vh]"
+      className="absolute inset-0 z-50 flex items-start justify-center bg-black/10 pt-[12vh]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -228,14 +228,14 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
             items.map((it, i) => (
               <button
                 key={it.key}
-                className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left ${i === clampedSel ? "bg-accent text-accent-foreground" : "hover:bg-muted/60"} ${it.dim ? "opacity-60" : ""}`}
+                className={`flex w-full min-w-0 items-center gap-2 rounded-md px-3 py-2 text-left ${i === clampedSel ? "bg-accent text-accent-foreground" : "hover:bg-muted/60"} ${it.dim ? "opacity-60" : ""}`}
                 onMouseMove={() => setSel(i)}
                 onClick={() => it.onActivate()}
               >
-                <span className="font-medium">{it.primary}</span>
-                {it.badge && <span className="rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{it.badge}</span>}
-                {it.secondary && <span className="truncate text-[12px] text-muted-foreground">{it.secondary}</span>}
-                {it.meta && <span className="ml-auto shrink-0 text-[11px] text-muted-foreground">{it.meta}</span>}
+                <span className="shrink-0 whitespace-nowrap font-medium">{it.primary}</span>
+                {it.badge && <span className="shrink-0 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">{it.badge}</span>}
+                {it.secondary && <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{it.secondary}</span>}
+                {it.meta && <span className="ml-auto shrink-0 whitespace-nowrap text-[11px] text-muted-foreground">{it.meta}</span>}
               </button>
             ))
           )}

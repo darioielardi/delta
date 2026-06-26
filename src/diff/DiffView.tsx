@@ -47,7 +47,7 @@ export function DiffView({
 
   if (fileDiff.binary || !file) {
     return (
-      <div className="text-muted-foreground p-6 text-sm">Binary file — not shown</div>
+      <div className="text-muted-foreground p-6 text-sm">Unsupported file</div>
     );
   }
 

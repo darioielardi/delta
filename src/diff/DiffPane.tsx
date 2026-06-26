@@ -83,7 +83,7 @@ function FileSection({
       className="border-b border-border/70"
       style={{ contentVisibility: near ? "visible" : "auto", containIntrinsicSize: `auto ${estPx}px` }}
     >
-      <div className={`group sticky top-0 z-10 flex items-center gap-1 border-b border-border/70 bg-background/85 px-3 py-2 backdrop-blur transition-opacity ${viewed ? "opacity-55" : ""}`}>
+      <div className="group sticky top-0 z-10 flex items-center gap-1 border-b border-border/70 bg-background/85 px-3 py-2 backdrop-blur">
         {/* Full-box collapse target: an absolutely-positioned button fills the
             header including its padding, so hover + click land anywhere in the
             box (not just over the filename). The visible content sits above it
@@ -98,7 +98,7 @@ function FileSection({
           aria-expanded={!collapsed}
           title={collapsed ? "Expand" : "Collapse"}
         />
-        <span className="pointer-events-none relative flex min-w-0 flex-1 items-center gap-2">
+        <span className={`pointer-events-none relative flex min-w-0 flex-1 items-center gap-2 transition-opacity ${viewed ? "opacity-55 group-hover:opacity-100" : ""}`}>
           <span className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors group-hover:bg-foreground/[0.06] group-hover:text-foreground">
             {collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
           </span>
@@ -109,7 +109,7 @@ function FileSection({
         </span>
         {/* Right actions, left→right: diff counts · add file comment · mark viewed.
             Counts stay pointer-events-none so a header click still collapses. */}
-        <span className="pointer-events-none relative shrink-0 text-[12px] tabular-nums">
+        <span className={`pointer-events-none relative shrink-0 text-[12px] tabular-nums transition-opacity ${viewed ? "opacity-55 group-hover:opacity-100" : ""}`}>
           {entry.additions > 0 && <span className="text-emerald-500">+{entry.additions}</span>}{" "}
           {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
         </span>
@@ -204,41 +204,26 @@ export const DiffPane = memo(function DiffPane({
     else sectionRefs.current.delete(file);
   };
 
-  // Scroll-past-end room: a trailing spacer one viewport tall lets the last
-  // files be scrolled to the top, and — critically — stops the browser from
-  // clamping scrollTop (which would yank the clicked header away) when a file
-  // near the bottom collapses on "viewed".
-  const [padBottom, setPadBottom] = useState(0);
-  useEffect(() => {
-    const el = paneRef.current;
-    if (!el) return;
-    const update = () => setPadBottom(el.clientHeight);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
   // Collapse is independent of viewed. Explicit user choices override the
   // giant-file default; marking a file viewed collapses it (un-marking expands).
   const [collapseOverrides, setCollapseOverrides] = useState<Record<string, boolean>>({});
   const isGiant = (e: FileEntry) => e.additions + e.deletions >= GIANT_CHANGED_LINES;
-  const collapsedFor = (e: FileEntry) => collapseOverrides[e.path] ?? isGiant(e);
+  // Collapsed when explicitly overridden, else when viewed (#1) or giant.
+  const collapsedFor = (e: FileEntry) => collapseOverrides[e.path] ?? (viewedFiles.has(e.path) || isGiant(e));
   const toggleCollapse = (path: string) => {
     const e = files.find((f) => f.path === path);
-    setCollapseOverrides((o) => ({ ...o, [path]: !(o[path] ?? (e ? isGiant(e) : false)) }));
+    const current = collapseOverrides[path] ?? (e ? viewedFiles.has(path) || isGiant(e) : false);
+    setCollapseOverrides((o) => ({ ...o, [path]: !current }));
   };
   // Toggling viewed collapses the file. Anchor the clicked header to its
   // pre-click viewport position so the Viewed button stays under the cursor
   // (no scroll jump) — whether the header was stuck at the top mid-file or sat
   // lower in the pane.
   const handleToggleViewed = (path: string) => {
-    const willView = !viewedFiles.has(path);
     const pane = paneRef.current;
     const header = sectionRefs.current.get(path)?.firstElementChild as HTMLElement | undefined;
     const before = pane && header ? header.getBoundingClientRect().top : null;
-    onToggleViewed(path);
-    setCollapseOverrides((o) => ({ ...o, [path]: willView }));
+    onToggleViewed(path); // collapse follows viewed via collapsedFor (#1)
     if (pane && header && before != null) {
       // setTimeout (not rAF) so it still runs if the window is occluded.
       setTimeout(() => {
@@ -340,7 +325,9 @@ export const DiffPane = memo(function DiffPane({
           registerRef={registerRef}
         />
       ))}
-      <div aria-hidden style={{ height: padBottom }} />
+      {/* Small bottom breathing room — not a full viewport, so you can't scroll
+          into a blank white screen past the last file. (#7) */}
+      <div aria-hidden className="h-16" />
     </div>
   );
 });
