@@ -7,6 +7,31 @@
 
 ---
 
+## Amendment — 2026-06-26 (as built)
+
+During implementation + live testing the picker moved from a separate window to an
+**in-window ⌘K command palette**. The seam, registry, and CLI design below are unchanged;
+the picker-*presentation* parts are superseded as follows:
+
+- **No separate `picker` window.** A `CommandPalette` modal is mounted (only while open, so
+  each open is fresh) in every window and toggled by ⌘K/⌘O or the top-bar repo pill. The
+  new-review drill folds into it as pages (repo → worktree), defaulting to **All changes** —
+  the mode step is dropped.
+- **Cold launch / bare `delta`** opens a singleton **`home` window** (label `home`) that hosts
+  the palette; macOS dock-reopen (`RunEvent::Reopen`) restores it. `delta .` still opens the
+  review window directly. Window labels are now `home` + `review-<id>`.
+- Commands `show_picker`/`hide_picker` are removed (toggling is in-window). `import_repo` is
+  **async** (the native folder dialog runs off the main thread via `spawn_blocking`, else it
+  deadlocks the event loop). `ReviewSession.repoName` / `launch::repo_display_name` carry the
+  canonical repo name (the **main worktree's** dir name) for the pill, which shows
+  `repo ⎇ branch` (a git-branch glyph, not `/`). Capabilities add
+  `core:window:allow-start-dragging` (needed for `data-tauri-drag-region`).
+
+Everything else (§4.1 `open_target_window` seam, §5 registry, §7 CLI/single-instance, §9–§12)
+holds as written.
+
+---
+
 ## 1. Summary
 
 Plan 3 replaces the stopgap "Repo path" box in `Workspace.tsx` with the real launch experience and makes delta a genuine multi-document app:
