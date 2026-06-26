@@ -82,15 +82,22 @@ function FileSection({
       className="border-b border-border/70"
       style={{ contentVisibility: near ? "visible" : "auto", containIntrinsicSize: `auto ${estPx}px` }}
     >
-      <div className={`sticky top-0 z-10 flex items-center gap-1 border-b border-border/70 bg-background/85 px-3 py-2 backdrop-blur transition-opacity ${viewed ? "opacity-55" : ""}`}>
+      <div className={`group sticky top-0 z-10 flex items-center gap-1 border-b border-border/70 bg-background/85 px-3 py-2 backdrop-blur transition-opacity ${viewed ? "opacity-55" : ""}`}>
+        {/* Full-box collapse target: an absolutely-positioned button fills the
+            header including its padding, so hover + click land anywhere in the
+            box (not just over the filename). The visible content sits above it
+            (pointer-events-none, so clicks fall through to the button); the
+            action buttons are `relative` so they stay on top and keep their own
+            clicks. Real <button> + aria-expanded preserves keyboard a11y. */}
         <button
           type="button"
-          className="group flex min-w-0 flex-1 items-center gap-2 text-left"
+          className="absolute inset-0"
           onClick={() => onToggleCollapse(entry.path)}
           aria-label={collapsed ? `expand ${entry.path}` : `collapse ${entry.path}`}
           aria-expanded={!collapsed}
           title={collapsed ? "Expand" : "Collapse"}
-        >
+        />
+        <span className="pointer-events-none relative flex min-w-0 flex-1 items-center gap-2">
           <span className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors group-hover:bg-foreground/[0.06] group-hover:text-foreground">
             {collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
           </span>
@@ -102,11 +109,11 @@ function FileSection({
             {entry.additions > 0 && <span className="text-emerald-500">+{entry.additions}</span>}{" "}
             {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
           </span>
-        </button>
+        </span>
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
+          className="relative h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
           onClick={() => onAddFileComment(entry.path, "")}
           aria-label={`comment on ${entry.path}`}
           title="Comment on file"
@@ -116,7 +123,7 @@ function FileSection({
         <Button
           size="sm"
           variant="ghost"
-          className={`h-7 shrink-0 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+          className={`relative h-7 shrink-0 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
           onClick={() => onToggleViewed(entry.path)}
           aria-label={`viewed ${entry.path}`}
           aria-pressed={viewed}
