@@ -1,4 +1,4 @@
-import { DiffView as GitDiffView, DiffModeEnum, SplitSide } from "@git-diff-view/react";
+import { DiffViewWithMultiSelect, DiffModeEnum, SplitSide } from "@git-diff-view/react";
 import "@git-diff-view/react/styles/diff-view.css";
 import type { Anchor, Comment, FileDiff, Side } from "../types";
 import { toDiffFile } from "./toDiffFile";
@@ -6,11 +6,7 @@ import { buildExtendData } from "./commentExtendData";
 import { CommentThread } from "../review/CommentThread";
 import { CommentEditor } from "../review/CommentEditor";
 
-const sideToEnum = (s: Side): SplitSide => (s === "old" ? SplitSide.old : SplitSide.new);
 const enumToSide = (s: SplitSide): Side => (s === SplitSide.old ? "old" : "new");
-
-// Suppress unused-variable warning for sideToEnum — kept for symmetry and future use.
-void sideToEnum;
 
 export function DiffView({
   fileDiff,
@@ -44,26 +40,32 @@ export function DiffView({
 
   const extendData = buildExtendData(comments);
 
-  // Build a line anchor from a clicked widget line, capturing the line's text as snippet.
-  const anchorAt = (side: SplitSide, lineNumber: number): Anchor => {
+  // Build a range-aware anchor. When fromLineNumber === lineNumber (single-line
+  // selection), endLine is null → produces a "line" comment. When the user
+  // drags across multiple lines, endLine > startLine → "range" comment.
+  const buildAnchor = (side: SplitSide, fromLineNumber: number, lineNumber: number): Anchor => {
     const s: Side = enumToSide(side);
+    const start = Math.min(fromLineNumber, lineNumber);
+    const end = Math.max(fromLineNumber, lineNumber);
     const content = s === "old" ? fileDiff.oldContent : fileDiff.newContent;
-    const snippet = (content ?? "").split("\n")[lineNumber - 1] ?? "";
-    return { file: filePath, side: s, startLine: lineNumber, endLine: null, snippet };
+    const lines = (content ?? "").split("\n");
+    const snippet = lines.slice(start - 1, end).join("\n");
+    return { file: filePath, side: s, startLine: start, endLine: end > start ? end : null, snippet };
   };
 
   return (
-    <GitDiffView<Comment[]>
+    <DiffViewWithMultiSelect<Comment[]>
       diffFile={file}
       diffViewMode={mode === "split" ? DiffModeEnum.Split : DiffModeEnum.Unified}
       diffViewHighlight
       diffViewTheme={theme}
       diffViewAddWidget
+      enableMultiSelect
       extendData={extendData}
-      renderWidgetLine={({ side, lineNumber, onClose }) => (
+      renderWidgetLine={({ fromLineNumber, lineNumber, side, onClose }) => (
         <CommentEditor
           onSubmit={(body) => {
-            onAddComment?.(anchorAt(side, lineNumber), body);
+            onAddComment?.(buildAnchor(side, fromLineNumber, lineNumber), body);
             onClose();
           }}
           onCancel={onClose}
