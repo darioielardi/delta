@@ -1,6 +1,6 @@
 // src/diff/DiffPane.tsx
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Check, ChevronDown, ChevronRight, MessageSquarePlus } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Eye, FileX, MessageSquarePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "./DiffView";
 import { useFileDiffCache } from "./useFileDiffCache";
@@ -34,6 +34,10 @@ function FileSection({
   // Viewport proximity (within ~1 screen). Drives eager paint so the diff is
   // ready before it scrolls into view, instead of painting on arrival.
   const [near, setNear] = useState(false);
+  // Deleted files are hidden by default behind a reveal (their diff is just the
+  // removed file). Don't load or render it until the user asks.
+  const isDeleted = entry.status === "deleted";
+  const [revealed, setRevealed] = useState(false);
   const fileComments = comments.filter((c) => c.scope === "file" && c.anchor?.file === entry.path);
   const slash = entry.path.lastIndexOf("/");
   const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : "";
@@ -57,11 +61,13 @@ function FileSection({
     const io = new IntersectionObserver((entries) => {
       const isNear = entries.some((e) => e.isIntersecting);
       setNear(isNear);
-      if (isNear && !collapsed) void cache.load(entry.path);
+      if (isNear && !collapsed && (!isDeleted || revealed)) void cache.load(entry.path);
     }, { rootMargin: "800px 0px" });
     io.observe(el);
     return () => io.disconnect();
-  }, [entry.path, collapsed]);
+    // cache has stable identity (useFileDiffCache storeRef); listed to satisfy
+    // exhaustive-deps without changing behavior.
+  }, [entry.path, collapsed, isDeleted, revealed, cache]);
 
   // Far sections use content-visibility:auto so the engine skips their
   // layout/paint (keeps scroll smooth and pane-resize reflow cheap). Near ones
@@ -133,7 +139,20 @@ function FileSection({
       )}
       {!collapsed && (
         <div className="min-h-8">
-          {fd ? (
+          {isDeleted && !revealed ? (
+            <div className="flex items-center gap-3 px-3 py-4 text-[13px] text-muted-foreground">
+              <FileX className="size-4 shrink-0 text-rose-500/80" />
+              <span>File deleted</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+                onClick={() => { setRevealed(true); void cache.load(entry.path); }}
+              >
+                <Eye className="size-4" /> Show deleted content
+              </Button>
+            </div>
+          ) : fd ? (
             <DiffView
               fileDiff={fd}
               filePath={entry.path}

@@ -14,6 +14,7 @@ const SUMMARY: DiffSummary = {
     { path: "src/auth/session.ts", status: "modified", additions: 3, deletions: 2, binary: false },
     { path: "src/auth/login.ts", status: "modified", additions: 1, deletions: 0, binary: false },
     { path: "src/api/routes.ts", status: "modified", additions: 2, deletions: 2, binary: false },
+    { path: "src/legacy/cache.ts", status: "deleted", additions: 0, deletions: 9, binary: false },
     { path: "README.md", status: "added", additions: 3, deletions: 0, binary: false },
   ],
 };
@@ -70,6 +71,19 @@ const FILES: Record<string, FileDiff> = {
     binary: false,
     oldContent: ROUTES_OLD,
     newContent: ROUTES_NEW,
+  },
+  // Deleted file: only old content exists. Used to verify deleted files are
+  // hidden behind a reveal (item 3) rather than rendered/collapsed like others.
+  "src/legacy/cache.ts": {
+    oldFileName: "src/legacy/cache.ts",
+    newFileName: null,
+    oldLang: "typescript",
+    newLang: null,
+    status: "deleted",
+    binary: false,
+    oldContent:
+      "const store = new Map()\n\nexport function get(key) {\n  return store.get(key)\n}\n\nexport function set(key, value) {\n  store.set(key, value)\n}\n",
+    newContent: null,
   },
   "README.md": {
     oldFileName: null,
