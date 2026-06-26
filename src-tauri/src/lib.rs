@@ -15,7 +15,17 @@ pub fn run() {
             let args: Vec<String> = argv.into_iter().skip(1).collect();
             crate::launch::route_launch(app, &args, std::path::Path::new(&cwd));
         }))
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Restore size/position but NOT visibility — windows are created hidden
+        // and shown by the frontend after first paint (cold-start flash fix), so
+        // the plugin must not re-show them early.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::all()
+                        & !tauri_plugin_window_state::StateFlags::VISIBLE,
+                )
+                .build(),
+        )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![

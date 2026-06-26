@@ -142,6 +142,7 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
         .title("delta")
+        .visible(false) // shown by the frontend after first paint (no white flash)
         .inner_size(1440.0, 900.0)
         .min_inner_size(900.0, 600.0);
     #[cfg(target_os = "macos")]
@@ -149,7 +150,7 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
         builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true)
-            .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0));
+            .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
     }
     builder.build().map_err(|e| format!("create window: {e}"))?;
     Ok(())
@@ -166,6 +167,7 @@ pub fn open_home_window(app: &AppHandle) -> Result<(), String> {
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, "home", WebviewUrl::App("index.html".into()))
         .title("delta")
+        .visible(false) // shown by the frontend after first paint (no white flash)
         .inner_size(1000.0, 680.0)
         .min_inner_size(800.0, 560.0)
         .center();
@@ -174,7 +176,7 @@ pub fn open_home_window(app: &AppHandle) -> Result<(), String> {
         builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true)
-            .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0));
+            .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
     }
     builder.build().map_err(|e| format!("create home window: {e}"))?;
     Ok(())
