@@ -1,8 +1,10 @@
 use crate::git::model::DiffMode;
 use crate::git::{open_repo, resolve_base, resolve_worktree};
 use crate::registry::model::{repo_name_from_path, RepoEntry, WorktreeEntry};
+use crate::review::model::review_id;
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Launch {
@@ -87,10 +89,102 @@ pub fn repo_entry(repo_path: &str) -> Result<RepoEntry, String> {
     Ok(RepoEntry { id, root, name, default_branch, worktrees })
 }
 
+/// Minimal percent-encoder for URL query values (RFC 3986 unreserved set preserved).
+pub fn enc(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{:02X}", b)),
+        }
+    }
+    out
+}
+
+/// The single choke point for "open this target". Focus-or-create, ≤1 per target.
+pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base: Option<String>) -> Result<(), String> {
+    let repo = open_repo(repo_path)?;
+    let canonical = repo
+        .workdir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| repo_path.to_string());
+    let worktree = resolve_worktree(&repo)?;
+    let id = review_id(&canonical, &worktree, mode);
+    let label = format!("review-{id}");
+    if let Some(w) = app.get_webview_window(&label) {
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    let mut url = format!("index.html?repo={}&mode={}", enc(&canonical), mode.as_str());
+    if let Some(b) = base.as_deref() {
+        url.push_str(&format!("&base={}", enc(b)));
+    }
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
+        .title("delta")
+        .inner_size(1440.0, 900.0)
+        .min_inner_size(900.0, 600.0);
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true)
+            .traffic_light_position(tauri::LogicalPosition::new(19.0, 18.0));
+    }
+    builder.build().map_err(|e| format!("create window: {e}"))?;
+    Ok(())
+}
+
+pub fn show_picker(app: &AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("picker") {
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(app, "picker", WebviewUrl::App("index.html".into()))
+        .title("delta")
+        .inner_size(760.0, 560.0)
+        .min_inner_size(560.0, 420.0)
+        .center();
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true);
+    }
+    builder.build().map_err(|e| format!("create picker: {e}"))?;
+    Ok(())
+}
+
+pub fn hide_picker(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("picker") {
+        let _ = w.hide();
+    }
+}
+
+/// First-launch + single-instance routing.
+pub fn route_launch(app: &AppHandle, args: &[String], cwd: &Path) {
+    let launch = parse_launch(args, cwd);
+    let path = launch.repo_path.to_string_lossy().to_string();
+    let opened = open_repo(&path).is_ok() && open_target_window(app, &path, launch.mode, None).is_ok();
+    if !opened {
+        let _ = show_picker(app);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::git::test_support::*;
+
+    #[test]
+    fn enc_percent_encodes_path_separators_and_spaces() {
+        assert_eq!(enc("/Users/me/my proj"), "%2FUsers%2Fme%2Fmy%20proj");
+        assert_eq!(enc("feat/auth"), "feat%2Fauth");
+        assert_eq!(enc("a-b_c.d~e"), "a-b_c.d~e");
+    }
 
     #[test]
     fn list_worktrees_returns_main_only_for_simple_repo() {

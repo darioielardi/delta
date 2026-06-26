@@ -1,8 +1,11 @@
 use crate::export::export_markdown;
 use crate::git::diff::{compute_diff as engine_compute, get_file_diff as engine_file, DiffSummary, FileDiff};
-use crate::git::model::Target;
+use crate::git::model::{DiffMode, Target};
 use crate::git::{open_repo, resolve_worktree};
-use crate::launch::{list_worktrees as launch_list_worktrees, repo_entry};
+use crate::launch::{
+    hide_picker as launch_hide_picker, list_worktrees as launch_list_worktrees, open_target_window,
+    repo_entry, show_picker as launch_show_picker,
+};
 use crate::registry::model::{repo_name_from_path, Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
 use crate::review::reconcile::{reconcile, ReviewSession};
@@ -163,7 +166,11 @@ pub fn save_review(app: tauri::AppHandle, review: Review) -> Result<(), String> 
 #[tauri::command]
 pub fn delete_review(app: tauri::AppHandle, id: String) -> Result<(), String> {
     let storage = JsonStorage::new(reviews_dir(&app)?);
-    delete_review_impl(&storage, &reg_store(&app)?, &id)
+    delete_review_impl(&storage, &reg_store(&app)?, &id)?;
+    if let Some(w) = app.get_webview_window(&format!("review-{id}")) {
+        let _ = w.close();
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -197,6 +204,21 @@ pub fn import_repo(app: tauri::AppHandle) -> Result<Option<RepoEntry>, String> {
     reg.upsert_repo(entry.clone());
     store.save(&reg)?;
     Ok(Some(entry))
+}
+
+#[tauri::command]
+pub fn open_target(app: tauri::AppHandle, repo_path: String, mode: DiffMode, base: Option<String>) -> Result<(), String> {
+    open_target_window(&app, &repo_path, mode, base)
+}
+
+#[tauri::command]
+pub fn show_picker(app: tauri::AppHandle) -> Result<(), String> {
+    launch_show_picker(&app)
+}
+
+#[tauri::command]
+pub fn hide_picker(app: tauri::AppHandle) {
+    launch_hide_picker(&app);
 }
 
 #[cfg(test)]
