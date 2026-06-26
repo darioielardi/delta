@@ -33,18 +33,30 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [isReview]);
 
-  // Once a review window is up, close the launch window (#10). Windows are
-  // created visible (the macOS window background follows the system theme, so
-  // no white flash) — and crucially, NOT hiding/showing keeps the native
-  // traffic-light position from resetting. Skipped under the browser mock.
+  // Windows are created hidden (Rust visible:false); show()+setFocus() reveals
+  // and activates after React commits — a real show (orderFront) that works even
+  // when `cargo run`/tauri-dev launched the app in the background, where show()
+  // on an already-visible window is a no-op and setFocus() can't steal focus.
+  // Call show() directly, NOT via rAF (a hidden window isn't composited, so rAF
+  // never fires). Then close the launcher (#10). Skipped under the browser mock.
   useEffect(() => {
-    if (import.meta.env.VITE_MOCK_IPC || !isReview) return;
+    if (import.meta.env.VITE_MOCK_IPC) return;
+    let w: ReturnType<typeof getCurrentWindow>;
+    try {
+      w = getCurrentWindow();
+    } catch {
+      return; // not in a Tauri window (tests / plain browser)
+    }
     void (async () => {
       try {
-        const home = await WebviewWindow.getByLabel("home");
-        if (home) await home.close();
+        await w.show();
+        await w.setFocus();
+        if (isReview) {
+          const home = await WebviewWindow.getByLabel("home");
+          if (home) await home.close();
+        }
       } catch {
-        /* not in a Tauri window / close not permitted — ignore */
+        /* not in a Tauri window / not permitted — ignore */
       }
     })();
   }, [isReview]);
