@@ -106,13 +106,23 @@ function FileSection({
             {dir && <span className="text-muted-foreground">{dir}</span>}
             <span className="font-semibold text-foreground">{base}</span>
           </span>
-          <span className="shrink-0 text-[12px] tabular-nums">
-            {entry.additions > 0 && <span className="text-emerald-500">+{entry.additions}</span>}{" "}
-            {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
-          </span>
         </span>
-        {/* Right actions, left→right: diff counts (in the content span above) ·
-            mark-as-viewed · add file comment. */}
+        {/* Right actions, left→right: diff counts · add file comment · mark viewed.
+            Counts stay pointer-events-none so a header click still collapses. */}
+        <span className="pointer-events-none relative shrink-0 text-[12px] tabular-nums">
+          {entry.additions > 0 && <span className="text-emerald-500">+{entry.additions}</span>}{" "}
+          {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
+        </span>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="relative h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
+          onClick={() => onAddFileComment(entry.path, "")}
+          aria-label={`comment on ${entry.path}`}
+          title="Comment on file"
+        >
+          <MessageSquarePlus className="size-4" />
+        </Button>
         <Button
           size="sm"
           variant="ghost"
@@ -126,16 +136,6 @@ function FileSection({
             {viewed && <Check className="size-3" strokeWidth={3} />}
           </span>
           Viewed
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="relative h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
-          onClick={() => onAddFileComment(entry.path, "")}
-          aria-label={`comment on ${entry.path}`}
-          title="Comment on file"
-        >
-          <MessageSquarePlus className="size-4" />
         </Button>
       </div>
       {fileComments.length > 0 && (
