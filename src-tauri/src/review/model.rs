@@ -1,4 +1,4 @@
-use crate::git::model::{DiffMode, Target};
+use crate::git::model::Target;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
@@ -91,14 +91,13 @@ impl Review {
     }
 }
 
-/// Stable review id: first 16 hex chars of SHA-256(repoPath \0 worktree \0 mode).
-pub fn review_id(repo_path: &str, worktree: &str, mode: DiffMode) -> String {
+/// Stable review id: first 16 hex chars of SHA-256(repoPath \0 worktree).
+/// Mode is intentionally excluded — one review per (repo, worktree).
+pub fn review_id(repo_path: &str, worktree: &str) -> String {
     let mut h = Sha256::new();
     h.update(repo_path.as_bytes());
     h.update([0]);
     h.update(worktree.as_bytes());
-    h.update([0]);
-    h.update(mode.as_str().as_bytes());
     let digest = h.finalize();
     digest[..8].iter().map(|b| format!("{:02x}", b)).collect()
 }
@@ -106,17 +105,16 @@ pub fn review_id(repo_path: &str, worktree: &str, mode: DiffMode) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::model::DiffMode;
 
     #[test]
-    fn review_id_is_stable_16_hex() {
-        let a = review_id("/Users/me/p", "main", DiffMode::AllChanges);
-        let b = review_id("/Users/me/p", "main", DiffMode::AllChanges);
+    fn review_id_is_stable_and_mode_independent() {
+        let a = review_id("/Users/me/p", "main");
+        let b = review_id("/Users/me/p", "main");
         assert_eq!(a, b);
         assert_eq!(a.len(), 16);
         assert!(a.chars().all(|c| c.is_ascii_hexdigit()));
-        // mode participates in the key
-        assert_ne!(a, review_id("/Users/me/p", "main", DiffMode::Uncommitted));
+        // worktree participates; mode is no longer part of the id (no arg).
+        assert_ne!(a, review_id("/Users/me/p", "feat"));
     }
 
     #[test]

@@ -27,7 +27,7 @@ pub fn reconcile(mut review: Review) -> Result<ReviewSession, GitError> {
     let repo = open_repo(&review.target.repo_path)?;
     let worktree = resolve_worktree(&repo)?;
     review.target.worktree = Some(worktree.clone());
-    review.id = review_id(&review.target.repo_path, &worktree, review.target.mode);
+    review.id = review_id(&review.target.repo_path, &worktree);
 
     let summary = compute_diff(&review.target)?;
     let present: std::collections::HashSet<String> =

@@ -128,7 +128,7 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| repo_path.to_string());
     let worktree = resolve_worktree(&repo)?;
-    let id = review_id(&canonical, &worktree, mode);
+    let id = review_id(&canonical, &worktree);
     let label = format!("review-{id}");
     if let Some(w) = app.get_webview_window(&label) {
         let _ = w.show();

@@ -32,7 +32,7 @@ pub fn open_review_impl(storage: &dyn Storage, input: Target) -> Result<ReviewSe
     let worktree = resolve_worktree(&repo)?;
     let mut target = input;
     target.worktree = Some(worktree.clone());
-    let id = review_id(&target.repo_path, &worktree, target.mode);
+    let id = review_id(&target.repo_path, &worktree);
 
     let review = match storage.load(&id)? {
         // Trust the freshly-resolved target (mode / repo / worktree); only the
