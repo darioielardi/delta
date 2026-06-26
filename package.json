@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "doctor": "react-doctor",
+    "prepare": "husky"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",
@@ -45,6 +47,8 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "happy-dom": "^20.10.6",
+    "husky": "^9.1.7",
+    "react-doctor": "^0.5.8",
     "typescript": "~5.8.3",
     "vite": "^7.0.4",
     "vitest": "^4.1.9"

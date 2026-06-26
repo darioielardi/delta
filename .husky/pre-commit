@@ -1,0 +1,4 @@
+# Block commits that introduce React error-level issues on the lines you changed.
+# Backlog in untouched code is ignored (scope: changed lines only); fast (~0.4s).
+# Full project scan: `pnpm doctor`  ·  docs: https://react.doctor
+pnpm exec react-doctor --staged --scope lines --blocking error --no-score -y
