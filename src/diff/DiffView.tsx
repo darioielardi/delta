@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { DiffViewWithMultiSelect, DiffModeEnum, SplitSide } from "@git-diff-view/react";
 import type { DiffViewWithMultiSelectRef } from "@git-diff-view/react";
 // diff-view.css is imported in index.css (into the `gdv` cascade layer).
@@ -30,18 +30,26 @@ export function DiffView({
 }) {
   const ref = useRef<DiffViewWithMultiSelectRef>(null);
 
-  if (fileDiff.binary) {
+  // Build + tokenize the diff model once per (fileDiff, mode, theme). This is
+  // the expensive step (parse, diff, syntax highlight); doing it every render —
+  // as happens when a sibling state change re-renders the pane — measured as the
+  // dominant cost on large reviews, so memoize explicitly rather than trusting
+  // the compiler to cache these mutating calls.
+  const file = useMemo(() => {
+    if (fileDiff.binary) return null;
+    const f = toDiffFile(fileDiff); // adapter already calls .init()
+    f.initTheme(theme);
+    mode === "split" ? f.buildSplitDiffLines() : f.buildUnifiedDiffLines();
+    return f;
+  }, [fileDiff, mode, theme]);
+
+  const extendData = useMemo(() => buildExtendData(comments), [comments]);
+
+  if (fileDiff.binary || !file) {
     return (
       <div className="text-muted-foreground p-6 text-sm">Binary file — not shown</div>
     );
   }
-
-  // No useMemo — React Compiler handles memoization (Global Constraints).
-  const file = toDiffFile(fileDiff); // adapter already calls .init()
-  file.initTheme(theme);
-  mode === "split" ? file.buildSplitDiffLines() : file.buildUnifiedDiffLines();
-
-  const extendData = buildExtendData(comments);
 
   // Build a range-aware anchor. endLine is null for a single line, > startLine
   // for a multi-line range; the snippet is sliced from that side's content.

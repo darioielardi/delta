@@ -1,5 +1,5 @@
 // src/workspace/Workspace.tsx
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { api } from "../api";
 import { FilesPanel } from "../files/FilesPanel";
@@ -82,12 +82,33 @@ export function Workspace() {
     }
   }
 
-  function jumpTo(c: Comment) {
-    // Inset panel stays open so the user can move between comments.
+  // Stable handler identities so FilesPanel/DiffPane/CommentIndex keep their
+  // memoization — otherwise toggling the comments pane (Workspace state) would
+  // hand DiffPane new callbacks and re-render every mounted file section.
+  const onSelectFile = useCallback((p: string) => setJump({ file: p, n: Date.now() }), []);
+  const onToggleViewedFile = useCallback((file: string) => toggleViewed(file, ""), [toggleViewed]);
+  const onAddComment = useCallback(
+    (anchor: Anchor, body: string) => addComment(anchor.endLine != null ? "range" : "line", anchor, body),
+    [addComment],
+  );
+  const onAddFileComment = useCallback(
+    (file: string, body: string) =>
+      addComment("file", { file, side: "new", startLine: null, endLine: null, snippet: null }, body),
+    [addComment],
+  );
+  // Inset panel stays open so the user can move between comments.
+  const onJump = useCallback((c: Comment) => {
     if (c.anchor?.file) setJump({ file: c.anchor.file, commentId: c.id, n: Date.now() });
-  }
+  }, []);
 
-  const viewedFiles = new Set((review?.viewed ?? []).map((v) => v.file));
+  // Stable across renders unless `viewed` actually changes — so toggling the
+  // comments pane (or any unrelated Workspace state) doesn't hand DiffPane a new
+  // Set and force the whole diff to re-render. (A new Set() here was making every
+  // pane open/close re-render all mounted file sections.)
+  const viewedFiles = useMemo(
+    () => new Set((review?.viewed ?? []).map((v) => v.file)),
+    [review?.viewed],
+  );
   const comments = review?.comments ?? [];
   // General notes were removed; ignore any legacy ones in the count/export gate.
   const commentCount = comments.filter((c) => c.scope !== "general").length;
@@ -184,9 +205,9 @@ export function Workspace() {
               <FilesPanel
                 files={summary.files}
                 selected={null}
-                onSelect={(p) => setJump({ file: p, n: Date.now() })}
+                onSelect={onSelectFile}
                 viewedFiles={viewedFiles}
-                onToggleViewed={(file) => toggleViewed(file, "")}
+                onToggleViewed={onToggleViewedFile}
               />
             </aside>
             <main className="min-h-0 min-w-0 flex-1">
@@ -197,15 +218,9 @@ export function Workspace() {
                 viewedFiles={viewedFiles}
                 theme={theme}
                 jump={jump}
-                onToggleViewed={(file) => toggleViewed(file, "")}
-                onAddComment={(anchor: Anchor, body: string) =>
-                  // buildAnchor sets endLine non-null only for a multi-line range; file
-                  // scope is created via onAddFileComment, never here.
-                  addComment(anchor.endLine != null ? "range" : "line", anchor, body)
-                }
-                onAddFileComment={(file: string, body: string) =>
-                  addComment("file", { file, side: "new", startLine: null, endLine: null, snippet: null }, body)
-                }
+                onToggleViewed={onToggleViewedFile}
+                onAddComment={onAddComment}
+                onAddFileComment={onAddFileComment}
                 onEditComment={updateCommentBody}
                 onDeleteComment={deleteComment}
               />
@@ -214,7 +229,7 @@ export function Workspace() {
               open={indexOpen}
               onOpenChange={setIndexOpen}
               comments={comments}
-              onJump={jumpTo}
+              onJump={onJump}
             />
           </>
         ) : (

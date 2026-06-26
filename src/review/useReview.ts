@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import type { Anchor, Comment, CommentScope, Review } from "../types";
 
@@ -12,26 +12,29 @@ export function useReview(initial: Review | null) {
 
   useEffect(() => setReview(initial), [initial]);
 
-  function saveNow() {
+  // All actions are stable (useCallback over refs / stable setters) so consumers
+  // that pass them down don't get new function identities every render — that
+  // was forcing the whole diff pane to re-render on unrelated state changes.
+  const saveNow = useCallback(() => {
     if (timer.current) {
       clearTimeout(timer.current);
       timer.current = null;
     }
     if (latest.current) void api.saveReview(latest.current);
-  }
+  }, []);
 
-  function saveDebounced() {
+  const saveDebounced = useCallback(() => {
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => {
       if (latest.current) void api.saveReview(latest.current);
     }, DEBOUNCE_MS);
-  }
+  }, []);
 
   useEffect(() => () => {
     if (timer.current) clearTimeout(timer.current);
   }, []);
 
-  function mutate(fn: (r: Review) => Review, save: "now" | "debounced") {
+  const mutate = useCallback((fn: (r: Review) => Review, save: "now" | "debounced") => {
     setReview((r) => {
       if (!r) return r;
       const next = fn(r);
@@ -39,9 +42,9 @@ export function useReview(initial: Review | null) {
       return next;
     });
     save === "now" ? saveNow() : saveDebounced();
-  }
+  }, [saveNow, saveDebounced]);
 
-  function addComment(scope: CommentScope, anchor: Anchor | null, body: string) {
+  const addComment = useCallback((scope: CommentScope, anchor: Anchor | null, body: string) => {
     const now = new Date().toISOString();
     const comment: Comment = {
       id: crypto.randomUUID(),
@@ -54,27 +57,27 @@ export function useReview(initial: Review | null) {
     };
     mutate((r) => ({ ...r, comments: [...r.comments, comment] }), "now");
     return comment.id;
-  }
+  }, [mutate]);
 
-  function updateCommentBody(id: string, body: string) {
+  const updateCommentBody = useCallback((id: string, body: string) => {
     const now = new Date().toISOString();
     mutate(
       (r) => ({ ...r, comments: r.comments.map((c) => (c.id === id ? { ...c, body, updatedAt: now } : c)) }),
       "debounced",
     );
-  }
+  }, [mutate]);
 
-  function deleteComment(id: string) {
+  const deleteComment = useCallback((id: string) => {
     mutate((r) => ({ ...r, comments: r.comments.filter((c) => c.id !== id) }), "now");
-  }
+  }, [mutate]);
 
-  function toggleViewed(file: string, diffHash: string) {
+  const toggleViewed = useCallback((file: string, diffHash: string) => {
     mutate((r) => {
       const exists = r.viewed.some((v) => v.file === file);
       const viewed = exists ? r.viewed.filter((v) => v.file !== file) : [...r.viewed, { file, diffHash }];
       return { ...r, viewed };
     }, "now");
-  }
+  }, [mutate]);
 
   return { review, setReview, addComment, updateCommentBody, deleteComment, toggleViewed };
 }
