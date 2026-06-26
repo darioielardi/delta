@@ -12,9 +12,11 @@ describe("App routing", () => {
     window.history.replaceState({}, "", "/");
   });
 
-  it("opens the home window with the command palette up", async () => {
+  it("opens the home launcher without the command palette", async () => {
     render(<App />);
     expect(screen.getByTestId("home-root")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByTestId("command-palette")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /import/i })).toBeInTheDocument());
+    // ⌘K palette is not auto-opened on the launch screen (#6).
+    expect(screen.queryByTestId("command-palette")).not.toBeInTheDocument();
   });
 });
