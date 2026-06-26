@@ -299,7 +299,10 @@ export const DiffPane = memo(function DiffPane({
           return;
         }
       }
-      sec?.scrollIntoView({ behavior: commentId ? "auto" : "smooth", block: "start" });
+      // Always instant: file-tree navigation should jump, not animate. (The
+      // comment-jump path already centers instantly via centerOn; this is its
+      // fallback when the node never mounts, and was already "auto" there.)
+      sec?.scrollIntoView({ behavior: "auto", block: "start" });
     };
     attempt(0, -1);
     return () => clearTimeout(jumpTimer.current);
