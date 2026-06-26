@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import Markdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { CommentEditor } from "./CommentEditor";
@@ -13,35 +13,45 @@ export function CommentThread({
   onEdit: (id: string, body: string) => void;
   onDelete: (id: string) => void;
 }) {
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // The open editor, plus whether its comment was blank when it opened.
+  // Cancelling a comment that opened blank and is still blank discards it — a
+  // never-saved draft shouldn't leave an empty note behind. A comment that had
+  // content when opened is never deleted on cancel (abandoning an edit is safe).
+  const [editing, setEditing] = useState<{ id: string; wasBlank: boolean } | null>(null);
+  const open = (c: Comment) => setEditing({ id: c.id, wasBlank: c.body.trim() === "" });
+  const close = () => setEditing(null);
 
-  // Auto-open the editor for a freshly created (empty) comment so a draft is
-  // editable the instant it appears — and stays persisted even if left blank.
-  const seen = useRef<Set<string>>(new Set());
-  useEffect(() => {
-    for (const c of comments) {
-      if (seen.current.has(c.id)) continue;
-      seen.current.add(c.id);
-      if (c.body.trim() === "") setEditingId(c.id);
-    }
-  }, [comments]);
+  // Auto-open the editor for a newly-appeared empty (draft) comment. Adjusted
+  // during render — not in an effect — so the editor opens in the same commit
+  // with no stale-UI flash. `seen` both guards against re-opening a comment the
+  // user already closed and prevents a render loop.
+  const [seen, setSeen] = useState<ReadonlySet<string>>(() => new Set());
+  if (comments.some((c) => !seen.has(c.id))) {
+    const draft = comments.find((c) => !seen.has(c.id) && c.body.trim() === "");
+    setSeen(new Set(comments.map((c) => c.id)));
+    if (draft) setEditing({ id: draft.id, wasBlank: true });
+  }
 
   return (
     <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70 bg-card/60 text-[13px] shadow-sm">
       {comments.map((c) =>
-        editingId === c.id ? (
+        editing?.id === c.id ? (
           <div key={c.id} data-comment-id={c.id} className="p-1">
             <CommentEditor
               initialValue={c.body}
               onChange={(body) => onEdit(c.id, body)}
               onSubmit={(body) => {
                 onEdit(c.id, body);
-                setEditingId(null);
+                close();
               }}
-              onCancel={() => setEditingId(null)}
+              onCancel={() => {
+                // Discard a never-saved draft that's still blank.
+                if (editing.wasBlank && c.body.trim() === "") onDelete(c.id);
+                close();
+              }}
               onDelete={() => {
                 onDelete(c.id);
-                setEditingId(null);
+                close();
               }}
             />
           </div>
@@ -53,7 +63,7 @@ export function CommentThread({
             {c.body.trim() === "" ? (
               <button
                 className="self-start text-[13px] italic text-muted-foreground/70 transition-colors hover:text-foreground"
-                onClick={() => setEditingId(c.id)}
+                onClick={() => open(c)}
               >
                 Empty note — click to edit
               </button>
@@ -63,7 +73,7 @@ export function CommentThread({
               </div>
             )}
             <div className="mt-0.5 flex gap-1">
-              <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground" onClick={() => setEditingId(c.id)}>Edit</Button>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground" onClick={() => open(c)}>Edit</Button>
               <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => onDelete(c.id)}>Delete</Button>
             </div>
           </div>
