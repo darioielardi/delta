@@ -138,7 +138,10 @@ export function Workspace() {
                 scrollToFile={scrollToFile?.split("#")[0] ?? null}
                 onToggleViewed={(file) => toggleViewed(file, "")}
                 onAddComment={(anchor: Anchor, body: string) =>
-                  addComment(anchor.startLine == null ? "file" : "line", anchor, body)
+                  addComment("line", anchor, body)
+                }
+                onAddFileComment={(file: string, body: string) =>
+                  addComment("file", { file, side: "new", startLine: null, endLine: null, snippet: null }, body)
                 }
                 onEditComment={updateCommentBody}
                 onDeleteComment={deleteComment}

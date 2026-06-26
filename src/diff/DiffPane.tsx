@@ -1,8 +1,11 @@
 // src/diff/DiffPane.tsx
-import { useEffect, useRef } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, MessageSquarePlus } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { DiffView } from "./DiffView";
 import { useFileDiffCache } from "./useFileDiffCache";
+import { CommentThread } from "../review/CommentThread";
+import { CommentEditor } from "../review/CommentEditor";
 import type { Anchor, Comment, FileEntry, Target } from "../types";
 
 function commentsForFile(comments: Comment[], file: string): Comment[] {
@@ -10,16 +13,20 @@ function commentsForFile(comments: Comment[], file: string): Comment[] {
 }
 
 function FileSection({
-  entry, cache, comments, viewed, theme, onToggleViewed, onAddComment, onEditComment, onDeleteComment, registerRef,
+  entry, cache, comments, viewed, theme, onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment, registerRef,
 }: {
   entry: FileEntry; cache: ReturnType<typeof useFileDiffCache>;
   comments: Comment[]; viewed: boolean; theme: "light" | "dark";
   onToggleViewed: (file: string) => void;
-  onAddComment: (a: Anchor, body: string) => void; onEditComment: (id: string, body: string) => void; onDeleteComment: (id: string) => void;
+  onAddComment: (a: Anchor, body: string) => void;
+  onAddFileComment: (file: string, body: string) => void;
+  onEditComment: (id: string, body: string) => void; onDeleteComment: (id: string) => void;
   registerRef: (file: string, el: HTMLDivElement | null) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [showFileEditor, setShowFileEditor] = useState(false);
   const fd = cache.get(entry.path);
+  const fileComments = comments.filter((c) => c.scope === "file" && c.anchor?.file === entry.path);
 
   useEffect(() => {
     registerRef(entry.path, ref.current);
@@ -51,6 +58,34 @@ function FileSection({
           {entry.deletions > 0 && <span className="text-red-600">−{entry.deletions}</span>}
         </span>
       </div>
+      <div className="px-3 py-1.5">
+        {fileComments.length > 0 && (
+          <CommentThread
+            comments={fileComments}
+            onEdit={onEditComment}
+            onDelete={onDeleteComment}
+          />
+        )}
+        {showFileEditor ? (
+          <CommentEditor
+            onSubmit={(body) => {
+              onAddFileComment(entry.path, body);
+              setShowFileEditor(false);
+            }}
+            onCancel={() => setShowFileEditor(false)}
+          />
+        ) : (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-1.5 text-[11px] text-muted-foreground"
+            onClick={() => setShowFileEditor(true)}
+          >
+            <MessageSquarePlus className="size-3 mr-1" />
+            Comment on file
+          </Button>
+        )}
+      </div>
       {!viewed && (
         <div className="min-h-8">
           {fd ? (
@@ -75,12 +110,14 @@ function FileSection({
 
 export function DiffPane({
   target, files, comments, viewedFiles, theme, scrollToFile,
-  onToggleViewed, onAddComment, onEditComment, onDeleteComment,
+  onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment,
 }: {
   target: Target; files: FileEntry[]; comments: Comment[]; viewedFiles: Set<string>;
   theme: "light" | "dark"; scrollToFile?: string | null;
   onToggleViewed: (file: string) => void;
-  onAddComment: (a: Anchor, body: string) => void; onEditComment: (id: string, body: string) => void; onDeleteComment: (id: string) => void;
+  onAddComment: (a: Anchor, body: string) => void;
+  onAddFileComment: (file: string, body: string) => void;
+  onEditComment: (id: string, body: string) => void; onDeleteComment: (id: string) => void;
 }) {
   const cache = useFileDiffCache(target);
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -105,6 +142,7 @@ export function DiffPane({
           theme={theme}
           onToggleViewed={onToggleViewed}
           onAddComment={onAddComment}
+          onAddFileComment={onAddFileComment}
           onEditComment={onEditComment}
           onDeleteComment={onDeleteComment}
           registerRef={registerRef}
