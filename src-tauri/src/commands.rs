@@ -29,7 +29,13 @@ pub fn open_review_impl(storage: &dyn Storage, input: Target) -> Result<ReviewSe
     let id = review_id(&target.repo_path, &worktree, target.mode);
 
     let review = match storage.load(&id)? {
-        Some(r) => r,
+        // Trust the freshly-resolved target (mode / repo / worktree); only the
+        // user's comments + viewed state carry over. A persisted review must
+        // never silently override the requested mode with a stale one.
+        Some(mut r) => {
+            r.target = target;
+            r
+        }
         None => Review::new(
             id,
             target,

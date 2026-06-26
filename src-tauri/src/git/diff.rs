@@ -273,4 +273,55 @@ mod tests {
             compute_diff(&target(dir.path().to_str().unwrap(), DiffMode::AllChanges)).unwrap();
         assert_eq!(summary.files.len(), 0);
     }
+
+    // Repro for the "uncommitted shows the whole file as new" report. The file is
+    // new relative to main but committed on the feature branch, then has a couple
+    // uncommitted edits. Uncommitted (HEAD→workdir) must show Modified, not Added.
+    #[test]
+    fn uncommitted_branch_new_file_shows_modified_not_added() {
+        let (dir, repo) = repo_with_commit(); // main: file.txt
+        // branch off and commit a brand-new file
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        repo.branch("feature", &head, false).unwrap();
+        repo.set_head("refs/heads/feature").unwrap();
+        write(dir.path(), "feature.txt", "a\nb\nc\n");
+        commit_all(&repo, "add feature.txt on feature");
+        // a couple uncommitted edits
+        write(dir.path(), "feature.txt", "a\nCHANGED\nc\n");
+
+        let summary =
+            compute_diff(&target(dir.path().to_str().unwrap(), DiffMode::Uncommitted)).unwrap();
+        let f = summary.files.iter().find(|f| f.path == "feature.txt").unwrap();
+        assert_eq!(f.status, FileStatus::Modified, "expected Modified, got {:?}", f.status);
+
+        let fd = get_file_diff(
+            &target(dir.path().to_str().unwrap(), DiffMode::Uncommitted),
+            "feature.txt",
+        )
+        .unwrap();
+        assert_eq!(fd.old_content.as_deref(), Some("a\nb\nc\n"), "old content must be HEAD's");
+    }
+
+    #[test]
+    fn uncommitted_in_linked_worktree_shows_modified_not_added() {
+        use git2::WorktreeAddOptions;
+        let (dir, repo) = repo_with_commit(); // main: file.txt
+        // create a linked worktree on a new branch
+        let wt_parent = tempfile::TempDir::new().unwrap();
+        let wt_path = wt_parent.path().join("wt");
+        let wt = repo
+            .worktree("feat", &wt_path, Some(&WorktreeAddOptions::new()))
+            .unwrap();
+        let wt_repo = Repository::open_from_worktree(&wt).unwrap();
+        // commit a brand-new file on the worktree's branch
+        write(&wt_path, "feature.txt", "a\nb\nc\n");
+        commit_all(&wt_repo, "add feature.txt in worktree");
+        // a couple uncommitted edits in the worktree
+        write(&wt_path, "feature.txt", "a\nCHANGED\nc\n");
+
+        let summary =
+            compute_diff(&target(wt_path.to_str().unwrap(), DiffMode::Uncommitted)).unwrap();
+        let f = summary.files.iter().find(|f| f.path == "feature.txt").unwrap();
+        assert_eq!(f.status, FileStatus::Modified, "expected Modified, got {:?}", f.status);
+    }
 }
