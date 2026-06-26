@@ -33,30 +33,18 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [isReview]);
 
-  // Windows are created hidden (Rust) to avoid a white flash; reveal once React
-  // has committed the themed shell. Skipped under the browser mock (no native
-  // window). Do NOT gate on requestAnimationFrame: a hidden window is not
-  // composited, so rAF never fires and the window would stay hidden forever.
-  // Once a review window is visible, close the launch window (#10) — doing it
-  // here (post-show) avoids a blank gap during the home→review handoff.
+  // Once a review window is up, close the launch window (#10). Windows are
+  // created visible (the macOS window background follows the system theme, so
+  // no white flash) — and crucially, NOT hiding/showing keeps the native
+  // traffic-light position from resetting. Skipped under the browser mock.
   useEffect(() => {
-    if (import.meta.env.VITE_MOCK_IPC) return;
-    let w: ReturnType<typeof getCurrentWindow>;
-    try {
-      w = getCurrentWindow();
-    } catch {
-      return; // not in a Tauri window (tests / plain browser)
-    }
+    if (import.meta.env.VITE_MOCK_IPC || !isReview) return;
     void (async () => {
       try {
-        await w.show();
-        await w.setFocus();
-        if (isReview) {
-          const home = await WebviewWindow.getByLabel("home");
-          if (home) await home.close();
-        }
+        const home = await WebviewWindow.getByLabel("home");
+        if (home) await home.close();
       } catch {
-        /* show/focus/close not permitted in this context — ignore */
+        /* not in a Tauri window / close not permitted — ignore */
       }
     })();
   }, [isReview]);
