@@ -110,16 +110,8 @@ function FileSection({
             {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
           </span>
         </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="relative h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
-          onClick={() => onAddFileComment(entry.path, "")}
-          aria-label={`comment on ${entry.path}`}
-          title="Comment on file"
-        >
-          <MessageSquarePlus className="size-4" />
-        </Button>
+        {/* Right actions, left→right: diff counts (in the content span above) ·
+            mark-as-viewed · add file comment. */}
         <Button
           size="sm"
           variant="ghost"
@@ -133,6 +125,16 @@ function FileSection({
             {viewed && <Check className="size-3" strokeWidth={3} />}
           </span>
           Viewed
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="relative h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
+          onClick={() => onAddFileComment(entry.path, "")}
+          aria-label={`comment on ${entry.path}`}
+          title="Comment on file"
+        >
+          <MessageSquarePlus className="size-4" />
         </Button>
       </div>
       {fileComments.length > 0 && (
