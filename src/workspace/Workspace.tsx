@@ -60,8 +60,13 @@ export function Workspace() {
 
   async function copyForClaude() {
     if (!review) return;
-    const md = await api.exportReview(review);
-    await navigator.clipboard.writeText(md);
+    try {
+      setError(null);
+      const md = await api.exportReview(review);
+      await navigator.clipboard.writeText(md);
+    } catch (e) {
+      setError(String(e));
+    }
   }
 
   function jumpTo(c: Comment) {
