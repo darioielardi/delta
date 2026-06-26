@@ -196,6 +196,17 @@
   *::-webkit-scrollbar-corner { background: transparent; }
 }
 
+/* Respect the OS "reduce motion" setting: neutralize transitions/animations
+   app-wide (the file tree, comment UI, and toggles use only CSS transitions). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* git-diff-view renders code: force it to the mono font.
    Unlayered + !important to beat git-diff-view's own stylesheet + inline fonts. */
 .diff-tailwindcss-wrapper,
