@@ -58,7 +58,7 @@ export function CommentThread({
         ) : (
           <div key={c.id} data-comment-id={c.id} className="group flex flex-col gap-1.5 px-3 py-2.5">
             {c.stale && (
-              <span className="flex w-fit items-center gap-1 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">⚠ stale</span>
+              <span className="flex w-fit items-center gap-1 rounded-md squircle bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">⚠ stale</span>
             )}
             {c.body.trim() === "" ? (
               <button

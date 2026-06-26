@@ -9,6 +9,14 @@
 @import "@git-diff-view/react/styles/diff-view.css" layer(gdv);
 @custom-variant dark (&:is(.dark *));
 
+/* Squircle (continuous/superellipse) corners. Pair with any `rounded-*` radius:
+   the radius is the fallback rounded rect on engines without `corner-shape`
+   (degrades gracefully), and `corner-shape: squircle` gives true superellipse
+   corners where supported. Used app-wide instead of fully-circular corners. */
+@utility squircle {
+  corner-shape: squircle;
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
     --color-sidebar-ring: var(--sidebar-ring);
@@ -212,6 +220,14 @@
   -webkit-user-select: text;
   user-select: text;
   cursor: auto;
+}
+
+/* git-diff-view's inline "add comment" (+) button ships as a near-circular
+   rounded-md. Squircle it (smaller radius + superellipse) so it matches the rest
+   of the app's actions. Unlayered so it beats the library's layered radius. */
+.diff-tailwindcss-wrapper .diff-add-widget {
+  border-radius: 5px;
+  corner-shape: squircle;
 }
 
 @layer gdv {
