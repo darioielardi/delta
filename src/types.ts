@@ -82,3 +82,38 @@ export interface ReviewSession {
   review: Review;
   summary: DiffSummary;
 }
+
+export interface WorktreeEntry {
+  path: string;
+  branch: string;
+  isMain: boolean;
+}
+
+export interface RepoEntry {
+  id: string;
+  root: string;
+  name: string;
+  defaultBranch?: string | null;
+  worktrees: WorktreeEntry[];
+}
+
+export interface ReviewEntry {
+  id: string;
+  repoName: string;
+  target: Target;
+  lastOpenedAt: string;
+  commentCount: number;
+  staleCount: number;
+  viewedCount: number;
+  fileCount: number;
+}
+
+export interface Registry {
+  version: number;
+  repos: RepoEntry[];
+  reviews: ReviewEntry[];
+}
+
+export type InstallOutcome =
+  | { kind: "linked"; path: string }
+  | { kind: "manualNeeded"; command: string; reason: string };
