@@ -2,6 +2,15 @@ use crate::registry::model::{repo_name_from_path, Registry, ReviewEntry};
 use crate::review::model::Review;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Process-unique temp-file suffix so concurrent writers never collide on the
+/// same temp path. A shared `.tmp` name caused `rename` ENOENT once the diff
+/// commands became async and could run registry/review saves concurrently.
+fn tmp_suffix() -> String {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    format!("{}.{}", std::process::id(), SEQ.fetch_add(1, Ordering::Relaxed))
+}
 
 pub trait Storage {
     fn load(&self, id: &str) -> Result<Option<Review>, String>;
@@ -45,7 +54,7 @@ impl Storage for JsonStorage {
         fs::create_dir_all(&self.root).map_err(|e| format!("create reviews dir: {e}"))?;
         let text = serde_json::to_string_pretty(review).map_err(|e| format!("serialize review: {e}"))?;
         let final_path = self.path_for(&review.id);
-        let tmp_path = self.root.join(format!("{}.json.tmp", review.id));
+        let tmp_path = self.root.join(format!("{}.json.tmp.{}", review.id, tmp_suffix()));
         fs::write(&tmp_path, text.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
         fs::rename(&tmp_path, &final_path).map_err(|e| format!("rename: {e}"))?;
         Ok(())
@@ -131,7 +140,7 @@ impl RegistryStore for JsonRegistryStore {
             fs::create_dir_all(parent).map_err(|e| format!("create app data dir: {e}"))?;
         }
         let text = serde_json::to_string_pretty(reg).map_err(|e| format!("serialize registry: {e}"))?;
-        let tmp = self.registry_path.with_extension("json.tmp");
+        let tmp = self.registry_path.with_extension(format!("json.tmp.{}", tmp_suffix()));
         fs::write(&tmp, text.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
         fs::rename(&tmp, &self.registry_path).map_err(|e| format!("rename: {e}"))?;
         Ok(())
