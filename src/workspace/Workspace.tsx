@@ -18,10 +18,22 @@ const MODES: { id: DiffMode; label: string }[] = [
   { id: "branch-vs-base", label: "Branch vs base" },
 ];
 
+// Keep the URL's `mode` param in sync so a window reload restores the current
+// mode. (Fresh opens from the picker restore the review's persisted last mode.)
+function syncModeParam(next: DiffMode) {
+  const u = new URL(window.location.href);
+  u.searchParams.set("mode", next);
+  window.history.replaceState(null, "", u);
+}
+
 export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPalette?: () => void }) {
   const theme = useSystemTheme();
   const [layout, setLayout] = useDiffLayout();
-  const mode = target.mode;
+  // Diff mode is local, controlled state seeded once from the URL-derived target.
+  // syncModeParam keeps the URL in sync on every change, so target.mode never
+  // diverges from diffMode — the stale-prop case this rule guards can't occur.
+  // react-doctor-disable-next-line react-doctor/no-derived-useState
+  const [diffMode, setDiffMode] = useState<DiffMode>(target.mode);
   const [summary, setSummary] = useState<DiffSummary | null>(null);
   const [repoName, setRepoName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +50,7 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
   async function open() {
     try {
       setError(null);
-      const session = await api.openReview({ repoPath: target.repoPath, mode: target.mode, base: target.base });
+      const session = await api.openReview({ repoPath: target.repoPath, mode: diffMode, base: target.base });
       setReview(session.review);
       setSummary(session.summary);
       setRepoName(session.repoName);
@@ -55,7 +67,7 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
     // react-doctor-disable-next-line react-hooks-js/set-state-in-effect
     void open();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [target.repoPath, target.mode, target.base]);
+  }, [target.repoPath, diffMode, target.base]);
 
   async function refresh() {
     if (!review) return;
@@ -160,8 +172,8 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
             <div className="relative ml-1">
               <select
                 aria-label="Diff mode"
-                value={mode}
-                onChange={(e) => void api.openTarget(target.repoPath, e.target.value as DiffMode, target.base ?? undefined)}
+                value={diffMode}
+                onChange={(e) => { const next = e.target.value as DiffMode; setDiffMode(next); syncModeParam(next); }}
                 className="h-7 appearance-none rounded-md border border-input bg-muted/40 pl-2.5 pr-7 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus:bg-background"
               >
                 {MODES.map((m) => (

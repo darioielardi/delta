@@ -1,14 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { rankReviews } from "./fuzzy";
-import type { DiffMode, Registry, RepoEntry, ReviewEntry, WorktreeEntry } from "../types";
-
-const MODE_LABEL: Record<DiffMode, string> = {
-  "all-changes": "All changes",
-  uncommitted: "Uncommitted",
-  "last-commit": "Last commit",
-  "branch-vs-base": "Branch vs base",
-};
+import type { Registry, RepoEntry, ReviewEntry, WorktreeEntry } from "../types";
 
 function relTime(iso: string): string {
   const then = new Date(iso).getTime();
@@ -144,7 +137,6 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
     items = reviews.map((r) => ({
       key: r.id,
       primary: r.target.worktree ?? "(detached)",
-      badge: MODE_LABEL[r.target.mode],
       secondary: r.repoName,
       meta: [r.commentCount ? `💬 ${r.commentCount}` : "", r.staleCount ? `⚠ ${r.staleCount}` : "", relTime(r.lastOpenedAt)]
         .filter(Boolean)

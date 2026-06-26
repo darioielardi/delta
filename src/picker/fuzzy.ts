@@ -20,11 +20,11 @@ export function fuzzyMatch(query: string, text: string): number | null {
   return qi === q.length ? score : null;
 }
 
-/** Filter + rank reviews against a query (branch + mode + repo name haystack). */
+/** Filter + rank reviews against a query (branch + repo name haystack). */
 export function rankReviews(reviews: ReviewEntry[], query: string): ReviewEntry[] {
   const scored: { r: ReviewEntry; score: number }[] = [];
   for (const r of reviews) {
-    const hay = `${r.target.worktree ?? ""} ${r.target.mode} ${r.repoName}`;
+    const hay = `${r.target.worktree ?? ""} ${r.repoName}`;
     const score = fuzzyMatch(query, hay);
     if (score !== null) scored.push({ r, score });
   }

@@ -27,17 +27,20 @@ describe("CommandPalette", () => {
     });
   });
 
-  it("lists recency-ordered reviews and opens on Enter", async () => {
+  it("lists recency-ordered reviews with no mode badge, opens on Enter", async () => {
     render(<CommandPalette onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText("feat/auth")).toBeInTheDocument());
+    // Mode is no longer part of review identity — no per-mode badge in the picker.
+    expect(screen.queryByText("All changes")).not.toBeInTheDocument();
+    expect(screen.queryByText("Uncommitted")).not.toBeInTheDocument();
     fireEvent.keyDown(screen.getByPlaceholderText(/search reviews/i), { key: "Enter" });
     await waitFor(() => expect(calls.some((c) => c.cmd === "open_target")).toBe(true));
   });
 
-  it("filters reviews as you type", async () => {
+  it("filters reviews as you type (by worktree)", async () => {
     render(<CommandPalette onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText("feat/auth")).toBeInTheDocument());
-    fireEvent.change(screen.getByPlaceholderText(/search reviews/i), { target: { value: "uncommitted" } });
+    fireEvent.change(screen.getByPlaceholderText(/search reviews/i), { target: { value: "main" } });
     await waitFor(() => expect(screen.queryByText("feat/auth")).not.toBeInTheDocument());
     expect(screen.getByText("main")).toBeInTheDocument();
   });

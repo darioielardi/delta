@@ -1,4 +1,4 @@
-// src/workspace/Workspace.test.tsx — opens its target on mount; mode switch opens that mode's window
+// src/workspace/Workspace.test.tsx — opens its target on mount; mode switch re-opens in place
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
@@ -38,12 +38,14 @@ describe("Workspace", () => {
     expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "all-changes", base: undefined });
   });
 
-  it("switching mode opens that mode's target window", async () => {
+  it("switching mode re-opens in place (openReview, not a new window)", async () => {
     openReview.mockResolvedValue(minimalSession);
     render(<Workspace target={target} />);
     await waitFor(() => expect(screen.getByRole("button", { name: /copy for claude/i })).toBeInTheDocument());
+    openReview.mockClear();
 
     fireEvent.change(screen.getByRole("combobox", { name: /diff mode/i }), { target: { value: "uncommitted" } });
-    await waitFor(() => expect(openTarget).toHaveBeenCalledWith("/r", "uncommitted", undefined));
+    await waitFor(() => expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "uncommitted", base: undefined }));
+    expect(openTarget).not.toHaveBeenCalled();
   });
 });
