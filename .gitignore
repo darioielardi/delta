@@ -26,6 +26,9 @@ dist-ssr
 # SDD + brainstorm scratch (controller/agent working files)
 .superpowers/
 
+# Playwright MCP run artifacts (UI verification)
+.playwright-mcp/
+
 # Rust / Tauri build artifacts (src-tauri/.gitignore also covers /target)
 target/
 src-tauri/target/
