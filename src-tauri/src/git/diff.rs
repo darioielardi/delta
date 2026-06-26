@@ -130,6 +130,13 @@ pub struct FileDiff {
     pub binary: bool,
 }
 
+/// Git's binary heuristic: a NUL byte within the first 8000 bytes means binary.
+/// git2's `is_binary()` flag isn't reliably set during delta iteration, so we
+/// also inspect the content ourselves — otherwise PNGs etc. render as garbage.
+fn looks_binary(bytes: &[u8]) -> bool {
+    bytes.iter().take(8000).any(|&b| b == 0)
+}
+
 pub fn get_file_diff(target: &Target, path: &str) -> Result<FileDiff, GitError> {
     let repo = open_repo(&target.repo_path)?;
     let ep = resolve_endpoints(&repo, target)?;
@@ -150,7 +157,6 @@ pub fn get_file_diff(target: &Target, path: &str) -> Result<FileDiff, GitError> 
         })
         .ok_or_else(|| format!("file not in diff: {path}"))?;
 
-    let binary = delta.new_file().is_binary() || delta.old_file().is_binary();
     let status = map_status(delta.status());
 
     let old_path = delta
@@ -162,47 +168,43 @@ pub fn get_file_diff(target: &Target, path: &str) -> Result<FileDiff, GitError> 
         .path()
         .map(|p| p.to_string_lossy().to_string());
 
-    // Old content: ep.from_tree is a tree OID (not commit OID); use find_tree directly.
-    let old_content = if binary {
-        None
-    } else {
-        match (ep.from_tree, &old_path) {
-            (Some(tree_oid), Some(op)) => {
-                let tree = repo.find_tree(tree_oid).map_err(|e| e.to_string())?;
-                match tree.get_path(std::path::Path::new(op)) {
-                    Ok(entry) => {
-                        let blob = repo.find_blob(entry.id()).map_err(|e| e.to_string())?;
-                        Some(String::from_utf8_lossy(blob.content()).to_string())
-                    }
-                    Err(_) => None, // added file: not in old tree
-                }
+    // Read raw bytes first so we can detect binary content ourselves.
+    // Old bytes: ep.from_tree is a tree OID (not commit OID); use find_tree directly.
+    let old_bytes: Option<Vec<u8>> = match (ep.from_tree, &old_path) {
+        (Some(tree_oid), Some(op)) => {
+            let tree = repo.find_tree(tree_oid).map_err(|e| e.to_string())?;
+            match tree.get_path(std::path::Path::new(op)) {
+                Ok(entry) => repo.find_blob(entry.id()).ok().map(|b| b.content().to_vec()),
+                Err(_) => None, // added file: not in old tree
             }
-            _ => None,
         }
+        _ => None,
+    };
+    // New bytes: from the working tree (worktree modes) or the new blob (tree modes).
+    let new_bytes: Option<Vec<u8>> = match (&ep.right, &new_path) {
+        (RightSide::WorkTree, Some(np)) => {
+            let wd = repo.workdir().ok_or("no working directory")?;
+            fs::read(wd.join(np)).ok()
+        }
+        (RightSide::Tree(_), Some(_np)) => {
+            let blob_id = delta.new_file().id();
+            if blob_id.is_zero() {
+                None
+            } else {
+                repo.find_blob(blob_id).ok().map(|b| b.content().to_vec())
+            }
+        }
+        _ => None,
     };
 
-    // New content: from the working tree (worktree modes) or the new blob (tree modes).
-    let new_content = if binary {
-        None
-    } else {
-        match (&ep.right, &new_path) {
-            (RightSide::WorkTree, Some(np)) => {
-                let wd = repo.workdir().ok_or("no working directory")?;
-                fs::read_to_string(wd.join(np)).ok()
-            }
-            (RightSide::Tree(_), Some(_np)) => {
-                let blob_id = delta.new_file().id();
-                if blob_id.is_zero() {
-                    None
-                } else {
-                    repo.find_blob(blob_id)
-                        .ok()
-                        .map(|b| String::from_utf8_lossy(b.content()).to_string())
-                }
-            }
-            _ => None,
-        }
-    };
+    let binary = delta.new_file().is_binary()
+        || delta.old_file().is_binary()
+        || old_bytes.as_deref().map(looks_binary).unwrap_or(false)
+        || new_bytes.as_deref().map(looks_binary).unwrap_or(false);
+
+    // Drop content for binary files — the UI shows an "Unsupported file" placeholder.
+    let old_content = if binary { None } else { old_bytes.map(|b| String::from_utf8_lossy(&b).into_owned()) };
+    let new_content = if binary { None } else { new_bytes.map(|b| String::from_utf8_lossy(&b).into_owned()) };
 
     Ok(FileDiff {
         old_lang: old_path.as_deref().and_then(lang_for),
@@ -238,6 +240,20 @@ mod tests {
         assert_eq!(fd.old_content.as_deref(), Some("line1\nline2\n"));
         assert_eq!(fd.new_content.as_deref(), Some("line1\nCHANGED\nline2\n"));
         assert_eq!(fd.new_lang.as_deref(), None); // .txt → no lang
+    }
+
+    #[test]
+    fn binary_file_is_flagged_and_content_omitted() {
+        let (dir, _repo) = repo_with_commit();
+        // an untracked "png" with NUL bytes
+        std::fs::write(dir.path().join("logo.png"), [0x89u8, b'P', b'N', b'G', 0x00, 0x01, 0x02, 0x00]).unwrap();
+        let fd = get_file_diff(
+            &target(dir.path().to_str().unwrap(), DiffMode::Uncommitted),
+            "logo.png",
+        )
+        .unwrap();
+        assert!(fd.binary, "png with NUL bytes should be flagged binary");
+        assert!(fd.new_content.is_none(), "binary content must be omitted");
     }
 
     #[test]

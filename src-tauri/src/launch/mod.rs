@@ -10,7 +10,8 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Launch {
-    pub repo_path: PathBuf,
+    /// None for a bare invocation (no path arg) → land on the home/launcher window.
+    pub repo_path: Option<PathBuf>,
     pub mode: DiffMode,
 }
 
@@ -27,10 +28,13 @@ pub fn parse_launch(args: &[String], cwd: &Path) -> Launch {
             _ => {}
         }
     }
+    // A bare invocation (no path arg) lands on the home/launcher window; only an
+    // explicit path (including ".") opens a review directly. (#9)
     let repo_path = match path_token {
-        None | Some(".") => cwd.to_path_buf(),
-        Some(p) if Path::new(p).is_absolute() => PathBuf::from(p),
-        Some(p) => cwd.join(p),
+        None => None,
+        Some(".") => Some(cwd.to_path_buf()),
+        Some(p) if Path::new(p).is_absolute() => Some(PathBuf::from(p)),
+        Some(p) => Some(cwd.join(p)),
     };
     Launch { repo_path, mode }
 }
@@ -190,8 +194,13 @@ pub fn open_home_window(app: &AppHandle) -> Result<(), String> {
 /// launched inside a repo, otherwise the home window (which shows the palette).
 pub fn route_launch(app: &AppHandle, args: &[String], cwd: &Path) {
     let launch = parse_launch(args, cwd);
-    let path = launch.repo_path.to_string_lossy().to_string();
-    let opened = open_repo(&path).is_ok() && open_target_window(app, &path, launch.mode, None).is_ok();
+    let opened = match &launch.repo_path {
+        Some(p) => {
+            let path = p.to_string_lossy().to_string();
+            open_repo(&path).is_ok() && open_target_window(app, &path, launch.mode, None).is_ok()
+        }
+        None => false,
+    };
     if !opened {
         let _ = open_home_window(app);
     }
@@ -313,28 +322,28 @@ mod tests {
     }
 
     #[test]
-    fn parse_launch_no_args_uses_cwd_all_changes() {
+    fn parse_launch_no_args_has_no_target() {
         let l = parse_launch(&[], Path::new("/home/me/proj"));
-        assert_eq!(l.repo_path, PathBuf::from("/home/me/proj"));
+        assert_eq!(l.repo_path, None);
         assert_eq!(l.mode, DiffMode::AllChanges);
     }
 
     #[test]
     fn parse_launch_dot_is_cwd() {
         let l = parse_launch(&[".".to_string()], Path::new("/home/me/proj"));
-        assert_eq!(l.repo_path, PathBuf::from("/home/me/proj"));
+        assert_eq!(l.repo_path, Some(PathBuf::from("/home/me/proj")));
     }
 
     #[test]
     fn parse_launch_absolute_path_wins() {
         let l = parse_launch(&["/abs/repo".to_string()], Path::new("/home/me/proj"));
-        assert_eq!(l.repo_path, PathBuf::from("/abs/repo"));
+        assert_eq!(l.repo_path, Some(PathBuf::from("/abs/repo")));
     }
 
     #[test]
     fn parse_launch_relative_path_joins_cwd() {
         let l = parse_launch(&["sub/dir".to_string()], Path::new("/home/me/proj"));
-        assert_eq!(l.repo_path, PathBuf::from("/home/me/proj/sub/dir"));
+        assert_eq!(l.repo_path, Some(PathBuf::from("/home/me/proj/sub/dir")));
     }
 
     #[test]
@@ -347,7 +356,7 @@ mod tests {
     #[test]
     fn parse_launch_flag_then_path() {
         let l = parse_launch(&["--uncommitted".into(), "/abs/repo".into()], Path::new("/c"));
-        assert_eq!(l.repo_path, PathBuf::from("/abs/repo"));
+        assert_eq!(l.repo_path, Some(PathBuf::from("/abs/repo")));
         assert_eq!(l.mode, DiffMode::Uncommitted);
     }
 
