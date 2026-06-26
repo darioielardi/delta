@@ -30,8 +30,12 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  // Windows are created hidden (Rust) to avoid a white flash; reveal once the
-  // themed shell has painted. Skipped under the browser mock (no native window).
+  // Windows are created hidden (Rust) to avoid a white flash; reveal once React
+  // has committed the themed shell. Skipped under the browser mock (no native
+  // window). Do NOT gate this on requestAnimationFrame: a hidden window is not
+  // composited, so rAF never fires and the window would stay hidden forever.
+  // useEffect runs after commit regardless of visibility, so the DOM is laid out
+  // by the time we show.
   useEffect(() => {
     if (import.meta.env.VITE_MOCK_IPC) return;
     let w: ReturnType<typeof getCurrentWindow>;
@@ -40,13 +44,14 @@ export default function App() {
     } catch {
       return; // not in a Tauri window (tests / plain browser)
     }
-    const id = requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        void w.show();
-        void w.setFocus();
-      }),
-    );
-    return () => cancelAnimationFrame(id);
+    void (async () => {
+      try {
+        await w.show();
+        await w.setFocus();
+      } catch {
+        /* show/focus not permitted in this context — ignore */
+      }
+    })();
   }, []);
 
   return (
