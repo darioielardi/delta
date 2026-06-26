@@ -138,25 +138,43 @@ pub fn delete_review_impl(storage: &dyn Storage, reg_store: &dyn RegistryStore, 
 }
 
 #[tauri::command]
-pub fn compute_diff(target: Target) -> Result<DiffSummary, String> {
-    compute_diff_impl(target)
+pub async fn compute_diff(target: Target) -> Result<DiffSummary, String> {
+    tauri::async_runtime::spawn_blocking(move || compute_diff_impl(target))
+        .await
+        .map_err(|e| format!("compute_diff task: {e}"))?
 }
 
 #[tauri::command]
-pub fn get_file_diff(target: Target, path: String) -> Result<FileDiff, String> {
-    get_file_diff_impl(target, path)
+pub async fn get_file_diff(target: Target, path: String) -> Result<FileDiff, String> {
+    tauri::async_runtime::spawn_blocking(move || get_file_diff_impl(target, path))
+        .await
+        .map_err(|e| format!("get_file_diff task: {e}"))?
 }
 
 #[tauri::command]
-pub fn open_review(app: tauri::AppHandle, target: Target) -> Result<ReviewSession, String> {
-    let storage = JsonStorage::new(reviews_dir(&app)?);
-    open_review_impl_with_registry(&storage, &reg_store(&app)?, target)
+pub async fn open_review(app: tauri::AppHandle, target: Target) -> Result<ReviewSession, String> {
+    let reviews = reviews_dir(&app)?;
+    let reg_path = registry_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = JsonStorage::new(reviews.clone());
+        let reg = JsonRegistryStore::new(reg_path, reviews);
+        open_review_impl_with_registry(&storage, &reg, target)
+    })
+    .await
+    .map_err(|e| format!("open_review task: {e}"))?
 }
 
 #[tauri::command]
-pub fn refresh_review(app: tauri::AppHandle, review: Review) -> Result<ReviewSession, String> {
-    let storage = JsonStorage::new(reviews_dir(&app)?);
-    refresh_review_impl_with_registry(&storage, &reg_store(&app)?, review)
+pub async fn refresh_review(app: tauri::AppHandle, review: Review) -> Result<ReviewSession, String> {
+    let reviews = reviews_dir(&app)?;
+    let reg_path = registry_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = JsonStorage::new(reviews.clone());
+        let reg = JsonRegistryStore::new(reg_path, reviews);
+        refresh_review_impl_with_registry(&storage, &reg, review)
+    })
+    .await
+    .map_err(|e| format!("refresh_review task: {e}"))?
 }
 
 #[tauri::command]
