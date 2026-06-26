@@ -137,15 +137,11 @@ export function Workspace() {
                 theme={theme}
                 scrollToFile={scrollToFile?.split("#")[0] ?? null}
                 onToggleViewed={(file) => toggleViewed(file, "")}
-                onAddComment={(anchor: Anchor, body: string) => {
-                  const scope =
-                    anchor.startLine == null
-                      ? "file"
-                      : anchor.endLine != null && anchor.endLine !== anchor.startLine
-                        ? "range"
-                        : "line";
-                  addComment(scope, anchor, body);
-                }}
+                onAddComment={(anchor: Anchor, body: string) =>
+                  // buildAnchor sets endLine non-null only for a multi-line range; file
+                  // scope is created via onAddFileComment, never here.
+                  addComment(anchor.endLine != null ? "range" : "line", anchor, body)
+                }
                 onAddFileComment={(file: string, body: string) =>
                   addComment("file", { file, side: "new", startLine: null, endLine: null, snippet: null }, body)
                 }
