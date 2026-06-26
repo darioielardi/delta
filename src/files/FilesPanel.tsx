@@ -80,7 +80,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
             <button
               aria-label={`viewed ${node.entry.path}`}
               onClick={(e) => { e.stopPropagation(); h.onToggleViewed(node.entry!.path); }}
-              className={`flex size-4 shrink-0 items-center justify-center rounded-full border transition-colors ${isViewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80 text-transparent group-hover:border-foreground/40 group-hover:text-foreground/30 hover:!border-foreground/60 hover:!text-foreground/60"}`}
+              className={`flex size-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors ${isViewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80 text-transparent group-hover:border-foreground/40 group-hover:text-foreground/30 hover:!border-foreground/60 hover:!text-foreground/60"}`}
             >
               <Check className="size-2.5" strokeWidth={3} />
             </button>

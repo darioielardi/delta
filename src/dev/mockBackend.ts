@@ -13,9 +13,30 @@ const SUMMARY: DiffSummary = {
   files: [
     { path: "src/auth/session.ts", status: "modified", additions: 3, deletions: 2, binary: false },
     { path: "src/auth/login.ts", status: "modified", additions: 1, deletions: 0, binary: false },
+    { path: "src/api/routes.ts", status: "modified", additions: 2, deletions: 2, binary: false },
+    { path: "src/legacy/cache.ts", status: "deleted", additions: 0, deletions: 9, binary: false },
     { path: "README.md", status: "added", additions: 3, deletions: 0, binary: false },
   ],
 };
+
+// A deliberately wide file: several lines far exceed the pane width so the diff
+// renders a horizontal scrollbar. Used to verify wheel behavior (item 1) — that
+// vertical scroll still works while the cursor is over a horizontally-scrollable
+// file.
+const ROUTES_OLD =
+  `import { Router } from "@/server/router";\n` +
+  `const router = new Router();\n` +
+  `router.register("GET", "/api/v1/users/:userId/sessions/:sessionId/activity", async (req, res) => handleUserSessionActivityLookupWithPaginationAndFiltering(req.params.userId, req.params.sessionId, req.query.cursor, req.query.limit, req.query.sortOrder));\n` +
+  `router.register("POST", "/api/v1/users/:userId/sessions", async (req, res) => createSessionForUserWithDeviceFingerprintingAndRiskScoring(req.params.userId, req.body.deviceId, req.body.fingerprint, req.body.ipAddress, req.body.userAgent));\n` +
+  `router.register("DELETE", "/api/v1/users/:userId/sessions/:sessionId", async (req, res) => revokeSessionAndInvalidateAllDerivedTokensAcrossDevices(req.params.userId, req.params.sessionId));\n` +
+  `export default router;\n`;
+const ROUTES_NEW =
+  `import { Router } from "@/server/router";\n` +
+  `const router = new Router();\n` +
+  `router.register("GET", "/api/v1/users/:userId/sessions/:sessionId/activity", async (req, res) => handleUserSessionActivityLookupWithPaginationAndFiltering(req.params.userId, req.params.sessionId, req.query.cursor, req.query.limit, req.query.sortOrder, req.query.includeRevoked));\n` +
+  `router.register("POST", "/api/v1/users/:userId/sessions", async (req, res) => createSessionForUserWithDeviceFingerprintingAndRiskScoring(req.params.userId, req.body.deviceId, req.body.fingerprint, req.body.ipAddress, req.body.userAgent, req.body.geoHint));\n` +
+  `router.register("DELETE", "/api/v1/users/:userId/sessions/:sessionId", async (req, res) => revokeSessionAndInvalidateAllDerivedTokensAcrossDevices(req.params.userId, req.params.sessionId));\n` +
+  `export default router;\n`;
 
 const FILES: Record<string, FileDiff> = {
   "src/auth/session.ts": {
@@ -40,6 +61,29 @@ const FILES: Record<string, FileDiff> = {
     oldContent: "export function login(token) {\n  if (!token) return null\n  return verify(token)\n}\n",
     newContent:
       "export function login(token) {\n  if (!token) return null\n  return verify(token, { clockTolerance: 5 })\n}\n",
+  },
+  "src/api/routes.ts": {
+    oldFileName: "src/api/routes.ts",
+    newFileName: "src/api/routes.ts",
+    oldLang: "typescript",
+    newLang: "typescript",
+    status: "modified",
+    binary: false,
+    oldContent: ROUTES_OLD,
+    newContent: ROUTES_NEW,
+  },
+  // Deleted file: only old content exists. Used to verify deleted files are
+  // hidden behind a reveal (item 3) rather than rendered/collapsed like others.
+  "src/legacy/cache.ts": {
+    oldFileName: "src/legacy/cache.ts",
+    newFileName: null,
+    oldLang: "typescript",
+    newLang: null,
+    status: "deleted",
+    binary: false,
+    oldContent:
+      "const store = new Map()\n\nexport function get(key) {\n  return store.get(key)\n}\n\nexport function set(key, value) {\n  store.set(key, value)\n}\n",
+    newContent: null,
   },
   "README.md": {
     oldFileName: null,

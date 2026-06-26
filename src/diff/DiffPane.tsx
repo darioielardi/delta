@@ -1,6 +1,6 @@
 // src/diff/DiffPane.tsx
 import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Check, ChevronDown, ChevronRight, MessageSquarePlus } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Eye, FileX, MessageSquarePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "./DiffView";
 import { useFileDiffCache } from "./useFileDiffCache";
@@ -34,6 +34,10 @@ function FileSection({
   // Viewport proximity (within ~1 screen). Drives eager paint so the diff is
   // ready before it scrolls into view, instead of painting on arrival.
   const [near, setNear] = useState(false);
+  // Deleted files are hidden by default behind a reveal (their diff is just the
+  // removed file). Don't load or render it until the user asks.
+  const isDeleted = entry.status === "deleted";
+  const [revealed, setRevealed] = useState(false);
   const fileComments = comments.filter((c) => c.scope === "file" && c.anchor?.file === entry.path);
   const slash = entry.path.lastIndexOf("/");
   const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : "";
@@ -57,11 +61,13 @@ function FileSection({
     const io = new IntersectionObserver((entries) => {
       const isNear = entries.some((e) => e.isIntersecting);
       setNear(isNear);
-      if (isNear && !collapsed) void cache.load(entry.path);
+      if (isNear && !collapsed && (!isDeleted || revealed)) void cache.load(entry.path);
     }, { rootMargin: "800px 0px" });
     io.observe(el);
     return () => io.disconnect();
-  }, [entry.path, collapsed]);
+    // cache has stable identity (useFileDiffCache storeRef); listed to satisfy
+    // exhaustive-deps without changing behavior.
+  }, [entry.path, collapsed, isDeleted, revealed, cache]);
 
   // Far sections use content-visibility:auto so the engine skips their
   // layout/paint (keeps scroll smooth and pane-resize reflow cheap). Near ones
@@ -76,15 +82,22 @@ function FileSection({
       className="border-b border-border/70"
       style={{ contentVisibility: near ? "visible" : "auto", containIntrinsicSize: `auto ${estPx}px` }}
     >
-      <div className={`sticky top-0 z-10 flex items-center gap-1 border-b border-border/70 bg-background/85 px-3 py-2 backdrop-blur transition-opacity ${viewed ? "opacity-55" : ""}`}>
+      <div className={`group sticky top-0 z-10 flex items-center gap-1 border-b border-border/70 bg-background/85 px-3 py-2 backdrop-blur transition-opacity ${viewed ? "opacity-55" : ""}`}>
+        {/* Full-box collapse target: an absolutely-positioned button fills the
+            header including its padding, so hover + click land anywhere in the
+            box (not just over the filename). The visible content sits above it
+            (pointer-events-none, so clicks fall through to the button); the
+            action buttons are `relative` so they stay on top and keep their own
+            clicks. Real <button> + aria-expanded preserves keyboard a11y. */}
         <button
           type="button"
-          className="group flex min-w-0 flex-1 items-center gap-2 text-left"
+          className="absolute inset-0"
           onClick={() => onToggleCollapse(entry.path)}
           aria-label={collapsed ? `expand ${entry.path}` : `collapse ${entry.path}`}
           aria-expanded={!collapsed}
           title={collapsed ? "Expand" : "Collapse"}
-        >
+        />
+        <span className="pointer-events-none relative flex min-w-0 flex-1 items-center gap-2">
           <span className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors group-hover:bg-foreground/[0.06] group-hover:text-foreground">
             {collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
           </span>
@@ -96,21 +109,13 @@ function FileSection({
             {entry.additions > 0 && <span className="text-emerald-500">+{entry.additions}</span>}{" "}
             {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
           </span>
-        </button>
+        </span>
+        {/* Right actions, left→right: diff counts (in the content span above) ·
+            mark-as-viewed · add file comment. */}
         <Button
           size="sm"
           variant="ghost"
-          className="h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
-          onClick={() => onAddFileComment(entry.path, "")}
-          aria-label={`comment on ${entry.path}`}
-          title="Comment on file"
-        >
-          <MessageSquarePlus className="size-4" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className={`h-7 shrink-0 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+          className={`relative h-7 shrink-0 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
           onClick={() => onToggleViewed(entry.path)}
           aria-label={`viewed ${entry.path}`}
           aria-pressed={viewed}
@@ -120,6 +125,16 @@ function FileSection({
             {viewed && <Check className="size-3" strokeWidth={3} />}
           </span>
           Viewed
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="relative h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
+          onClick={() => onAddFileComment(entry.path, "")}
+          aria-label={`comment on ${entry.path}`}
+          title="Comment on file"
+        >
+          <MessageSquarePlus className="size-4" />
         </Button>
       </div>
       {fileComments.length > 0 && (
@@ -133,7 +148,20 @@ function FileSection({
       )}
       {!collapsed && (
         <div className="min-h-8">
-          {fd ? (
+          {isDeleted && !revealed ? (
+            <div className="flex items-center gap-3 px-3 py-4 text-[13px] text-muted-foreground">
+              <FileX className="size-4 shrink-0 text-rose-500/80" />
+              <span>File deleted</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 px-2 text-muted-foreground hover:text-foreground"
+                onClick={() => { setRevealed(true); void cache.load(entry.path); }}
+              >
+                <Eye className="size-4" /> Show deleted content
+              </Button>
+            </div>
+          ) : fd ? (
             <DiffView
               fileDiff={fd}
               filePath={entry.path}
@@ -271,7 +299,10 @@ export const DiffPane = memo(function DiffPane({
           return;
         }
       }
-      sec?.scrollIntoView({ behavior: commentId ? "auto" : "smooth", block: "start" });
+      // Always instant: file-tree navigation should jump, not animate. (The
+      // comment-jump path already centers instantly via centerOn; this is its
+      // fallback when the node never mounts, and was already "auto" there.)
+      sec?.scrollIntoView({ behavior: "auto", block: "start" });
     };
     attempt(0, -1);
     return () => clearTimeout(jumpTimer.current);

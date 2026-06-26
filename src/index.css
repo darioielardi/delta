@@ -9,6 +9,14 @@
 @import "@git-diff-view/react/styles/diff-view.css" layer(gdv);
 @custom-variant dark (&:is(.dark *));
 
+/* Squircle (continuous/superellipse) corners. Pair with any `rounded-*` radius:
+   the radius is the fallback rounded rect on engines without `corner-shape`
+   (degrades gracefully), and `corner-shape: squircle` gives true superellipse
+   corners where supported. Used app-wide instead of fully-circular corners. */
+@utility squircle {
+  corner-shape: squircle;
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
     --color-sidebar-ring: var(--sidebar-ring);
@@ -214,6 +222,14 @@
   cursor: auto;
 }
 
+/* git-diff-view's inline "add comment" (+) button ships as a near-circular
+   rounded-md. Squircle it (smaller radius + superellipse) so it matches the rest
+   of the app's actions. Unlayered so it beats the library's layered radius. */
+.diff-tailwindcss-wrapper .diff-add-widget {
+  border-radius: 5px;
+  corner-shape: squircle;
+}
+
 @layer gdv {
   /* git-diff-view sets `.diff-line-extend-wrapper * { color: initial }` (black),
      which is correct for code but breaks our comment UI in dark mode for elements
@@ -230,5 +246,18 @@
     -webkit-user-select: text;
     user-select: text;
     cursor: text;
+  }
+
+  /* git-diff-view wraps wide diffs in a horizontal scroll container
+     (`overflow-x:auto; overflow-y:hidden`). Combined with the app-wide
+     `* { overscroll-behavior: none }` rubber-band suppression, that's a
+     vertical-wheel trap: the element is a scroll container with no vertical
+     range, so a vertical wheel can't scroll it and `overscroll-behavior-y:none`
+     stops the scroll from chaining to the diff pane — vertical scroll dies over
+     horizontally-scrollable files. Re-allow vertical chaining; horizontal stays
+     native (overflow-x) and overscroll-behavior-x stays `none` (no x rubber-band),
+     so horizontal only happens on explicit intent (shift+wheel / trackpad x). */
+  .diff-tailwindcss-wrapper .diff-table-scroll-container {
+    overscroll-behavior-y: auto;
   }
 }
