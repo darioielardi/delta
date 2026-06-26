@@ -1,5 +1,5 @@
 // src/diff/DiffPane.tsx
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, ChevronRight, MessageSquarePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "./DiffView";
@@ -27,7 +27,13 @@ function FileSection({
   registerRef: (file: string, el: HTMLDivElement | null) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
-  const fd = cache.get(entry.path);
+  // Subscribe to just this file's diff. Only this section re-renders when its
+  // own load resolves (or when the target resets) — not the whole pane.
+  const subscribe = useCallback((cb: () => void) => cache.subscribe(entry.path, cb), [cache, entry.path]);
+  const fd = useSyncExternalStore(subscribe, () => cache.get(entry.path));
+  // Viewport proximity (within ~1 screen). Drives eager paint so the diff is
+  // ready before it scrolls into view, instead of painting on arrival.
+  const [near, setNear] = useState(false);
   const fileComments = comments.filter((c) => c.scope === "file" && c.anchor?.file === entry.path);
   const slash = entry.path.lastIndexOf("/");
   const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : "";
@@ -38,23 +44,38 @@ function FileSection({
     return () => registerRef(entry.path, null);
   }, [entry.path]);
 
-  // Preload the diff well before it scrolls into view (large rootMargin) so the
-  // code — and git-diff-view's measured line-number gutter — is already painted
-  // by the time the section is visible, avoiding pop-in on scroll.
+  // Track viewport proximity with a ~1-screen margin: load the diff data and
+  // mark the section `near` so it paints eagerly (content-visibility below).
+  // Without this, content-visibility:auto defers layout/paint until the section
+  // actually enters the viewport — a brief blank-then-fill on scroll. Persistent
+  // (not disconnect-after-load) so it can also drop back to skipped when the
+  // section scrolls far away again. cache.load is idempotent, so re-entry is a
+  // no-op once cached.
   useEffect(() => {
-    if (collapsed || fd || !ref.current) return;
+    const el = ref.current;
+    if (!el) return;
     const io = new IntersectionObserver((entries) => {
-      if (entries.some((e) => e.isIntersecting)) {
-        void cache.load(entry.path);
-        io.disconnect();
-      }
-    }, { rootMargin: "1200px 0px" });
-    io.observe(ref.current);
+      const isNear = entries.some((e) => e.isIntersecting);
+      setNear(isNear);
+      if (isNear && !collapsed) void cache.load(entry.path);
+    }, { rootMargin: "800px 0px" });
+    io.observe(el);
     return () => io.disconnect();
-  }, [entry.path, collapsed, fd]);
+  }, [entry.path, collapsed]);
 
+  // Far sections use content-visibility:auto so the engine skips their
+  // layout/paint (keeps scroll smooth and pane-resize reflow cheap). Near ones
+  // are forced visible so they're painted ~1 screen before arrival. contain-
+  // intrinsic-size seeds a height estimate so the scrollbar stays stable while a
+  // section is skipped (the `auto` keyword then remembers the real size).
+  const estPx = collapsed ? 48 : Math.min(4000, 80 + (entry.additions + entry.deletions) * 18);
   return (
-    <div ref={ref} data-file={entry.path} className="border-b border-border/70">
+    <div
+      ref={ref}
+      data-file={entry.path}
+      className="border-b border-border/70"
+      style={{ contentVisibility: near ? "visible" : "auto", containIntrinsicSize: `auto ${estPx}px` }}
+    >
       <div className={`sticky top-0 z-10 flex items-center gap-1 border-b border-border/70 bg-background/85 px-3 py-2 backdrop-blur transition-opacity ${viewed ? "opacity-55" : ""}`}>
         <button
           type="button"
@@ -132,7 +153,9 @@ function FileSection({
   );
 }
 
-export function DiffPane({
+// memo so toggling unrelated Workspace state (e.g. the comments pane) skips the
+// whole diff pane — its props are kept referentially stable by the parent.
+export const DiffPane = memo(function DiffPane({
   target, files, comments, viewedFiles, theme, jump,
   onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment,
 }: {
@@ -146,6 +169,7 @@ export function DiffPane({
   const cache = useFileDiffCache(target);
   const paneRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const jumpTimer = useRef(0);
   const registerRef = (file: string, el: HTMLDivElement | null) => {
     if (el) sectionRefs.current.set(file, el);
     else sectionRefs.current.delete(file);
@@ -200,41 +224,57 @@ export function DiffPane({
   // expand + load the file, then poll for the comment's DOM node (extend rows
   // mount a few frames after the diff loads) and center it; we fall back to the
   // file header if it never appears.
+  //
+  // Because off-screen sections use content-visibility:auto, the rows between
+  // here and the target only get their real heights once they scroll into view —
+  // a single scroll computed from intrinsic-size *estimates* undershoots. So we
+  // converge: jump (instantly), let the newly revealed region settle, re-measure,
+  // and repeat until the target position stops moving.
   useEffect(() => {
     if (!jump) return;
     const { file, commentId } = jump;
     setCollapseOverrides((o) => (o[file] === false ? o : { ...o, [file]: false }));
     void cache.load(file);
     const pane = paneRef.current;
-    let timer = 0;
-    let tries = 0;
-    const attempt = () => {
-      const node = commentId
-        ? (pane?.querySelector(`[data-comment-id="${CSS.escape(commentId)}"]`) as HTMLElement | null)
-        : null;
-      if (node && pane) {
-        // Center the comment by computing the pane scroll directly — scrollIntoView
-        // is unreliable on a node nested deep in git-diff-view's table layout.
-        const pr = pane.getBoundingClientRect();
-        const nr = node.getBoundingClientRect();
-        const target = pane.scrollTop + (nr.top - pr.top) - Math.max(0, pane.clientHeight / 2 - nr.height / 2);
-        pane.scrollTo({ top: Math.max(0, target), behavior: "smooth" });
-        return;
-      }
-      const sec = sectionRefs.current.get(file);
-      if (commentId && tries < 30) {
-        // Coarse-scroll to the file so its diff (and the comment's extend row)
-        // mounts, then keep polling (setTimeout, not rAF, so it runs even when the
-        // window is occluded) for the exact node.
-        if (tries === 0) sec?.scrollIntoView({ behavior: "auto", block: "start" });
-        tries++;
-        timer = window.setTimeout(attempt, 32);
-        return;
-      }
-      sec?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!pane) return;
+    const centerOn = (node: HTMLElement): number => {
+      const pr = pane.getBoundingClientRect();
+      const nr = node.getBoundingClientRect();
+      const target = Math.max(0, pane.scrollTop + (nr.top - pr.top) - Math.max(0, pane.clientHeight / 2 - nr.height / 2));
+      pane.scrollTop = target; // instant — a smooth animation would fight the re-measure
+      return target;
     };
-    attempt();
-    return () => clearTimeout(timer);
+    // tries/lastTarget are passed as recursion args rather than mutated captured
+    // vars, so React Compiler can still optimize this component (a captured `i++`
+    // inside a lambda makes it bail). jumpTimer (a ref) holds the pending poll.
+    const attempt = (tries: number, lastTarget: number) => {
+      const sec = sectionRefs.current.get(file);
+      const node = commentId
+        ? (pane.querySelector(`[data-comment-id="${CSS.escape(commentId)}"]`) as HTMLElement | null)
+        : null;
+      if (commentId) {
+        if (node) {
+          const target = centerOn(node);
+          // Keep correcting until the position is stable (heights have settled)
+          // or we run out of tries.
+          if (Math.abs(target - lastTarget) > 2 && tries < 40) {
+            jumpTimer.current = window.setTimeout(() => attempt(tries + 1, target), 32);
+          }
+          return;
+        }
+        if (tries < 40) {
+          // Node not mounted yet: coarse-scroll toward the section (centered, so
+          // the region renders) and keep polling — setTimeout, not rAF, so it
+          // runs even when the window is occluded.
+          sec?.scrollIntoView({ behavior: "auto", block: "center" });
+          jumpTimer.current = window.setTimeout(() => attempt(tries + 1, lastTarget), 32);
+          return;
+        }
+      }
+      sec?.scrollIntoView({ behavior: commentId ? "auto" : "smooth", block: "start" });
+    };
+    attempt(0, -1);
+    return () => clearTimeout(jumpTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jump?.n]);
 
@@ -261,4 +301,4 @@ export function DiffPane({
       <div aria-hidden style={{ height: padBottom }} />
     </div>
   );
-}
+});

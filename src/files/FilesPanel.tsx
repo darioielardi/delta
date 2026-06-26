@@ -1,5 +1,5 @@
 // src/files/FilesPanel.tsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ChevronRight, Folder, FolderOpen, FileCode, FileJson, FileText, Check, List, ListTree } from "lucide-react";
 import type { FileEntry, FileStatus } from "../types";
@@ -87,13 +87,11 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
           </>
         )}
       </div>
-      {isDir && (
-        <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
-          <div className="overflow-hidden">
-            <div className="ml-2.5 border-l border-border/40 pl-0">
-              <TreeRows nodes={node.children} h={h} />
-            </div>
-          </div>
+      {/* Render children only when open: collapsed subtrees unmount entirely,
+          so a toggle no longer reflows hundreds of clipped-but-mounted rows. */}
+      {isDir && open && (
+        <div className="ml-2.5 border-l border-border/40 pl-0">
+          <TreeRows nodes={node.children} h={h} />
         </div>
       )}
     </div>
@@ -121,22 +119,29 @@ export function FilesPanel({
     (el as HTMLElement | null)?.scrollIntoView?.({ block: "nearest" });
   }, [activePath]);
 
+  const roots: TreeNode[] = useMemo(
+    () => mode === "tree"
+      ? buildTree(files)
+      : files.map((e) => ({ id: e.path, name: e.path, path: e.path, kind: "file" as const, entry: e, children: [] })),
+    [files, mode],
+  );
+
+  // Flatten the currently-visible rows (respecting collapse) for keyboard nav.
+  const visible: TreeNode[] = useMemo(() => {
+    const out: TreeNode[] = [];
+    (function walk(nodes: TreeNode[]) {
+      for (const n of nodes) {
+        out.push(n);
+        if (n.kind === "dir" && !collapsed.has(n.path)) walk(n.children);
+      }
+    })(roots);
+    return out;
+  }, [roots, collapsed]);
+
+  // All hooks must run unconditionally — keep the empty-state return below them.
   if (files.length === 0) {
     return <div className="files-empty flex flex-1 items-center justify-center p-6 text-[13px] text-muted-foreground">Nothing to review</div>;
   }
-
-  const roots: TreeNode[] = mode === "tree"
-    ? buildTree(files)
-    : files.map((e) => ({ id: e.path, name: e.path, path: e.path, kind: "file", entry: e, children: [] }));
-
-  // Flatten the currently-visible rows (respecting collapse) for keyboard nav.
-  const visible: TreeNode[] = [];
-  (function walk(nodes: TreeNode[]) {
-    for (const n of nodes) {
-      visible.push(n);
-      if (n.kind === "dir" && !collapsed.has(n.path)) walk(n.children);
-    }
-  })(roots);
 
   const toggleDir = (path: string) =>
     setCollapsed((s) => { const n = new Set(s); if (n.has(path)) n.delete(path); else n.add(path); return n; });
