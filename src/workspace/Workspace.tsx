@@ -168,7 +168,7 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
               </select>
               <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             </div>
-            <span className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1 rounded-lg squircle bg-muted px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
               {summary.baseLabel}
               <ArrowRight className="size-3 opacity-50" />
               {summary.headLabel}

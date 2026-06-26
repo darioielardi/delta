@@ -57,7 +57,7 @@ export function CommentIndex({
           >
             <span className="flex w-full min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
               <span className="truncate">{locationLabel(c)}</span>
-              {c.stale && <span className="shrink-0 rounded-full bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">⚠ stale</span>}
+              {c.stale && <span className="shrink-0 rounded-md squircle bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">⚠ stale</span>}
             </span>
             {c.body.trim() === "" ? (
               <span className="italic text-muted-foreground/70">Empty note</span>
