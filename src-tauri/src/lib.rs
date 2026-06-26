@@ -15,6 +15,7 @@ pub fn run() {
             let args: Vec<String> = argv.into_iter().skip(1).collect();
             crate::launch::route_launch(app, &args, std::path::Path::new(&cwd));
         }))
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
