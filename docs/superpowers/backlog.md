@@ -41,3 +41,19 @@ actionable cold.
 - **Where:** `src/review/CommentEditor.tsx` + the add-comment flow
   (`src/review/CommentThread.tsx` / widget creation in `src/diff/DiffView.tsx`).
 - **Want:** cancelling a just-created, never-saved comment removes it entirely (no empty remnant).
+
+## 7. File-tree click should jump instantly (no smooth scroll)
+- **Symptom:** clicking a file in the left files panel animates a smooth scroll to that
+  file in the diff pane; it should jump instantly.
+- **Where:** the `jump` effect in `src/diff/DiffPane.tsx` (consumes the `jump` prop set by
+  `FilesPanel` `onSelect` in `src/workspace/Workspace.tsx`); also check for a global
+  `scroll-behavior: smooth` in `src/index.css`.
+- **Want:** file-tree navigation scrolls with `behavior: "auto"` (instant). Leave any
+  intentional smooth scroll on other paths (e.g. comment jumps) unless it's the same code.
+
+## 8. Inline "add comment" button → squircle
+- **Symptom:** the inline add-comment button uses circle/`rounded-full` corners.
+- **Where:** the add-comment affordances — the line/gutter add button (rendered via
+  git-diff-view in `src/diff/DiffView.tsx`) and the file-header "add file comment" button
+  in `src/diff/DiffPane.tsx`.
+- **Want:** include these in the squircle pass from item 4 so they match the rest.
