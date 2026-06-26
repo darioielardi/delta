@@ -2,13 +2,14 @@ use crate::export::export_markdown;
 use crate::git::diff::{compute_diff as engine_compute, get_file_diff as engine_file, DiffSummary, FileDiff};
 use crate::git::model::Target;
 use crate::git::{open_repo, resolve_worktree};
-use crate::launch::repo_entry;
-use crate::registry::model::{repo_name_from_path, ReviewEntry};
+use crate::launch::{list_worktrees as launch_list_worktrees, repo_entry};
+use crate::registry::model::{repo_name_from_path, Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
 use crate::review::reconcile::{reconcile, ReviewSession};
 use crate::storage::{JsonRegistryStore, JsonStorage, RegistryStore, Storage};
 use std::path::PathBuf;
 use tauri::Manager;
+use tauri_plugin_dialog::DialogExt;
 
 pub fn compute_diff_impl(target: Target) -> Result<DiffSummary, String> {
     engine_compute(&target)
@@ -168,6 +169,34 @@ pub fn delete_review(app: tauri::AppHandle, id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn export_review(review: Review) -> Result<String, String> {
     Ok(export_markdown(&review))
+}
+
+#[tauri::command]
+pub fn list_registry(app: tauri::AppHandle) -> Result<Registry, String> {
+    reg_store(&app)?.load()
+}
+
+#[tauri::command]
+pub fn list_worktrees(repo_path: String) -> Result<Vec<WorktreeEntry>, String> {
+    launch_list_worktrees(&repo_path)
+}
+
+#[tauri::command]
+pub fn import_repo(app: tauri::AppHandle) -> Result<Option<RepoEntry>, String> {
+    let Some(folder) = app.dialog().file().blocking_pick_folder() else {
+        return Ok(None);
+    };
+    let repo_path = folder
+        .into_path()
+        .map_err(|e| format!("dialog path: {e}"))?
+        .display()
+        .to_string();
+    let entry = repo_entry(&repo_path)?;
+    let store = reg_store(&app)?;
+    let mut reg = store.load()?;
+    reg.upsert_repo(entry.clone());
+    store.save(&reg)?;
+    Ok(Some(entry))
 }
 
 #[cfg(test)]
