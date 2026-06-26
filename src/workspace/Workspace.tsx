@@ -8,6 +8,7 @@ import { DiffPane } from "../diff/DiffPane";
 import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
 import { useSystemTheme } from "../theme";
+import { ArrowRight, Copy, MessageSquare, RefreshCw } from "lucide-react";
 import type { Anchor, Comment, DiffMode, DiffSummary } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
@@ -94,32 +95,61 @@ export function Workspace() {
   }, [review]);
 
   return (
-    <div data-testid="app-root" className="flex flex-col h-screen text-sm">
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b">
+    <div data-testid="app-root" className="flex h-screen flex-col bg-background text-[13px] text-foreground">
+      <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border/70 px-3">
         <input
-          className="border rounded px-2 py-1 text-xs bg-background"
+          className="h-7 w-60 rounded-md border border-input bg-muted/40 px-2.5 text-[13px] outline-none transition-[color,background-color,box-shadow] placeholder:text-muted-foreground/70 focus:border-ring focus:bg-background focus:ring-2 focus:ring-ring/25"
           placeholder="Repo path"
           value={repoPath}
           onChange={(e) => setRepoPath(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") setOpened(repoPath.trim() || null); }}
         />
-        <Button size="sm" variant="secondary" onClick={() => setOpened(repoPath.trim() || null)}>Open</Button>
+        <Button size="sm" variant="secondary" className="h-7" onClick={() => setOpened(repoPath.trim() || null)}>Open</Button>
         {opened && summary && (
           <>
-            <span className="text-xs text-muted-foreground">{summary.baseLabel} → {summary.headLabel}</span>
-            <ToggleGroup type="single" size="sm" value={mode} onValueChange={(v) => v && setMode(v as DiffMode)} className="ml-2">
-              {MODES.map((m) => <ToggleGroupItem key={m.id} value={m.id}>{m.label}</ToggleGroupItem>)}
+            <span className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
+              {summary.baseLabel}
+              <ArrowRight className="size-3 opacity-50" />
+              {summary.headLabel}
+            </span>
+            <ToggleGroup
+              type="single"
+              size="sm"
+              value={mode}
+              onValueChange={(v) => v && setMode(v as DiffMode)}
+              className="ml-1 gap-0.5 rounded-lg bg-muted/70 p-0.5"
+            >
+              {MODES.map((m) => (
+                <ToggleGroupItem
+                  key={m.id}
+                  value={m.id}
+                  className="h-6 rounded-[6px] border-0 px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+                >
+                  {m.label}
+                </ToggleGroupItem>
+              ))}
             </ToggleGroup>
-            <Button size="sm" variant="ghost" onClick={() => setIndexOpen(true)}>Comments ({comments.length})</Button>
-            <Button size="sm" variant="ghost" onClick={refresh}>Refresh</Button>
-            <Button size="sm" onClick={copyForClaude} className="ml-auto">Copy for Claude</Button>
+            <div className="ml-auto flex items-center gap-1">
+              <Button size="sm" variant="ghost" aria-label={`Comments (${comments.length})`} className="h-7 gap-1.5 px-2 text-[13px] text-muted-foreground hover:text-foreground" onClick={() => setIndexOpen(true)}>
+                <MessageSquare className="size-4" /> {comments.length}
+              </Button>
+              <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2.5 text-[13px] text-muted-foreground hover:text-foreground" onClick={refresh}>
+                <RefreshCw className="size-3.5" /> Refresh
+              </Button>
+              <Button size="sm" className="h-7 gap-1.5 px-3 text-[13px] shadow-sm" onClick={copyForClaude}>
+                <Copy className="size-3.5" /> Copy for Claude
+              </Button>
+            </div>
           </>
         )}
-      </div>
-      {error && <div className="px-3 py-1 text-red-600 text-xs">{error}</div>}
-      <div className="flex flex-1 min-h-0">
-        {summary && review && (
+      </header>
+      {error && (
+        <div className="shrink-0 border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-[12px] text-destructive">{error}</div>
+      )}
+      <div className="flex min-h-0 flex-1">
+        {summary && review ? (
           <>
-            <div className="w-80 border-r min-h-0 flex flex-col">
+            <aside className="flex w-80 min-h-0 shrink-0 flex-col border-r border-border/70 bg-muted/20">
               <FilesPanel
                 files={summary.files}
                 selected={null}
@@ -127,8 +157,8 @@ export function Workspace() {
                 viewedFiles={viewedFiles}
                 onToggleViewed={(file) => toggleViewed(file, "")}
               />
-            </div>
-            <div className="flex-1 min-h-0">
+            </aside>
+            <main className="min-h-0 flex-1">
               <DiffPane
                 target={review.target}
                 files={summary.files}
@@ -148,11 +178,12 @@ export function Workspace() {
                 onEditComment={updateCommentBody}
                 onDeleteComment={deleteComment}
               />
-            </div>
+            </main>
           </>
-        )}
-        {(!summary || !review) && (
-          <div className="p-6 text-muted-foreground">Open a repo to start a review</div>
+        ) : (
+          <div className="flex flex-1 items-center justify-center">
+            <p className="text-[13px] text-muted-foreground">Open a repo to start a review</p>
+          </div>
         )}
       </div>
       <CommentIndex

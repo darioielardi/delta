@@ -27,6 +27,9 @@ function FileSection({
   const [showFileEditor, setShowFileEditor] = useState(false);
   const fd = cache.get(entry.path);
   const fileComments = comments.filter((c) => c.scope === "file" && c.anchor?.file === entry.path);
+  const slash = entry.path.lastIndexOf("/");
+  const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : "";
+  const base = slash >= 0 ? entry.path.slice(slash + 1) : entry.path;
 
   useEffect(() => {
     registerRef(entry.path, ref.current);
@@ -46,19 +49,33 @@ function FileSection({
   }, [entry.path, viewed, fd]);
 
   return (
-    <div ref={ref} data-file={entry.path} className="border-b">
-      <div className={`flex items-center gap-2 px-3 py-1.5 text-xs sticky top-0 bg-background border-b ${viewed ? "opacity-50" : ""}`}>
-        <button className="flex items-center gap-1" onClick={() => onToggleViewed(entry.path)} aria-label="toggle viewed">
-          {viewed ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
-          <input type="checkbox" checked={viewed} onChange={() => onToggleViewed(entry.path)} onClick={(e) => e.stopPropagation()} aria-label={`viewed ${entry.path}`} />
+    <div ref={ref} data-file={entry.path} className="border-b border-border/70">
+      <div className={`sticky top-0 z-10 flex items-center gap-2 border-b border-border/70 bg-background/85 px-3 py-2 backdrop-blur transition-opacity ${viewed ? "opacity-55" : ""}`}>
+        <button
+          className="flex shrink-0 items-center text-muted-foreground transition-colors hover:text-foreground"
+          onClick={() => onToggleViewed(entry.path)}
+          aria-label="toggle viewed"
+        >
+          {viewed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
         </button>
-        <span className="font-mono">{entry.path}</span>
-        <span className="ml-auto tabular-nums text-muted-foreground">
-          {entry.additions > 0 && <span className="text-emerald-600">+{entry.additions}</span>}{" "}
-          {entry.deletions > 0 && <span className="text-red-600">−{entry.deletions}</span>}
+        <input
+          type="checkbox"
+          checked={viewed}
+          onChange={() => onToggleViewed(entry.path)}
+          onClick={(e) => e.stopPropagation()}
+          aria-label={`viewed ${entry.path}`}
+          className="size-3.5 shrink-0 accent-[var(--primary)]"
+        />
+        <span className="truncate text-[13px]">
+          {dir && <span className="text-muted-foreground">{dir}</span>}
+          <span className="font-semibold text-foreground">{base}</span>
+        </span>
+        <span className="ml-auto shrink-0 text-[12px] tabular-nums">
+          {entry.additions > 0 && <span className="text-emerald-500">+{entry.additions}</span>}{" "}
+          {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
         </span>
       </div>
-      <div className="px-3 py-1.5">
+      <div className="space-y-2 px-3 py-2">
         {fileComments.length > 0 && (
           <CommentThread
             comments={fileComments}
@@ -78,10 +95,10 @@ function FileSection({
           <Button
             size="sm"
             variant="ghost"
-            className="h-6 px-1.5 text-[11px] text-muted-foreground"
+            className="h-7 gap-1.5 px-2 text-[12px] text-muted-foreground hover:text-foreground"
             onClick={() => setShowFileEditor(true)}
           >
-            <MessageSquarePlus className="size-3 mr-1" />
+            <MessageSquarePlus className="size-3.5" />
             Comment on file
           </Button>
         )}
@@ -100,7 +117,7 @@ function FileSection({
               onDeleteComment={onDeleteComment}
             />
           ) : (
-            <div className="p-4 text-xs text-muted-foreground">Loading…</div>
+            <div className="px-3 py-6 text-[12px] text-muted-foreground">Loading…</div>
           )}
         </div>
       )}

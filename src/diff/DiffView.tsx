@@ -59,6 +59,7 @@ export function DiffView({
       diffViewMode={mode === "split" ? DiffModeEnum.Split : DiffModeEnum.Unified}
       diffViewHighlight
       diffViewTheme={theme}
+      diffViewFontSize={12}
       diffViewAddWidget
       enableMultiSelect
       extendData={extendData}
