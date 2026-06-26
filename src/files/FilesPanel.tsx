@@ -28,6 +28,7 @@ interface RowHandlers {
   activePath: string | null;
   collapsed: Set<string>;
   viewedFiles: Set<string>;
+  flat: boolean;
   onToggleDir: (path: string) => void;
   onSelectFile: (path: string) => void;
   onToggleViewed: (file: string) => void;
@@ -58,8 +59,8 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
       >
         {isDir ? (
           <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
-        ) : (
-          <span className="w-3.5 shrink-0" />
+        ) : h.flat ? null : (
+          <span data-testid="tree-indent" className="w-3.5 shrink-0" />
         )}
         {isDir ? (
           open
@@ -138,6 +139,10 @@ export function FilesPanel({
     return out;
   }, [roots, collapsed]);
 
+  // Cheap sums — React Compiler memoizes the render; no manual useMemo needed.
+  const totalAdds = files.reduce((n, f) => n + f.additions, 0);
+  const totalDels = files.reduce((n, f) => n + f.deletions, 0);
+
   // All hooks must run unconditionally — keep the empty-state return below them.
   if (files.length === 0) {
     return <div className="files-empty flex flex-1 items-center justify-center p-6 text-[13px] text-muted-foreground">Nothing to review</div>;
@@ -176,18 +181,22 @@ export function FilesPanel({
     }
   }
 
-  const h: RowHandlers = { activePath, collapsed, viewedFiles, onToggleDir: toggleDir, onSelectFile: selectFile, onToggleViewed };
+  const h: RowHandlers = { activePath, collapsed, viewedFiles, flat: mode === "list", onToggleDir: toggleDir, onSelectFile: selectFile, onToggleViewed };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-[12px]">
-        <span className="text-muted-foreground">{viewedFiles.size}/{files.length} viewed</span>
+        <span className="tabular-nums">
+          {totalAdds > 0 && <span className="text-emerald-500">+{totalAdds}</span>}{" "}
+          {totalDels > 0 && <span className="text-rose-500">−{totalDels}</span>}
+        </span>
+        <span className="ml-auto text-muted-foreground">{viewedFiles.size}/{files.length} viewed</span>
         <ToggleGroup
           type="single"
           size="sm"
           value={mode}
           onValueChange={(v) => v && setMode(v as "tree" | "list")}
-          className="ml-auto gap-0.5 rounded-md bg-muted/70 p-0.5"
+          className="gap-0.5 rounded-md bg-muted/70 p-0.5"
         >
           <ToggleGroupItem value="list" aria-label="List" title="List" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><List className="size-3.5" /></ToggleGroupItem>
           <ToggleGroupItem value="tree" aria-label="Tree" title="Tree" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><ListTree className="size-3.5" /></ToggleGroupItem>

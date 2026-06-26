@@ -27,6 +27,25 @@ describe("FilesPanel", () => {
     expect(screen.getByText(/1\/1 viewed/)).toBeInTheDocument();
   });
 
+  it("shows the global diff count (sum across files) in the header", () => {
+    const multi: FileEntry[] = [
+      { path: "src/a.ts", status: "modified", additions: 3, deletions: 1, binary: false },
+      { path: "src/b.ts", status: "modified", additions: 2, deletions: 4, binary: false },
+    ];
+    render(<FilesPanel files={multi} selected={null} onSelect={() => {}} viewedFiles={new Set()} onToggleViewed={() => {}} />);
+    // Totals: +5 / −5 — values no individual row shows, so they're unique to the header.
+    expect(screen.getByText("+5")).toBeInTheDocument();
+    expect(screen.getByText("−5")).toBeInTheDocument();
+  });
+
+  it("omits the tree-indent spacer in list mode", () => {
+    render(<FilesPanel files={files} selected={null} onSelect={() => {}} viewedFiles={new Set()} onToggleViewed={() => {}} />);
+    // Tree mode (default): file rows carry the chevron-column spacer.
+    expect(screen.getAllByTestId("tree-indent").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("radio", { name: /list/i }));
+    expect(screen.queryByTestId("tree-indent")).not.toBeInTheDocument();
+  });
+
   it("renders the file row and selects it on click", () => {
     const onSelect = vi.fn();
     render(<FilesPanel files={files} selected={null} onSelect={onSelect} viewedFiles={new Set()} onToggleViewed={() => {}} />);
