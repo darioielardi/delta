@@ -1,14 +1,13 @@
 // src/workspace/Workspace.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api } from "../api";
 import { FilesPanel } from "../files/FilesPanel";
 import { DiffPane } from "../diff/DiffPane";
 import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
 import { useSystemTheme } from "../theme";
-import { ArrowRight, Copy, MessageSquare, RefreshCw } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, Copy, MessageSquare, RefreshCw } from "lucide-react";
 import type { Anchor, Comment, DiffMode, DiffSummary } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
@@ -26,7 +25,12 @@ export function Workspace() {
   const [summary, setSummary] = useState<DiffSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [indexOpen, setIndexOpen] = useState(false);
-  const [scrollToFile, setScrollToFile] = useState<string | null>(null);
+  // Jump target for the diff pane. `n` is a nonce so re-selecting the same
+  // file/comment still re-fires the scroll effect; `commentId` lets the pane
+  // scroll to the exact comment, not just the file top.
+  const [jump, setJump] = useState<{ file: string; commentId?: string; n: number } | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const { review, setReview, addComment, updateCommentBody, deleteComment, toggleViewed } = useReview(null);
 
@@ -59,24 +63,34 @@ export function Workspace() {
     }
   }
 
+  function flashCopy(state: "ok" | "err") {
+    setCopyState(state);
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => setCopyState("idle"), 1800);
+  }
+
   async function copyForClaude() {
     if (!review) return;
     try {
       setError(null);
       const md = await api.exportReview(review);
       await navigator.clipboard.writeText(md);
+      flashCopy("ok");
     } catch (e) {
       setError(String(e));
+      flashCopy("err");
     }
   }
 
   function jumpTo(c: Comment) {
-    setIndexOpen(false);
-    if (c.anchor?.file) setScrollToFile(c.anchor.file + "#" + Date.now()); // force effect re-run
+    // Inset panel stays open so the user can move between comments.
+    if (c.anchor?.file) setJump({ file: c.anchor.file, commentId: c.id, n: Date.now() });
   }
 
   const viewedFiles = new Set((review?.viewed ?? []).map((v) => v.file));
   const comments = review?.comments ?? [];
+  // General notes were removed; ignore any legacy ones in the count/export gate.
+  const commentCount = comments.filter((c) => c.scope !== "general").length;
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -95,10 +109,12 @@ export function Workspace() {
   }, [review]);
 
   return (
-    <div data-testid="app-root" className="flex h-screen flex-col bg-background text-[13px] text-foreground">
-      <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border/70 px-3">
+    <div data-testid="app-root" className="flex h-screen flex-col overflow-hidden bg-background text-[13px] text-foreground">
+      {/* Overlay titlebar: the macOS traffic lights float over the top-left, so
+          inset the controls past them and make the bar a drag region. */}
+      <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border/70 pl-20 pr-3">
         <input
-          className="h-7 w-60 rounded-md border border-input bg-muted/40 px-2.5 text-[13px] outline-none transition-[color,background-color,box-shadow] placeholder:text-muted-foreground/70 focus:border-ring focus:bg-background focus:ring-2 focus:ring-ring/25"
+          className="h-7 w-60 rounded-md border border-input bg-muted/40 px-2.5 text-[13px] outline-none transition-[color,background-color] placeholder:text-muted-foreground/70 focus:bg-background"
           placeholder="Repo path"
           value={repoPath}
           onChange={(e) => setRepoPath(e.target.value)}
@@ -107,37 +123,52 @@ export function Workspace() {
         <Button size="sm" variant="secondary" className="h-7" onClick={() => setOpened(repoPath.trim() || null)}>Open</Button>
         {opened && summary && (
           <>
+            <div className="relative ml-1">
+              <select
+                aria-label="Diff mode"
+                value={mode}
+                onChange={(e) => setMode(e.target.value as DiffMode)}
+                className="h-7 appearance-none rounded-md border border-input bg-muted/40 pl-2.5 pr-7 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus:bg-background"
+              >
+                {MODES.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            </div>
             <span className="flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
               {summary.baseLabel}
               <ArrowRight className="size-3 opacity-50" />
               {summary.headLabel}
             </span>
-            <ToggleGroup
-              type="single"
-              size="sm"
-              value={mode}
-              onValueChange={(v) => v && setMode(v as DiffMode)}
-              className="ml-1 gap-0.5 rounded-lg bg-muted/70 p-0.5"
-            >
-              {MODES.map((m) => (
-                <ToggleGroupItem
-                  key={m.id}
-                  value={m.id}
-                  className="h-6 rounded-[6px] border-0 px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
-                >
-                  {m.label}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
             <div className="ml-auto flex items-center gap-1">
-              <Button size="sm" variant="ghost" aria-label={`Comments (${comments.length})`} className="h-7 gap-1.5 px-2 text-[13px] text-muted-foreground hover:text-foreground" onClick={() => setIndexOpen(true)}>
-                <MessageSquare className="size-4" /> {comments.length}
+              <Button size="sm" variant="ghost" aria-label={`Comments (${commentCount})`} aria-pressed={indexOpen} className="h-7 gap-1.5 px-2 text-[13px] text-muted-foreground hover:text-foreground aria-pressed:text-foreground" onClick={() => setIndexOpen((o) => !o)}>
+                <MessageSquare className="size-4" /> {commentCount}
               </Button>
               <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2.5 text-[13px] text-muted-foreground hover:text-foreground" onClick={refresh}>
                 <RefreshCw className="size-3.5" /> Refresh
               </Button>
-              <Button size="sm" className="h-7 gap-1.5 px-3 text-[13px] shadow-sm" onClick={copyForClaude}>
-                <Copy className="size-3.5" /> Copy for Claude
+              <Button
+                size="sm"
+                className="h-7 gap-1.5 px-3 text-[13px] transition-colors"
+                style={
+                  copyState === "ok"
+                    ? { backgroundColor: "#059669", color: "#fff" }
+                    : copyState === "err"
+                      ? { backgroundColor: "var(--destructive)", color: "#fff" }
+                      : undefined
+                }
+                onClick={copyForClaude}
+                disabled={commentCount === 0}
+                title={commentCount === 0 ? "No comments to copy" : undefined}
+              >
+                {copyState === "ok" ? (
+                  <><Check className="size-3.5" /> Copied</>
+                ) : copyState === "err" ? (
+                  <><Copy className="size-3.5" /> Failed</>
+                ) : (
+                  <><Copy className="size-3.5" /> Copy for Claude</>
+                )}
               </Button>
             </div>
           </>
@@ -153,19 +184,19 @@ export function Workspace() {
               <FilesPanel
                 files={summary.files}
                 selected={null}
-                onSelect={(p) => setScrollToFile(p + "#" + Date.now())}
+                onSelect={(p) => setJump({ file: p, n: Date.now() })}
                 viewedFiles={viewedFiles}
                 onToggleViewed={(file) => toggleViewed(file, "")}
               />
             </aside>
-            <main className="min-h-0 flex-1">
+            <main className="min-h-0 min-w-0 flex-1">
               <DiffPane
                 target={review.target}
                 files={summary.files}
                 comments={comments}
                 viewedFiles={viewedFiles}
                 theme={theme}
-                scrollToFile={scrollToFile?.split("#")[0] ?? null}
+                jump={jump}
                 onToggleViewed={(file) => toggleViewed(file, "")}
                 onAddComment={(anchor: Anchor, body: string) =>
                   // buildAnchor sets endLine non-null only for a multi-line range; file
@@ -179,6 +210,12 @@ export function Workspace() {
                 onDeleteComment={deleteComment}
               />
             </main>
+            <CommentIndex
+              open={indexOpen}
+              onOpenChange={setIndexOpen}
+              comments={comments}
+              onJump={jumpTo}
+            />
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center">
@@ -186,13 +223,6 @@ export function Workspace() {
           </div>
         )}
       </div>
-      <CommentIndex
-        open={indexOpen}
-        onOpenChange={setIndexOpen}
-        comments={comments}
-        onJump={jumpTo}
-        onAddGeneral={(body) => addComment("general", null, body)}
-      />
     </div>
   );
 }

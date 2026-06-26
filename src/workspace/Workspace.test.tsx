@@ -35,7 +35,7 @@ describe("Workspace", () => {
       ...minimalSession,
       review: { ...minimalSession.review, target: { ...minimalSession.review.target, mode: "uncommitted" } },
     });
-    fireEvent.click(screen.getByRole("radio", { name: /uncommitted/i }));
+    fireEvent.change(screen.getByRole("combobox", { name: /diff mode/i }), { target: { value: "uncommitted" } });
     await waitFor(() =>
       expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "uncommitted" })
     );

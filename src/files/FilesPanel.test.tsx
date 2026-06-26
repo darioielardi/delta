@@ -14,9 +14,9 @@ describe("FilesPanel", () => {
     expect(screen.getByText(/nothing to review/i)).toBeInTheDocument();
   });
 
-  it("renders the header, file count, toggle, and tree container", () => {
+  it("renders the header, viewed count, toggle, and tree container", () => {
     render(<FilesPanel files={files} selected={null} onSelect={() => {}} viewedFiles={new Set()} onToggleViewed={() => {}} />);
-    expect(screen.getByText(/1 files/)).toBeInTheDocument();
+    expect(screen.getByText(/0\/1 viewed/)).toBeInTheDocument();
     expect(screen.getByTestId("files-tree")).toBeInTheDocument();
     // shadcn ToggleGroup renders items as role="radio" within a radiogroup
     expect(screen.getByRole("radio", { name: /list/i })).toBeInTheDocument();

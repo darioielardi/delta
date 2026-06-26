@@ -1,7 +1,7 @@
 // src/files/FilesPanel.tsx
 import { useEffect, useRef, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ChevronRight, Folder, FolderOpen, FileCode, FileJson, FileText, Check } from "lucide-react";
+import { ChevronRight, Folder, FolderOpen, FileCode, FileJson, FileText, Check, List, ListTree } from "lucide-react";
 import type { FileEntry, FileStatus } from "../types";
 import { buildTree, type TreeNode } from "./buildTree";
 
@@ -53,7 +53,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
     <div>
       <div
         data-path={node.path}
-        className={`group flex h-7 cursor-pointer select-none items-center gap-1.5 rounded-md pl-1 pr-1.5 transition-colors ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-50" : ""}`}
+        className={`group flex h-7 select-none items-center gap-1.5 rounded-md pl-1 pr-1.5 ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-50" : ""}`}
         onClick={() => (isDir ? h.onToggleDir(node.path) : h.onSelectFile(node.path))}
       >
         {isDir ? (
@@ -90,7 +90,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
       {isDir && (
         <div className={`grid transition-[grid-template-rows] duration-200 ease-out ${open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}>
           <div className="overflow-hidden">
-            <div className="ml-[19px] border-l border-border/40 pl-0">
+            <div className="ml-2.5 border-l border-border/40 pl-0">
               <TreeRows nodes={node.children} h={h} />
             </div>
           </div>
@@ -176,8 +176,6 @@ export function FilesPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-[12px]">
-        <span className="font-medium text-foreground">{files.length} files</span>
-        <span className="text-muted-foreground/50">·</span>
         <span className="text-muted-foreground">{viewedFiles.size}/{files.length} viewed</span>
         <ToggleGroup
           type="single"
@@ -186,8 +184,8 @@ export function FilesPanel({
           onValueChange={(v) => v && setMode(v as "tree" | "list")}
           className="ml-auto gap-0.5 rounded-md bg-muted/70 p-0.5"
         >
-          <ToggleGroupItem value="list" className="h-5 rounded-[5px] border-0 px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">List</ToggleGroupItem>
-          <ToggleGroupItem value="tree" className="h-5 rounded-[5px] border-0 px-2 text-[11px] font-medium text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">Tree</ToggleGroupItem>
+          <ToggleGroupItem value="list" aria-label="List" title="List" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><List className="size-3.5" /></ToggleGroupItem>
+          <ToggleGroupItem value="tree" aria-label="Tree" title="Tree" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><ListTree className="size-3.5" /></ToggleGroupItem>
         </ToggleGroup>
       </div>
       <div
