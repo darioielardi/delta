@@ -31,5 +31,6 @@ describe("NewReviewDrill", () => {
     await waitFor(() => expect(calls.some((c) => c.cmd === "open_target")).toBe(true));
     const call = calls.find((c) => c.cmd === "open_target");
     expect(call?.args).toMatchObject({ repoPath: "/r/demo", mode: "all-changes" });
+    await waitFor(() => expect(calls.some((c) => c.cmd === "hide_picker")).toBe(true));
   });
 });

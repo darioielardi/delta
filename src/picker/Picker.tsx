@@ -47,7 +47,7 @@ export function Picker() {
   const clampedSel = rows.length === 0 ? 0 : Math.min(sel, rows.length - 1);
 
   function openRow(r: ReviewEntry) {
-    void api.openTarget(r.target.repoPath, r.target.mode, r.target.base ?? undefined);
+    void api.openTarget(r.target.repoPath, r.target.mode, r.target.base ?? undefined).then(() => api.hidePicker());
   }
   async function deleteRow(r: ReviewEntry) {
     if (!confirm(`Delete this review of ${r.repoName} · ${r.target.worktree ?? ""}?`)) return;

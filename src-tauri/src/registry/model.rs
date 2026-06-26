@@ -71,12 +71,9 @@ impl Registry {
 
 impl ReviewEntry {
     pub fn from_review(review: &Review, file_count: u32, repo_name: String) -> Self {
-        let comment_count = review
-            .comments
-            .iter()
-            .filter(|c| c.scope != CommentScope::General)
-            .count() as u32;
-        let stale_count = review.comments.iter().filter(|c| c.stale).count() as u32;
+        let visible = |c: &&crate::review::model::Comment| c.scope != CommentScope::General;
+        let comment_count = review.comments.iter().filter(visible).count() as u32;
+        let stale_count = review.comments.iter().filter(|c| c.stale && visible(c)).count() as u32;
         ReviewEntry {
             id: review.id.clone(),
             repo_name,

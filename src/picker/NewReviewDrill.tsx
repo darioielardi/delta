@@ -85,6 +85,7 @@ export function NewReviewDrill({
     setError(null);
     try {
       await api.openTarget(worktree.path, mode);
+      await api.hidePicker();
       onClose();
     } catch (e) {
       setError(String(e));

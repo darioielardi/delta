@@ -235,14 +235,12 @@ pub fn install_cli() -> Result<InstallOutcome, String> {
     if let Ok(home) = std::env::var("HOME") {
         let local_bin = PathBuf::from(home).join(".local/bin");
         if fs::create_dir_all(&local_bin).is_ok() && dir_is_writable(&local_bin) {
-            let outcome = link_into(&local_bin, &exe)?;
-            if !dirs.iter().any(|d| d == &local_bin) {
-                return Ok(InstallOutcome::ManualNeeded {
-                    command: "export PATH=\"$HOME/.local/bin:$PATH\"  # add to your shell profile".to_string(),
-                    reason: format!("Linked delta into {} — add that directory to your PATH.", local_bin.display()),
-                });
-            }
-            return Ok(outcome);
+            link_into(&local_bin, &exe)?; // the symlink itself succeeded
+            let path = local_bin.join("delta").display().to_string();
+            let on_path = dirs.iter().any(|d| d == &local_bin);
+            return Ok(InstallOutcome::Linked {
+                path: if on_path { path } else { format!("{path}  (add ~/.local/bin to your PATH)") },
+            });
         }
     }
     Ok(InstallOutcome::ManualNeeded {

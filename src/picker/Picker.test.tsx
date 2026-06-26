@@ -32,6 +32,7 @@ describe("Picker", () => {
     fireEvent.keyDown(window, { key: "Enter" });
     await waitFor(() => expect(calls.some((c) => c.cmd === "open_target")).toBe(true));
     expect(calls.find((c) => c.cmd === "open_target")?.args).toMatchObject({ repoPath: "/r/demo", mode: "all-changes" });
+    await waitFor(() => expect(calls.some((c) => c.cmd === "hide_picker")).toBe(true));
   });
 
   it("filters as you type", async () => {
