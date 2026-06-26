@@ -99,6 +99,22 @@ export function installMockBackend(): void {
         return undefined as T;
       case "export_review":
         return "# Review — demo · feat/auth · All changes\n\n## General\n- Standardize error handling.\n" as T;
+      case "list_worktrees":
+        return [
+          { path: "/Users/me/projects/demo", branch: "feat/auth", isMain: true },
+          { path: "/Users/me/projects/demo-main", branch: "main", isMain: false },
+        ] as T;
+      case "import_repo":
+        return {
+          id: "imported",
+          root: "/Users/me/projects/imported",
+          name: "imported",
+          defaultBranch: "main",
+          worktrees: [{ path: "/Users/me/projects/imported", branch: "main", isMain: true }],
+        } as T;
+      case "open_target":
+        console.info("[delta mock] open_target", args);
+        return undefined as T;
       default:
         throw new Error(`mockBackend: unhandled command "${cmd}"`);
     }
