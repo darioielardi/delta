@@ -8,7 +8,7 @@ import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
 import { useSystemTheme } from "../theme";
 import { ArrowRight, Check, ChevronDown, Copy, MessageSquare, RefreshCw } from "lucide-react";
-import type { Anchor, Comment, DiffMode, DiffSummary } from "../types";
+import type { Anchor, Comment, DiffMode, DiffSummary, Target } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
   { id: "all-changes", label: "All changes" },
@@ -17,11 +17,9 @@ const MODES: { id: DiffMode; label: string }[] = [
   { id: "branch-vs-base", label: "Branch vs base" },
 ];
 
-export function Workspace() {
+export function Workspace({ target }: { target: Target }) {
   const theme = useSystemTheme();
-  const [repoPath, setRepoPath] = useState("");
-  const [opened, setOpened] = useState<string | null>(null);
-  const [mode, setMode] = useState<DiffMode>("all-changes");
+  const mode = target.mode;
   const [summary, setSummary] = useState<DiffSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [indexOpen, setIndexOpen] = useState(false);
@@ -34,10 +32,10 @@ export function Workspace() {
 
   const { review, setReview, addComment, updateCommentBody, deleteComment, toggleViewed } = useReview(null);
 
-  async function open(repo: string, m: DiffMode) {
+  async function open() {
     try {
       setError(null);
-      const session = await api.openReview({ repoPath: repo, mode: m });
+      const session = await api.openReview({ repoPath: target.repoPath, mode: target.mode, base: target.base });
       setReview(session.review);
       setSummary(session.summary);
     } catch (e) {
@@ -48,9 +46,9 @@ export function Workspace() {
   }
 
   useEffect(() => {
-    if (opened) void open(opened, mode);
+    void open();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [opened, mode]);
+  }, [target.repoPath, target.mode, target.base]);
 
   async function refresh() {
     if (!review) return;
@@ -94,7 +92,10 @@ export function Workspace() {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "2" && (e.metaKey || e.ctrlKey)) {
+      if (e.key === "o" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        void api.showPicker();
+      } else if (e.key === "2" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setIndexOpen((o) => !o);
       } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
@@ -113,21 +114,14 @@ export function Workspace() {
       {/* Overlay titlebar: the macOS traffic lights float over the top-left, so
           inset the controls past them and make the bar a drag region. */}
       <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border/70 pl-20 pr-3">
-        <input
-          className="h-7 w-60 rounded-md border border-input bg-muted/40 px-2.5 text-[13px] outline-none transition-[color,background-color] placeholder:text-muted-foreground/70 focus:bg-background"
-          placeholder="Repo path"
-          value={repoPath}
-          onChange={(e) => setRepoPath(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") setOpened(repoPath.trim() || null); }}
-        />
-        <Button size="sm" variant="secondary" className="h-7" onClick={() => setOpened(repoPath.trim() || null)}>Open</Button>
-        {opened && summary && (
+        <span className="text-[13px] font-medium">{target.repoPath.split("/").filter(Boolean).pop()}</span>
+        {summary && (
           <>
             <div className="relative ml-1">
               <select
                 aria-label="Diff mode"
                 value={mode}
-                onChange={(e) => setMode(e.target.value as DiffMode)}
+                onChange={(e) => void api.openTarget(target.repoPath, e.target.value as DiffMode, target.base ?? undefined)}
                 className="h-7 appearance-none rounded-md border border-input bg-muted/40 pl-2.5 pr-7 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus:bg-background"
               >
                 {MODES.map((m) => (
@@ -219,7 +213,7 @@ export function Workspace() {
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center">
-            <p className="text-[13px] text-muted-foreground">Open a repo to start a review</p>
+            <p className="text-[13px] text-muted-foreground">{error ? "Couldn’t open this review." : "Loading review…"}</p>
           </div>
         )}
       </div>

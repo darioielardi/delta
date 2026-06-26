@@ -1,43 +1,49 @@
-// src/workspace/Workspace.test.tsx — mock api.openReview and assert bootstrap renders
+// src/workspace/Workspace.test.tsx — opens its target on mount; mode switch opens that mode's window
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 
 const openReview = vi.fn();
-vi.mock("../api", () => ({ api: { openReview: (...a: unknown[]) => openReview(...a), refreshReview: vi.fn(), saveReview: vi.fn(), exportReview: vi.fn(), getFileDiff: vi.fn() } }));
+const openTarget = vi.fn();
+vi.mock("../api", () => ({
+  api: {
+    openReview: (...a: unknown[]) => openReview(...a),
+    openTarget: (...a: unknown[]) => openTarget(...a),
+    refreshReview: vi.fn(),
+    saveReview: vi.fn(),
+    exportReview: vi.fn(),
+    getFileDiff: vi.fn(),
+    showPicker: vi.fn(),
+  },
+}));
 
 import { Workspace } from "./Workspace";
+import type { Target } from "../types";
 
+const target: Target = { repoPath: "/r", mode: "all-changes" };
 const minimalSession = {
   review: { id: "x", target: { repoPath: "/r", worktree: "main", mode: "all-changes" }, comments: [], viewed: [], snapshot: { baseOid: "b", capturedAt: "t" }, createdAt: "t", lastOpenedAt: "t", version: 1 },
   summary: { files: [], baseLabel: "main", headLabel: "wt" },
 };
 
 describe("Workspace", () => {
-  beforeEach(() => openReview.mockReset());
-
-  it("opens a review and shows the toolbar", async () => {
-    openReview.mockResolvedValue(minimalSession);
-    render(<Workspace />);
-    fireEvent.change(screen.getByPlaceholderText("Repo path"), { target: { value: "/r" } });
-    fireEvent.click(screen.getByRole("button", { name: /open/i }));
-    await waitFor(() => expect(screen.getByRole("button", { name: /copy for claude/i })).toBeInTheDocument());
-    expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "all-changes" });
+  beforeEach(() => {
+    openReview.mockReset();
+    openTarget.mockReset();
   });
 
-  it("re-opens when mode is switched", async () => {
+  it("opens the review for its target on mount", async () => {
     openReview.mockResolvedValue(minimalSession);
-    render(<Workspace />);
-    fireEvent.change(screen.getByPlaceholderText("Repo path"), { target: { value: "/r" } });
-    fireEvent.click(screen.getByRole("button", { name: /open/i }));
+    render(<Workspace target={target} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /copy for claude/i })).toBeInTheDocument());
+    expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "all-changes", base: undefined });
+  });
+
+  it("switching mode opens that mode's target window", async () => {
+    openReview.mockResolvedValue(minimalSession);
+    render(<Workspace target={target} />);
     await waitFor(() => expect(screen.getByRole("button", { name: /copy for claude/i })).toBeInTheDocument());
 
-    openReview.mockResolvedValue({
-      ...minimalSession,
-      review: { ...minimalSession.review, target: { ...minimalSession.review.target, mode: "uncommitted" } },
-    });
     fireEvent.change(screen.getByRole("combobox", { name: /diff mode/i }), { target: { value: "uncommitted" } });
-    await waitFor(() =>
-      expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "uncommitted" })
-    );
+    await waitFor(() => expect(openTarget).toHaveBeenCalledWith("/r", "uncommitted", undefined));
   });
 });
