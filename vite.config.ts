@@ -36,7 +36,9 @@ export default defineConfig({
     environment: "happy-dom",
     setupFiles: ["./src/test-setup.ts"],
     globals: true,
-    // Never recurse into nested git worktrees the harness creates under .claude/.
-    exclude: [...configDefaults.exclude, "**/.claude/**"],
+    // Never recurse into nested git worktrees (the harness uses .claude/worktrees/;
+    // superpowers:using-git-worktrees uses .worktrees/). Their own tests/node_modules
+    // must not pollute this project's run.
+    exclude: [...configDefaults.exclude, "**/.claude/**", "**/.worktrees/**"],
   },
 });
