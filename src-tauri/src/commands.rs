@@ -134,12 +134,12 @@ mod tests {
 
         let target = Target { repo_path: "/repo".into(), worktree: Some("main".into()), mode: DiffMode::Uncommitted, base: None };
         let snapshot = Snapshot { base_oid: "abc123".into(), head_oid: None, captured_at: now.clone() };
-        let review = Review::new("test_id_001".into(), target, snapshot, now);
+        let review = Review::new("0123456789abcdef".into(), target, snapshot, now);
 
         save_review_impl(&storage, review.clone()).unwrap();
         let loaded = storage.load(&review.id).unwrap();
         assert!(loaded.is_some());
-        assert_eq!(loaded.unwrap().id, "test_id_001");
+        assert_eq!(loaded.unwrap().id, "0123456789abcdef");
     }
 
     #[test]

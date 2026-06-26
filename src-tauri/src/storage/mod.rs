@@ -7,6 +7,10 @@ pub trait Storage {
     fn save(&self, review: &Review) -> Result<(), String>;
 }
 
+fn is_valid_id(id: &str) -> bool {
+    id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
+}
+
 pub struct JsonStorage {
     root: PathBuf,
 }
@@ -33,6 +37,9 @@ impl Storage for JsonStorage {
     }
 
     fn save(&self, review: &Review) -> Result<(), String> {
+        if !is_valid_id(&review.id) {
+            return Err(format!("invalid review id: {:?}", review.id));
+        }
         fs::create_dir_all(&self.root).map_err(|e| format!("create reviews dir: {e}"))?;
         let text = serde_json::to_string_pretty(review).map_err(|e| format!("serialize review: {e}"))?;
         let final_path = self.path_for(&review.id);
@@ -52,7 +59,7 @@ mod tests {
 
     fn sample() -> Review {
         let target = Target { repo_path: "/r".into(), worktree: Some("main".into()), mode: DiffMode::AllChanges, base: None };
-        Review::new("abc123".into(), target, Snapshot { base_oid: "b".into(), head_oid: None, captured_at: "t".into() }, "t".into())
+        Review::new("0123456789abcdef".into(), target, Snapshot { base_oid: "b".into(), head_oid: None, captured_at: "t".into() }, "t".into())
     }
 
     #[test]
@@ -68,8 +75,8 @@ mod tests {
         let s = JsonStorage::new(dir.path().join("reviews"));
         let r = sample();
         s.save(&r).unwrap();
-        let loaded = s.load("abc123").unwrap().unwrap();
-        assert_eq!(loaded.id, "abc123");
+        let loaded = s.load("0123456789abcdef").unwrap().unwrap();
+        assert_eq!(loaded.id, "0123456789abcdef");
         assert_eq!(loaded.target.worktree.as_deref(), Some("main"));
     }
 
@@ -82,6 +89,17 @@ mod tests {
         let entries: Vec<String> = std::fs::read_dir(&root).unwrap().map(|e| e.unwrap().file_name().into_string().unwrap()).collect();
         assert_eq!(entries.len(), 1, "expected exactly one file, got {entries:?}");
         assert!(!entries.iter().any(|n| n.ends_with(".tmp")), "no temp file should remain, got {entries:?}");
-        assert!(entries.iter().any(|n| n == "abc123.json"), "expected abc123.json, got {entries:?}");
+        assert!(entries.iter().any(|n| n == "0123456789abcdef.json"), "expected 0123456789abcdef.json, got {entries:?}");
+    }
+
+    #[test]
+    fn save_rejects_invalid_id() {
+        let dir = TempDir::new().unwrap();
+        let s = JsonStorage::new(dir.path().join("reviews"));
+        let mut r = sample();
+        r.id = "../escape".into();
+        let result = s.save(&r);
+        assert!(result.is_err(), "save should reject path-traversal id");
+        assert!(result.unwrap_err().contains("invalid review id"));
     }
 }
