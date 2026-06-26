@@ -62,15 +62,32 @@ pub fn reconcile(mut review: Review) -> Result<ReviewSession, GitError> {
     }
 
     // Reset viewed entries whose file diff changed (or vanished).
-    review.viewed.retain(|v| {
-        if !present.contains(&v.file) {
-            return false; // file no longer in the diff → drop viewed progress
-        }
-        match get_file_diff(&target, &v.file) {
-            Ok(fd) => diff_hash(fd.old_content.as_deref().unwrap_or(""), fd.new_content.as_deref().unwrap_or("")) == v.diff_hash,
-            Err(_) => true, // present file we couldn't read → keep (don't drop on uncertainty)
-        }
-    });
+    // If stored diff_hash is empty (toggled by FE before it knew the hash), stamp it now and keep.
+    review.viewed = std::mem::take(&mut review.viewed)
+        .into_iter()
+        .filter_map(|mut v| {
+            if !present.contains(&v.file) {
+                return None; // file no longer in the diff → drop viewed progress
+            }
+            match get_file_diff(&target, &v.file) {
+                Ok(fd) => {
+                    let current = diff_hash(
+                        fd.old_content.as_deref().unwrap_or(""),
+                        fd.new_content.as_deref().unwrap_or(""),
+                    );
+                    if v.diff_hash.is_empty() {
+                        v.diff_hash = current; // first reconcile after toggle → stamp + keep
+                        Some(v)
+                    } else if v.diff_hash == current {
+                        Some(v) // unchanged → keep
+                    } else {
+                        None // file's diff changed since viewed → drop
+                    }
+                }
+                Err(_) => Some(v), // present but unreadable → keep (don't lose on uncertainty)
+            }
+        })
+        .collect();
 
     // Refresh snapshot.
     let ep = resolve_endpoints(&repo, &review.target)?;
@@ -168,6 +185,19 @@ mod tests {
         r.viewed.push(ViewedEntry { file: "file.txt".into(), diff_hash: "anything".into() });
         let session = reconcile(r).unwrap();
         assert_eq!(session.review.viewed.len(), 0);
+    }
+
+    #[test]
+    fn stamps_empty_diff_hash_and_keeps_viewed() {
+        let (dir, _repo) = repo_with_commit();
+        write(dir.path(), "file.txt", "line1\nCHANGED\n");
+        let mut r = empty_review(dir.path().to_str().unwrap());
+        // FE toggles viewed with empty hash (doesn't know the hash)
+        r.viewed.push(ViewedEntry { file: "file.txt".into(), diff_hash: "".into() });
+        let session = reconcile(r).unwrap();
+        // Entry must be kept and its hash must now be non-empty (stamped)
+        assert_eq!(session.review.viewed.len(), 1);
+        assert!(!session.review.viewed[0].diff_hash.is_empty());
     }
 
     #[test]

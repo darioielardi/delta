@@ -37,6 +37,8 @@ export function Workspace() {
       setSummary(session.summary);
     } catch (e) {
       setError(String(e));
+      setSummary(null);
+      setReview(null);
     }
   }
 
@@ -75,8 +77,10 @@ export function Workspace() {
       if (e.key === "2" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setIndexOpen((o) => !o);
-      } else if (e.key === "r" && !e.metaKey && !e.ctrlKey && document.activeElement?.tagName !== "TEXTAREA") {
-        void refresh();
+      } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
+        const tag = document.activeElement?.tagName ?? "";
+        const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+        if (!typing) void refresh();
       }
     }
     window.addEventListener("keydown", onKey);
