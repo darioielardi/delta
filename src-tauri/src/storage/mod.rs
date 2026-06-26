@@ -6,6 +6,7 @@ use std::path::PathBuf;
 pub trait Storage {
     fn load(&self, id: &str) -> Result<Option<Review>, String>;
     fn save(&self, review: &Review) -> Result<(), String>;
+    fn delete(&self, id: &str) -> Result<(), String>;
 }
 
 fn is_valid_id(id: &str) -> bool {
@@ -48,6 +49,17 @@ impl Storage for JsonStorage {
         fs::write(&tmp_path, text.as_bytes()).map_err(|e| format!("write tmp: {e}"))?;
         fs::rename(&tmp_path, &final_path).map_err(|e| format!("rename: {e}"))?;
         Ok(())
+    }
+
+    fn delete(&self, id: &str) -> Result<(), String> {
+        if !is_valid_id(id) {
+            return Err(format!("invalid review id: {id:?}"));
+        }
+        match fs::remove_file(self.path_for(id)) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(format!("delete review {id}: {e}")),
+        }
     }
 }
 
