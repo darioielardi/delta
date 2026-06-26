@@ -1,6 +1,35 @@
+use crate::git::model::DiffMode;
 use crate::git::{open_repo, resolve_base, resolve_worktree};
 use crate::registry::model::{repo_name_from_path, RepoEntry, WorktreeEntry};
 use sha2::{Digest, Sha256};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Launch {
+    pub repo_path: PathBuf,
+    pub mode: DiffMode,
+}
+
+/// Pure CLI parsing. `args` excludes the binary name. No filesystem access.
+pub fn parse_launch(args: &[String], cwd: &Path) -> Launch {
+    let mut mode = DiffMode::AllChanges;
+    let mut path_token: Option<&str> = None;
+    for arg in args {
+        match arg.as_str() {
+            "--uncommitted" => mode = DiffMode::Uncommitted,
+            "--last-commit" => mode = DiffMode::LastCommit,
+            "--branch" => mode = DiffMode::BranchVsBase,
+            other if !other.starts_with("--") && path_token.is_none() => path_token = Some(other),
+            _ => {}
+        }
+    }
+    let repo_path = match path_token {
+        None | Some(".") => cwd.to_path_buf(),
+        Some(p) if Path::new(p).is_absolute() => PathBuf::from(p),
+        Some(p) => cwd.join(p),
+    };
+    Launch { repo_path, mode }
+}
 
 /// All checked-out worktrees of the repo: the main workdir + any linked worktrees.
 pub fn list_worktrees(repo_path: &str) -> Result<Vec<WorktreeEntry>, String> {
@@ -91,5 +120,44 @@ mod tests {
         assert_eq!(entry.default_branch.as_deref(), Some("main"));
         assert!(!entry.id.is_empty());
         assert!(!entry.worktrees.is_empty());
+    }
+
+    #[test]
+    fn parse_launch_no_args_uses_cwd_all_changes() {
+        let l = parse_launch(&[], Path::new("/home/me/proj"));
+        assert_eq!(l.repo_path, PathBuf::from("/home/me/proj"));
+        assert_eq!(l.mode, DiffMode::AllChanges);
+    }
+
+    #[test]
+    fn parse_launch_dot_is_cwd() {
+        let l = parse_launch(&[".".to_string()], Path::new("/home/me/proj"));
+        assert_eq!(l.repo_path, PathBuf::from("/home/me/proj"));
+    }
+
+    #[test]
+    fn parse_launch_absolute_path_wins() {
+        let l = parse_launch(&["/abs/repo".to_string()], Path::new("/home/me/proj"));
+        assert_eq!(l.repo_path, PathBuf::from("/abs/repo"));
+    }
+
+    #[test]
+    fn parse_launch_relative_path_joins_cwd() {
+        let l = parse_launch(&["sub/dir".to_string()], Path::new("/home/me/proj"));
+        assert_eq!(l.repo_path, PathBuf::from("/home/me/proj/sub/dir"));
+    }
+
+    #[test]
+    fn parse_launch_mode_flags() {
+        assert_eq!(parse_launch(&["--uncommitted".into()], Path::new("/c")).mode, DiffMode::Uncommitted);
+        assert_eq!(parse_launch(&["--last-commit".into()], Path::new("/c")).mode, DiffMode::LastCommit);
+        assert_eq!(parse_launch(&["--branch".into()], Path::new("/c")).mode, DiffMode::BranchVsBase);
+    }
+
+    #[test]
+    fn parse_launch_flag_then_path() {
+        let l = parse_launch(&["--uncommitted".into(), "/abs/repo".into()], Path::new("/c"));
+        assert_eq!(l.repo_path, PathBuf::from("/abs/repo"));
+        assert_eq!(l.mode, DiffMode::Uncommitted);
     }
 }
