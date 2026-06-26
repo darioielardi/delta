@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 pub struct ReviewSession {
     pub review: Review,
     pub summary: DiffSummary,
+    /// Canonical repo display name (the main worktree's dir name). Filled by the
+    /// command layer; reconcile itself leaves it empty.
+    #[serde(default)]
+    pub repo_name: String,
 }
 
 fn now() -> String {
@@ -101,7 +105,7 @@ pub fn reconcile(mut review: Review) -> Result<ReviewSession, GitError> {
     };
     review.last_opened_at = now();
 
-    Ok(ReviewSession { review, summary })
+    Ok(ReviewSession { review, summary, repo_name: String::new() })
 }
 
 fn file_side_content(target: &Target, file: &str, side: Side) -> Option<String> {

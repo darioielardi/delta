@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { resolveRoute } from "./route";
 
 describe("resolveRoute", () => {
-  it("routes the picker label to the picker", () => {
-    expect(resolveRoute("picker", "")).toEqual({ kind: "picker" });
+  it("routes a non-review label to home", () => {
+    expect(resolveRoute("home", "")).toEqual({ kind: "home" });
   });
 
   it("routes a review label + params to a review target", () => {
@@ -22,7 +22,7 @@ describe("resolveRoute", () => {
     if (r.kind === "review") expect(r.target.mode).toBe("all-changes");
   });
 
-  it("defaults to picker with no label and no params", () => {
-    expect(resolveRoute(null, "")).toEqual({ kind: "picker" });
+  it("defaults to home with no label and no params", () => {
+    expect(resolveRoute(null, "")).toEqual({ kind: "home" });
   });
 });

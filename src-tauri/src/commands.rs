@@ -3,11 +3,10 @@ use crate::git::diff::{compute_diff as engine_compute, get_file_diff as engine_f
 use crate::git::model::{DiffMode, Target};
 use crate::git::{open_repo, resolve_worktree};
 use crate::launch::{
-    hide_picker as launch_hide_picker, install_cli as launch_install_cli,
-    list_worktrees as launch_list_worktrees, open_target_window, repo_entry,
-    show_picker as launch_show_picker, InstallOutcome,
+    install_cli as launch_install_cli, list_worktrees as launch_list_worktrees, open_target_window,
+    repo_display_name, repo_entry, InstallOutcome,
 };
-use crate::registry::model::{repo_name_from_path, Registry, RepoEntry, ReviewEntry, WorktreeEntry};
+use crate::registry::model::{Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
 use crate::review::reconcile::{reconcile, ReviewSession};
 use crate::storage::{JsonRegistryStore, JsonStorage, RegistryStore, Storage};
@@ -81,7 +80,7 @@ fn sync_registry_after_open(reg_store: &dyn RegistryStore, review: &Review, file
         if let Ok(entry) = repo_entry(&review.target.repo_path) {
             reg.upsert_repo(entry);
         }
-        let name = repo_name_from_path(&review.target.repo_path);
+        let name = repo_display_name(&review.target.repo_path);
         reg.upsert_review(ReviewEntry::from_review(review, file_count, name));
         reg_store.save(&reg)
     })();
@@ -100,7 +99,7 @@ fn sync_registry_after_save(reg_store: &dyn RegistryStore, review: &Review) {
             .find(|e| e.id == review.id)
             .map(|e| e.file_count)
             .unwrap_or(0);
-        let name = repo_name_from_path(&review.target.repo_path);
+        let name = repo_display_name(&review.target.repo_path);
         reg.upsert_review(ReviewEntry::from_review(review, prior_file_count, name));
         reg_store.save(&reg)
     })();
@@ -112,13 +111,15 @@ fn sync_registry_after_save(reg_store: &dyn RegistryStore, review: &Review) {
 // Registry-aware impls (used by the #[tauri::command] wrappers). The Plan 2
 // impls (open_review_impl, etc.) stay for their existing unit tests.
 pub fn open_review_impl_with_registry(storage: &dyn Storage, reg_store: &dyn RegistryStore, input: Target) -> Result<ReviewSession, String> {
-    let session = open_review_impl(storage, input)?;
+    let mut session = open_review_impl(storage, input)?;
+    session.repo_name = repo_display_name(&session.review.target.repo_path);
     sync_registry_after_open(reg_store, &session.review, session.summary.files.len() as u32);
     Ok(session)
 }
 
 pub fn refresh_review_impl_with_registry(storage: &dyn Storage, reg_store: &dyn RegistryStore, review: Review) -> Result<ReviewSession, String> {
-    let session = refresh_review_impl(storage, review)?;
+    let mut session = refresh_review_impl(storage, review)?;
+    session.repo_name = repo_display_name(&session.review.target.repo_path);
     sync_registry_after_open(reg_store, &session.review, session.summary.files.len() as u32);
     Ok(session)
 }
@@ -190,8 +191,19 @@ pub fn list_worktrees(repo_path: String) -> Result<Vec<WorktreeEntry>, String> {
 }
 
 #[tauri::command]
-pub fn import_repo(app: tauri::AppHandle) -> Result<Option<RepoEntry>, String> {
-    let Some(folder) = app.dialog().file().blocking_pick_folder() else {
+pub async fn import_repo(app: tauri::AppHandle) -> Result<Option<RepoEntry>, String> {
+    // The native folder dialog blocks on a sync channel and must run OFF the main
+    // thread — calling it from a synchronous command (which runs on the main thread)
+    // freezes the event loop (the app beachballs). Run it on the blocking pool so the
+    // main thread stays free to drive the dialog.
+    let dialog_app = app.clone();
+    let folder = tauri::async_runtime::spawn_blocking(move || {
+        dialog_app.dialog().file().blocking_pick_folder()
+    })
+    .await
+    .map_err(|e| format!("dialog task: {e}"))?;
+
+    let Some(folder) = folder else {
         return Ok(None);
     };
     let repo_path = folder
@@ -210,16 +222,6 @@ pub fn import_repo(app: tauri::AppHandle) -> Result<Option<RepoEntry>, String> {
 #[tauri::command]
 pub fn open_target(app: tauri::AppHandle, repo_path: String, mode: DiffMode, base: Option<String>) -> Result<(), String> {
     open_target_window(&app, &repo_path, mode, base)
-}
-
-#[tauri::command]
-pub fn show_picker(app: tauri::AppHandle) -> Result<(), String> {
-    launch_show_picker(&app)
-}
-
-#[tauri::command]
-pub fn hide_picker(app: tauri::AppHandle) {
-    launch_hide_picker(&app);
 }
 
 #[tauri::command]

@@ -12,8 +12,9 @@ describe("App routing", () => {
     window.history.replaceState({}, "", "/");
   });
 
-  it("renders the picker by default", async () => {
+  it("opens the home window with the command palette up", async () => {
     render(<App />);
-    await waitFor(() => expect(screen.getByTestId("picker-root")).toBeInTheDocument());
+    expect(screen.getByTestId("home-root")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("command-palette")).toBeInTheDocument());
   });
 });

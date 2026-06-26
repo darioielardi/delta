@@ -81,6 +81,7 @@ export interface Review {
 export interface ReviewSession {
   review: Review;
   summary: DiffSummary;
+  repoName: string;
 }
 
 export interface WorktreeEntry {

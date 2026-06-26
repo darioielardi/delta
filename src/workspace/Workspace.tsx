@@ -7,7 +7,7 @@ import { DiffPane } from "../diff/DiffPane";
 import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
 import { useSystemTheme } from "../theme";
-import { ArrowRight, Check, ChevronDown, Copy, MessageSquare, RefreshCw } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, Copy, GitBranch, MessageSquare, RefreshCw, Search } from "lucide-react";
 import type { Anchor, Comment, DiffMode, DiffSummary, Target } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
@@ -17,10 +17,11 @@ const MODES: { id: DiffMode; label: string }[] = [
   { id: "branch-vs-base", label: "Branch vs base" },
 ];
 
-export function Workspace({ target }: { target: Target }) {
+export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPalette?: () => void }) {
   const theme = useSystemTheme();
   const mode = target.mode;
   const [summary, setSummary] = useState<DiffSummary | null>(null);
+  const [repoName, setRepoName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [indexOpen, setIndexOpen] = useState(false);
   // Jump target for the diff pane. `n` is a nonce so re-selecting the same
@@ -38,6 +39,7 @@ export function Workspace({ target }: { target: Target }) {
       const session = await api.openReview({ repoPath: target.repoPath, mode: target.mode, base: target.base });
       setReview(session.review);
       setSummary(session.summary);
+      setRepoName(session.repoName);
     } catch (e) {
       setError(String(e));
       setSummary(null);
@@ -46,6 +48,9 @@ export function Workspace({ target }: { target: Target }) {
   }
 
   useEffect(() => {
+    // Async bootstrap — openReview setState happens after `await`, not synchronously;
+    // standard fetch-on-target-change, not a cascading-render anti-pattern.
+    // react-doctor-disable-next-line react-hooks-js/set-state-in-effect
     void open();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target.repoPath, target.mode, target.base]);
@@ -56,6 +61,7 @@ export function Workspace({ target }: { target: Target }) {
       const session = await api.refreshReview(review);
       setReview(session.review);
       setSummary(session.summary);
+      setRepoName(session.repoName);
     } catch (e) {
       setError(String(e));
     }
@@ -113,10 +119,7 @@ export function Workspace({ target }: { target: Target }) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "o" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        void api.showPicker();
-      } else if (e.key === "2" && (e.metaKey || e.ctrlKey)) {
+      if (e.key === "2" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setIndexOpen((o) => !o);
       } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
@@ -134,8 +137,22 @@ export function Workspace({ target }: { target: Target }) {
     <div data-testid="app-root" className="flex h-screen flex-col overflow-hidden bg-background text-[13px] text-foreground">
       {/* Overlay titlebar: the macOS traffic lights float over the top-left, so
           inset the controls past them and make the bar a drag region. */}
-      <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border/70 pl-20 pr-3">
-        <span className="text-[13px] font-medium">{target.repoPath.split("/").filter(Boolean).pop()}</span>
+      <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border/70 pl-24 pr-3">
+        <button
+          type="button"
+          onClick={onOpenPalette}
+          title="Open command palette (⌘K)"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md border border-border/60 bg-muted/40 px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <Search className="size-3.5 text-muted-foreground" />
+          {repoName || target.repoPath.split("/").filter(Boolean).pop()}
+          {review?.target.worktree ? (
+            <span className="ml-0.5 flex items-center gap-1 font-normal text-muted-foreground">
+              <GitBranch className="size-3" />
+              {review.target.worktree}
+            </span>
+          ) : null}
+        </button>
         {summary && (
           <>
             <div className="relative ml-1">

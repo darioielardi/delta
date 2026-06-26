@@ -25,8 +25,6 @@ pub fn run() {
             commands::save_review,
             commands::export_review,
             commands::open_target,
-            commands::show_picker,
-            commands::hide_picker,
             commands::list_registry,
             commands::list_worktrees,
             commands::import_repo,
@@ -39,6 +37,15 @@ pub fn run() {
             crate::launch::route_launch(app.handle(), &args, &cwd);
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|_app_handle, _event| {
+            // macOS: clicking the dock icon with no open windows reopens the home window.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { has_visible_windows, .. } = _event {
+                if !has_visible_windows {
+                    let _ = crate::launch::open_home_window(_app_handle);
+                }
+            }
+        });
 }

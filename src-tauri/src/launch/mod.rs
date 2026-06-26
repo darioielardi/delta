@@ -74,16 +74,33 @@ fn common_git_dir(repo: &git2::Repository) -> std::path::PathBuf {
     std::fs::canonicalize(&base).unwrap_or(base)
 }
 
+/// The main worktree directory = parent of the shared `.git` dir. Same for every
+/// linked worktree of the repo, so it yields the canonical repo name.
+fn main_worktree_dir(repo: &git2::Repository) -> Option<std::path::PathBuf> {
+    common_git_dir(repo).parent().map(|p| p.to_path_buf())
+}
+
+/// Canonical repo display name — the main worktree's directory name (e.g. "delta"),
+/// regardless of which (possibly linked) worktree path was opened.
+pub fn repo_display_name(repo_path: &str) -> String {
+    open_repo(repo_path)
+        .ok()
+        .and_then(|repo| main_worktree_dir(&repo))
+        .map(|p| repo_name_from_path(&p.display().to_string()))
+        .unwrap_or_else(|| repo_name_from_path(repo_path))
+}
+
 /// Registry repo entry: keyed by the git commondir so linked worktrees group together.
+/// `root`/`name` describe the main worktree, not whichever worktree path was opened.
 pub fn repo_entry(repo_path: &str) -> Result<RepoEntry, String> {
     let repo = open_repo(repo_path)?;
     let commondir = common_git_dir(&repo).display().to_string();
     let mut h = Sha256::new();
     h.update(commondir.as_bytes());
     let id: String = h.finalize()[..8].iter().map(|b| format!("{:02x}", b)).collect();
-    let root = repo
-        .workdir()
+    let root = main_worktree_dir(&repo)
         .map(|p| p.display().to_string())
+        .or_else(|| repo.workdir().map(|p| p.display().to_string()))
         .unwrap_or_else(|| repo_path.to_string());
     let name = repo_name_from_path(&root);
     let default_branch = resolve_base(&repo, None).ok().map(|(label, _)| label);
@@ -132,47 +149,45 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
         builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
             .hidden_title(true)
-            .traffic_light_position(tauri::LogicalPosition::new(19.0, 18.0));
+            .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0));
     }
     builder.build().map_err(|e| format!("create window: {e}"))?;
     Ok(())
 }
 
-pub fn show_picker(app: &AppHandle) -> Result<(), String> {
-    if let Some(w) = app.get_webview_window("picker") {
+/// The cold-launch host window. The command palette (frontend) opens over it.
+/// Focus-or-create the singleton `home` window.
+pub fn open_home_window(app: &AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("home") {
         let _ = w.show();
         let _ = w.set_focus();
         return Ok(());
     }
     #[allow(unused_mut)]
-    let mut builder = WebviewWindowBuilder::new(app, "picker", WebviewUrl::App("index.html".into()))
+    let mut builder = WebviewWindowBuilder::new(app, "home", WebviewUrl::App("index.html".into()))
         .title("delta")
-        .inner_size(760.0, 560.0)
-        .min_inner_size(560.0, 420.0)
+        .inner_size(1000.0, 680.0)
+        .min_inner_size(800.0, 560.0)
         .center();
     #[cfg(target_os = "macos")]
     {
         builder = builder
             .title_bar_style(tauri::TitleBarStyle::Overlay)
-            .hidden_title(true);
+            .hidden_title(true)
+            .traffic_light_position(tauri::LogicalPosition::new(16.0, 16.0));
     }
-    builder.build().map_err(|e| format!("create picker: {e}"))?;
+    builder.build().map_err(|e| format!("create home window: {e}"))?;
     Ok(())
 }
 
-pub fn hide_picker(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("picker") {
-        let _ = w.hide();
-    }
-}
-
-/// First-launch + single-instance routing.
+/// First-launch + single-instance routing: open the target's review window when
+/// launched inside a repo, otherwise the home window (which shows the palette).
 pub fn route_launch(app: &AppHandle, args: &[String], cwd: &Path) {
     let launch = parse_launch(args, cwd);
     let path = launch.repo_path.to_string_lossy().to_string();
     let opened = open_repo(&path).is_ok() && open_target_window(app, &path, launch.mode, None).is_ok();
     if !opened {
-        let _ = show_picker(app);
+        let _ = open_home_window(app);
     }
 }
 

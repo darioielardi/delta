@@ -207,7 +207,7 @@ export function installMockBackend(): void {
         return ds.files[(args?.path as string) ?? ""] as T;
       case "open_review":
       case "refresh_review": {
-        const session: ReviewSession = { review: ds.review, summary: ds.summary };
+        const session: ReviewSession = { review: ds.review, summary: ds.summary, repoName: "demo" };
         return structuredClone(session) as T;
       }
       case "save_review":
@@ -237,9 +237,6 @@ export function installMockBackend(): void {
         return undefined as T;
       case "install_cli":
         return { kind: "linked", path: "/usr/local/bin/delta" } as T;
-      case "show_picker":
-      case "hide_picker":
-        return undefined as T;
       default:
         throw new Error(`mockBackend: unhandled command "${cmd}"`);
     }

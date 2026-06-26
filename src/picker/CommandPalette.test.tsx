@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { Picker } from "./Picker";
+import { CommandPalette } from "./CommandPalette";
 import { __setInvokeForDev } from "../api";
 import type { Registry } from "../types";
 
@@ -15,31 +15,39 @@ const REG: Registry = {
   ],
 };
 
-describe("Picker", () => {
+describe("CommandPalette", () => {
   let calls: { cmd: string; args?: Record<string, unknown> }[];
   beforeEach(() => {
     calls = [];
-    __setInvokeForDev(async (cmd, args) => {
-      calls.push({ cmd, args });
+    __setInvokeForDev(async (cmd) => {
+      calls.push({ cmd });
       if (cmd === "list_registry") return structuredClone(REG) as never;
+      if (cmd === "list_worktrees") return [{ path: "/r/demo", branch: "main", isMain: true }] as never;
       return undefined as never;
     });
   });
 
-  it("renders recency-ordered rows and opens on Enter", async () => {
-    render(<Picker />);
+  it("lists recency-ordered reviews and opens on Enter", async () => {
+    render(<CommandPalette onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText("feat/auth")).toBeInTheDocument());
-    fireEvent.keyDown(window, { key: "Enter" });
+    fireEvent.keyDown(screen.getByPlaceholderText(/search reviews/i), { key: "Enter" });
     await waitFor(() => expect(calls.some((c) => c.cmd === "open_target")).toBe(true));
-    expect(calls.find((c) => c.cmd === "open_target")?.args).toMatchObject({ repoPath: "/r/demo", mode: "all-changes" });
-    await waitFor(() => expect(calls.some((c) => c.cmd === "hide_picker")).toBe(true));
   });
 
-  it("filters as you type", async () => {
-    render(<Picker />);
+  it("filters reviews as you type", async () => {
+    render(<CommandPalette onClose={() => {}} />);
     await waitFor(() => expect(screen.getByText("feat/auth")).toBeInTheDocument());
-    fireEvent.change(screen.getByPlaceholderText(/search/i), { target: { value: "uncommitted" } });
+    fireEvent.change(screen.getByPlaceholderText(/search reviews/i), { target: { value: "uncommitted" } });
     await waitFor(() => expect(screen.queryByText("feat/auth")).not.toBeInTheDocument());
     expect(screen.getByText("main")).toBeInTheDocument();
+  });
+
+  it("new review → pick repo (single worktree) opens all-changes immediately", async () => {
+    render(<CommandPalette onClose={() => {}} />);
+    await waitFor(() => expect(screen.getByText("＋ New review")).toBeInTheDocument());
+    fireEvent.click(screen.getByText("＋ New review"));
+    await waitFor(() => expect(screen.getByPlaceholderText(/pick a repository/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByText("demo"));
+    await waitFor(() => expect(calls.some((c) => c.cmd === "open_target")).toBe(true));
   });
 });

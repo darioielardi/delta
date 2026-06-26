@@ -45,7 +45,5 @@ export const api = {
   openTarget: (repoPath: string, mode: DiffMode, base?: string): Promise<void> =>
     invokeImpl("open_target", { repoPath, mode, base }),
   deleteReview: (id: string): Promise<void> => invokeImpl("delete_review", { id }),
-  showPicker: (): Promise<void> => invokeImpl("show_picker"),
-  hidePicker: (): Promise<void> => invokeImpl("hide_picker"),
   installCli: (): Promise<InstallOutcome> => invokeImpl("install_cli"),
 };
