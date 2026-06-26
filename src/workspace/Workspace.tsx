@@ -7,7 +7,8 @@ import { DiffPane } from "../diff/DiffPane";
 import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
 import { useSystemTheme } from "../theme";
-import { ArrowRight, Check, ChevronDown, Copy, GitBranch, MessageSquare, RefreshCw, Search } from "lucide-react";
+import { useDiffLayout } from "../diff/useDiffLayout";
+import { ArrowRight, Check, ChevronDown, Columns2, Copy, GitBranch, MessageSquare, RefreshCw, Rows2, Search } from "lucide-react";
 import type { Anchor, Comment, DiffMode, DiffSummary, Target } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
@@ -19,6 +20,7 @@ const MODES: { id: DiffMode; label: string }[] = [
 
 export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPalette?: () => void }) {
   const theme = useSystemTheme();
+  const [layout, setLayout] = useDiffLayout();
   const mode = target.mode;
   const [summary, setSummary] = useState<DiffSummary | null>(null);
   const [repoName, setRepoName] = useState("");
@@ -174,6 +176,16 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
               {summary.headLabel}
             </span>
             <div className="ml-auto flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 px-2 text-[13px] text-muted-foreground hover:text-foreground"
+                onClick={() => setLayout(layout === "unified" ? "split" : "unified")}
+                title={layout === "unified" ? "Switch to split view" : "Switch to unified view"}
+                aria-label="Toggle split/unified diff"
+              >
+                {layout === "split" ? <Columns2 className="size-4" /> : <Rows2 className="size-4" />}
+              </Button>
               <Button size="sm" variant="ghost" aria-label={`Comments (${commentCount})`} aria-pressed={indexOpen} className="h-7 gap-1.5 px-2 text-[13px] text-muted-foreground hover:text-foreground aria-pressed:text-foreground" onClick={() => setIndexOpen((o) => !o)}>
                 <MessageSquare className="size-4" /> {commentCount}
               </Button>
@@ -228,6 +240,7 @@ export function Workspace({ target, onOpenPalette }: { target: Target; onOpenPal
                 comments={comments}
                 viewedFiles={viewedFiles}
                 theme={theme}
+                layout={layout}
                 jump={jump}
                 onToggleViewed={onToggleViewedFile}
                 onAddComment={onAddComment}

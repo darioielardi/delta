@@ -12,7 +12,7 @@ const enumToSide = (s: SplitSide): Side => (s === SplitSide.old ? "old" : "new")
 export function DiffView({
   fileDiff,
   filePath,
-  mode,
+  layout,
   theme = "light",
   comments = [],
   onAddComment,
@@ -21,7 +21,7 @@ export function DiffView({
 }: {
   fileDiff: FileDiff;
   filePath: string;
-  mode: "unified" | "split";
+  layout: "unified" | "split";
   theme?: "light" | "dark";
   comments?: Comment[];
   onAddComment?: (anchor: Anchor, body: string) => void;
@@ -30,7 +30,7 @@ export function DiffView({
 }) {
   const ref = useRef<DiffViewWithMultiSelectRef>(null);
 
-  // Build + tokenize the diff model once per (fileDiff, mode, theme). This is
+  // Build + tokenize the diff model once per (fileDiff, layout, theme). This is
   // the expensive step (parse, diff, syntax highlight); doing it every render —
   // as happens when a sibling state change re-renders the pane — measured as the
   // dominant cost on large reviews, so memoize explicitly rather than trusting
@@ -39,9 +39,9 @@ export function DiffView({
     if (fileDiff.binary) return null;
     const f = toDiffFile(fileDiff); // adapter already calls .init()
     f.initTheme(theme);
-    mode === "split" ? f.buildSplitDiffLines() : f.buildUnifiedDiffLines();
+    layout === "split" ? f.buildSplitDiffLines() : f.buildUnifiedDiffLines();
     return f;
-  }, [fileDiff, mode, theme]);
+  }, [fileDiff, layout, theme]);
 
   const extendData = useMemo(() => buildExtendData(comments), [comments]);
 
@@ -66,7 +66,7 @@ export function DiffView({
     <DiffViewWithMultiSelect<Comment[]>
       ref={ref}
       diffFile={file}
-      diffViewMode={mode === "split" ? DiffModeEnum.Split : DiffModeEnum.Unified}
+      diffViewMode={layout === "split" ? DiffModeEnum.Split : DiffModeEnum.Unified}
       diffViewHighlight
       diffViewTheme={theme}
       diffViewFontSize={12}

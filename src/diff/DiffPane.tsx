@@ -6,6 +6,7 @@ import { DiffView } from "./DiffView";
 import { useFileDiffCache } from "./useFileDiffCache";
 import { CommentThread } from "../review/CommentThread";
 import type { Anchor, Comment, FileEntry, Target } from "../types";
+import type { DiffLayout } from "./useDiffLayout";
 
 // Files with at least this many changed lines start collapsed.
 const GIANT_CHANGED_LINES = 600;
@@ -15,10 +16,10 @@ function commentsForFile(comments: Comment[], file: string): Comment[] {
 }
 
 function FileSection({
-  entry, cache, comments, viewed, collapsed, theme, onToggleViewed, onToggleCollapse, onAddComment, onAddFileComment, onEditComment, onDeleteComment, registerRef,
+  entry, cache, comments, viewed, collapsed, theme, layout, onToggleViewed, onToggleCollapse, onAddComment, onAddFileComment, onEditComment, onDeleteComment, registerRef,
 }: {
   entry: FileEntry; cache: ReturnType<typeof useFileDiffCache>;
-  comments: Comment[]; viewed: boolean; collapsed: boolean; theme: "light" | "dark";
+  comments: Comment[]; viewed: boolean; collapsed: boolean; theme: "light" | "dark"; layout: "unified" | "split";
   onToggleViewed: (file: string) => void;
   onToggleCollapse: (file: string) => void;
   onAddComment: (a: Anchor, body: string) => void;
@@ -165,7 +166,7 @@ function FileSection({
             <DiffView
               fileDiff={fd}
               filePath={entry.path}
-              mode="unified"
+              layout={layout}
               theme={theme}
               comments={commentsForFile(comments, entry.path)}
               onAddComment={onAddComment}
@@ -184,11 +185,11 @@ function FileSection({
 // memo so toggling unrelated Workspace state (e.g. the comments pane) skips the
 // whole diff pane — its props are kept referentially stable by the parent.
 export const DiffPane = memo(function DiffPane({
-  target, files, comments, viewedFiles, theme, jump,
+  target, files, comments, viewedFiles, theme, layout, jump,
   onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment,
 }: {
   target: Target; files: FileEntry[]; comments: Comment[]; viewedFiles: Set<string>;
-  theme: "light" | "dark"; jump?: { file: string; commentId?: string; n: number } | null;
+  theme: "light" | "dark"; layout: DiffLayout; jump?: { file: string; commentId?: string; n: number } | null;
   onToggleViewed: (file: string) => void;
   onAddComment: (a: Anchor, body: string) => void;
   onAddFileComment: (file: string, body: string) => void;
@@ -320,6 +321,7 @@ export const DiffPane = memo(function DiffPane({
           viewed={viewedFiles.has(entry.path)}
           collapsed={collapsedFor(entry)}
           theme={theme}
+          layout={layout}
           onToggleViewed={handleToggleViewed}
           onToggleCollapse={toggleCollapse}
           onAddComment={onAddComment}
