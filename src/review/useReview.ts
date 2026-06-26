@@ -34,16 +34,22 @@ export function useReview(initial: Review | null) {
     if (timer.current) clearTimeout(timer.current);
   }, []);
 
-  const mutate = useCallback((fn: (r: Review) => Review, save: "now" | "debounced") => {
+  // save: "now"/"debounced" persist; "none" updates in-memory only (drafts that
+  // must not hit disk until the user explicitly saves). (#r2)
+  const mutate = useCallback((fn: (r: Review) => Review, save: "now" | "debounced" | "none") => {
     setReview((r) => {
       if (!r) return r;
       const next = fn(r);
       latest.current = next;
       return next;
     });
-    save === "now" ? saveNow() : saveDebounced();
+    if (save === "now") saveNow();
+    else if (save === "debounced") saveDebounced();
   }, [saveNow, saveDebounced]);
 
+  // A new comment starts as an in-memory draft (no disk write) — it only
+  // persists when the editor is explicitly saved (updateCommentBody). Cancelling
+  // a never-saved draft just deletes it from memory. (#r2)
   const addComment = useCallback((scope: CommentScope, anchor: Anchor | null, body: string) => {
     const now = new Date().toISOString();
     const comment: Comment = {
@@ -55,15 +61,17 @@ export function useReview(initial: Review | null) {
       createdAt: now,
       updatedAt: now,
     };
-    mutate((r) => ({ ...r, comments: [...r.comments, comment] }), "now");
+    mutate((r) => ({ ...r, comments: [...r.comments, comment] }), body.trim() === "" ? "none" : "now");
     return comment.id;
   }, [mutate]);
 
+  // Called only on an explicit Save now (no live keystroke updates), so persist
+  // immediately rather than debounced. (#r2)
   const updateCommentBody = useCallback((id: string, body: string) => {
     const now = new Date().toISOString();
     mutate(
       (r) => ({ ...r, comments: r.comments.map((c) => (c.id === id ? { ...c, body, updatedAt: now } : c)) }),
-      "debounced",
+      "now",
     );
   }, [mutate]);
 

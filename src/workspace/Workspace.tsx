@@ -11,7 +11,7 @@ import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
-import { ArrowRight, Check, ChevronDown, Columns2, Copy, GitBranch, MessageSquare, Rows2, Search, Settings } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, CircleAlert, Columns2, Copy, GitBranch, MessageSquare, Rows2, Search, Settings } from "lucide-react";
 import type { Anchor, Comment, DiffMode, DiffSummary, Review, Target } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
@@ -59,6 +59,8 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   // file/comment still re-fires the scroll effect; `commentId` lets the pane
   // scroll to the exact comment, not just the file top.
   const [jump, setJump] = useState<{ file: string; commentId?: string; n: number } | null>(null);
+  // The file currently at the top of the diff viewport (scroll-spy → tree). (#r3)
+  const [visibleFile, setVisibleFile] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -168,6 +170,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   // memoization — otherwise toggling the comments pane (Workspace state) would
   // hand DiffPane new callbacks and re-render every mounted file section.
   const onSelectFile = useCallback((p: string) => setJump({ file: p, n: Date.now() }), []);
+  const onVisibleFileChange = useCallback((p: string) => setVisibleFile(p), []);
   const onToggleViewedFile = useCallback((file: string) => toggleViewed(file, ""), [toggleViewed]);
   const onAddComment = useCallback(
     (anchor: Anchor, body: string) => addComment(anchor.endLine != null ? "range" : "line", anchor, body),
@@ -271,7 +274,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               </Button>
               <Button
                 size="sm"
-                className="h-7 gap-1.5 px-3 text-[13px] transition-colors"
+                className="h-7 min-w-[9.5rem] justify-center gap-1.5 px-3 text-[13px] transition-colors"
                 style={
                   copyState === "ok"
                     ? { backgroundColor: "#059669", color: "#fff" }
@@ -316,7 +319,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
             <aside className="flex w-80 min-h-0 shrink-0 flex-col border-r border-border/70 bg-muted/20">
               <FilesPanel
                 files={orderedFiles}
-                selected={null}
+                selected={visibleFile}
                 onSelect={onSelectFile}
                 viewedFiles={viewedFiles}
                 onToggleViewed={onToggleViewedFile}
@@ -332,6 +335,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 layout={layout}
                 jump={jump}
                 invalidate={diffInval}
+                onVisibleFileChange={onVisibleFileChange}
                 onToggleViewed={onToggleViewedFile}
                 onAddComment={onAddComment}
                 onAddFileComment={onAddFileComment}
@@ -347,8 +351,25 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
             />
           </>
         ) : (
-          <div className="flex flex-1 items-center justify-center">
-            <p className="text-[13px] text-muted-foreground">{error ? "Couldn’t open this review." : "Loading review…"}</p>
+          <div className="flex flex-1 flex-col items-center justify-center text-muted-foreground">
+            {error ? (
+              <div className="flex flex-col items-center gap-3">
+                <CircleAlert className="size-6 text-destructive/80" />
+                <p className="text-[13px]">Couldn’t open this review.</p>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-4">
+                <div className="flex size-12 select-none items-center justify-center rounded-2xl squircle bg-gradient-to-br from-primary to-primary/70 text-[22px] font-semibold leading-none text-primary-foreground shadow-lg shadow-primary/25">
+                  Δ
+                </div>
+                <div className="flex flex-col items-center gap-2.5">
+                  <span className="text-[13px]">Computing delta…</span>
+                  <div className="relative h-1 w-32 overflow-hidden rounded-full bg-muted">
+                    <div className="absolute inset-y-0 left-0 w-1/3 rounded-full bg-primary/70 [animation:delta-indeterminate_1.1s_ease-in-out_infinite]" />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -44,21 +44,21 @@ describe("useReview", () => {
     expect(result.current.review!.viewed).toEqual([]);
   });
 
-  it("updateCommentBody debounces the save (fires once after 400ms, not before)", () => {
-    vi.useFakeTimers();
-    try {
-      const { result } = renderHook(() => useReview(base));
-      act(() => { result.current.addComment("general", null, "x"); }); // immediate save
-      const id = result.current.review!.comments[0].id;
-      saveMock.mockReset();
-      act(() => { result.current.updateCommentBody(id, "edited body"); });
-      expect(saveMock).not.toHaveBeenCalled(); // debounced — not yet
-      act(() => { vi.advanceTimersByTime(400); });
-      expect(saveMock).toHaveBeenCalledTimes(1);
-      expect(result.current.review!.comments[0].body).toBe("edited body");
-    } finally {
-      vi.useRealTimers();
-    }
+  it("addComment with an empty body is an in-memory draft (no save) (#r2)", () => {
+    const { result } = renderHook(() => useReview(base));
+    act(() => { result.current.addComment("line", null, ""); });
+    expect(result.current.review!.comments).toHaveLength(1);
+    expect(saveMock).not.toHaveBeenCalled(); // not persisted until explicitly saved
+  });
+
+  it("updateCommentBody saves immediately on explicit save (#r2)", async () => {
+    const { result } = renderHook(() => useReview(base));
+    act(() => { result.current.addComment("line", null, ""); }); // draft, no save
+    const id = result.current.review!.comments[0].id;
+    saveMock.mockReset();
+    act(() => { result.current.updateCommentBody(id, "edited body"); });
+    expect(result.current.review!.comments[0].body).toBe("edited body");
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
   });
 
   it("toggleViewed saves immediately", () => {

@@ -104,7 +104,7 @@ function FileSection({
           </span>
           <span className="min-w-0 flex-1 truncate text-[13px]">
             {dir && <span className="text-muted-foreground">{dir}</span>}
-            <span className="font-semibold text-foreground">{base}</span>
+            <span className="font-medium text-foreground">{base}</span>
           </span>
         </span>
         {/* Right actions, left→right: diff counts · add file comment · mark viewed.
@@ -150,7 +150,7 @@ function FileSection({
       {!collapsed && (
         <div className="min-h-8">
           {isDeleted && !revealed ? (
-            <div className="flex items-center gap-3 px-3 py-4 text-[13px] text-muted-foreground">
+            <div className="flex items-center gap-3 py-4 pl-5 pr-3 text-[13px] text-muted-foreground">
               <FileX className="size-4 shrink-0 text-rose-500/80" />
               <span>File deleted</span>
               <Button
@@ -186,7 +186,7 @@ function FileSection({
 // whole diff pane — its props are kept referentially stable by the parent.
 export const DiffPane = memo(function DiffPane({
   target, files, comments, viewedFiles, theme, layout, jump, invalidate,
-  onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment,
+  onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onVisibleFileChange,
 }: {
   target: Target; files: FileEntry[]; comments: Comment[]; viewedFiles: Set<string>;
   theme: "light" | "dark"; layout: DiffLayout; jump?: { file: string; commentId?: string; n: number } | null;
@@ -197,6 +197,8 @@ export const DiffPane = memo(function DiffPane({
   onAddComment: (a: Anchor, body: string) => void;
   onAddFileComment: (file: string, body: string) => void;
   onEditComment: (id: string, body: string) => void; onDeleteComment: (id: string) => void;
+  // Scroll-spy: the file currently at the top of the viewport. (#r3)
+  onVisibleFileChange?: (file: string) => void;
 }) {
   const cache = useFileDiffCache(target);
 
@@ -215,6 +217,38 @@ export const DiffPane = memo(function DiffPane({
     if (el) sectionRefs.current.set(file, el);
     else sectionRefs.current.delete(file);
   };
+
+  // Scroll-spy: report the file whose section sits at the top of the viewport so
+  // the tree/list can highlight what you're actually looking at. Sections are in
+  // file order, so the current one is the last whose top is at/above the pane
+  // top. rAF-throttled; only fires when the file changes. (#r3)
+  const lastVisible = useRef<string | null>(null);
+  useEffect(() => {
+    const pane = paneRef.current;
+    if (!pane || !onVisibleFileChange) return;
+    let timer = 0;
+    const compute = () => {
+      timer = 0;
+      const paneTop = pane.getBoundingClientRect().top;
+      let current: string | null = files[0]?.path ?? null;
+      for (const f of files) {
+        const el = sectionRefs.current.get(f.path);
+        if (!el) continue;
+        if (el.getBoundingClientRect().top - paneTop <= 8) current = f.path;
+        else break;
+      }
+      if (current && current !== lastVisible.current) {
+        lastVisible.current = current;
+        onVisibleFileChange(current);
+      }
+    };
+    // setTimeout-throttled (not rAF, which pauses while the window is occluded
+    // or the webview is offscreen).
+    const onScroll = () => { if (!timer) timer = window.setTimeout(compute, 60); };
+    pane.addEventListener("scroll", onScroll, { passive: true });
+    compute();
+    return () => { pane.removeEventListener("scroll", onScroll); if (timer) clearTimeout(timer); };
+  }, [files, onVisibleFileChange]);
 
   // Collapse is independent of viewed. Explicit user choices override the
   // giant-file default; marking a file viewed collapses it (un-marking expands).

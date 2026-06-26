@@ -17,6 +17,13 @@
   corner-shape: squircle;
 }
 
+/* Indeterminate progress bar — a segment sliding across its track. Used by the
+   "Computing delta…" loading state. (#r11) */
+@keyframes delta-indeterminate {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(360%); }
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
     --color-sidebar-ring: var(--sidebar-ring);

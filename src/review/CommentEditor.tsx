@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 
 export function CommentEditor({
@@ -19,12 +19,22 @@ export function CommentEditor({
   autoFocus?: boolean;
 }) {
   const [value, setValue] = useState(initialValue);
+  const ref = useRef<HTMLTextAreaElement>(null);
+  // Start the caret at the END of existing text (not the start) when editing. (#r2)
+  useEffect(() => {
+    if (!autoFocus) return;
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    const n = el.value.length;
+    el.setSelectionRange(n, n);
+  }, [autoFocus]);
   // Empty is allowed: a draft comment is persisted on open and may stay blank.
   const submit = () => onSubmit(value.trim());
   return (
     <div className="flex flex-col gap-2 p-1">
       <textarea
-        autoFocus={autoFocus}
+        ref={ref}
         className="min-h-[72px] resize-y rounded-lg border border-input bg-background px-3 py-2 text-[13px] leading-relaxed outline-none transition-[color,border-color] placeholder:text-muted-foreground/70 focus:border-ring"
         placeholder="Leave a comment (markdown)…"
         value={value}

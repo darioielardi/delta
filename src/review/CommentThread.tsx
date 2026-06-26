@@ -39,17 +39,17 @@ export function CommentThread({
           <div key={c.id} data-comment-id={c.id} className="p-1">
             <CommentEditor
               initialValue={c.body}
-              onChange={(body) => onEdit(c.id, body)}
               onSubmit={(body) => {
                 onEdit(c.id, body);
                 close();
               }}
               onCancel={() => {
-                // Discard a never-saved draft that's still blank.
+                // A never-saved draft (opened blank, still blank) is discarded.
                 if (editing.wasBlank && c.body.trim() === "") onDelete(c.id);
                 close();
               }}
-              onDelete={() => {
+              // No Delete on an unsaved new draft — Cancel discards it. (#r2)
+              onDelete={editing.wasBlank ? undefined : () => {
                 onDelete(c.id);
                 close();
               }}

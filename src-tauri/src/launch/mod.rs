@@ -173,7 +173,7 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
     }
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
-        .title("delta")
+        .title("Delta")
         .visible(false) // shown via show()+setFocus() after first paint so the window orders front
         .inner_size(1440.0, 900.0)
         .min_inner_size(900.0, 600.0);
@@ -202,7 +202,7 @@ pub fn open_home_window(app: &AppHandle) -> Result<(), String> {
     }
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, "home", WebviewUrl::App("index.html".into()))
-        .title("delta")
+        .title("Delta")
         .visible(false) // shown via show()+setFocus() after first paint so the window orders front
         .inner_size(1000.0, 680.0)
         .min_inner_size(800.0, 560.0)

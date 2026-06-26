@@ -31,7 +31,7 @@ struct ChangePayload {
     git_meta: bool,
 }
 
-const DEBOUNCE: Duration = Duration::from_millis(350);
+const DEBOUNCE: Duration = Duration::from_millis(200);
 
 fn build_ignore(root: &Path) -> Gitignore {
     let mut b = GitignoreBuilder::new(root);

@@ -2,12 +2,18 @@ import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import type { Comment } from "../types";
 
-function locationLabel(c: Comment): string {
+// Split so the dir can truncate while the filename (last segment) + line range
+// always stay visible. (#r4)
+function locationParts(c: Comment): { dir: string; name: string; suffix: string } {
   const a = c.anchor;
-  if (!a) return "—";
-  if (a.startLine == null) return `${a.file} · file`;
-  const range = a.endLine && a.endLine !== a.startLine ? `L${a.startLine}–${a.endLine}` : `L${a.startLine}`;
-  return `${a.file} · ${range}`;
+  if (!a) return { dir: "", name: "—", suffix: "" };
+  const slash = a.file.lastIndexOf("/");
+  const dir = slash >= 0 ? a.file.slice(0, slash + 1) : "";
+  const name = slash >= 0 ? a.file.slice(slash + 1) : a.file;
+  const suffix = a.startLine == null
+    ? "file"
+    : a.endLine && a.endLine !== a.startLine ? `L${a.startLine}–${a.endLine}` : `L${a.startLine}`;
+  return { dir, name, suffix };
 }
 
 export function CommentIndex({
@@ -52,11 +58,20 @@ export function CommentIndex({
         {anchored.map((c) => (
           <button
             key={c.id}
-            className="group flex w-full min-w-0 flex-col items-start gap-1 overflow-hidden rounded-lg border border-border/70 bg-card/40 px-3 py-2.5 text-left text-[13px] transition-colors hover:border-border hover:bg-accent"
+            className="group flex w-full min-w-0 shrink-0 flex-col items-start gap-1 overflow-hidden rounded-lg border border-border/70 bg-card/40 px-3 py-2.5 text-left text-[13px] hover:border-border/80 hover:bg-foreground/[0.04]"
             onClick={() => onJump(c)}
           >
             <span className="flex w-full min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
-              <span className="truncate">{locationLabel(c)}</span>
+              {(() => {
+                const { dir, name, suffix } = locationParts(c);
+                return (
+                  <span className="flex min-w-0 flex-1 items-baseline">
+                    {dir && <span className="min-w-0 truncate text-muted-foreground/55">{dir}</span>}
+                    <span className="shrink-0 text-foreground/80">{name}</span>
+                    <span className="ml-1 shrink-0 text-muted-foreground/70">{suffix}</span>
+                  </span>
+                );
+              })()}
               {c.stale && <span className="shrink-0 rounded-md squircle bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">⚠ stale</span>}
             </span>
             {c.body.trim() === "" ? (

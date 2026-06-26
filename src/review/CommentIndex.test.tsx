@@ -11,7 +11,9 @@ describe("CommentIndex", () => {
   it("lists anchored comments and jumps on click", () => {
     const onJump = vi.fn();
     render(<CommentIndex open onOpenChange={() => {}} comments={comments} onJump={onJump} />);
-    expect(screen.getByText(/src\/a\.ts/)).toBeInTheDocument();
+    // Path is split so the filename (last segment) is always visible. (#r4)
+    expect(screen.getByText("a.ts")).toBeInTheDocument();
+    expect(screen.getByText("src/")).toBeInTheDocument();
     expect(screen.getByText(/L22/)).toBeInTheDocument();
     fireEvent.click(screen.getByText("line note"));
     expect(onJump).toHaveBeenCalledWith(expect.objectContaining({ id: "l" }));

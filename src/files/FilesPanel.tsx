@@ -57,7 +57,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
     <div>
       <div
         data-path={node.path}
-        className={`group flex h-[26px] select-none items-center gap-1.5 rounded-md ${h.flat ? "pl-2.5" : "pl-1"} pr-1.5 ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-50" : ""}`}
+        className={`group flex h-[26px] select-none items-center gap-1.5 rounded-md ${h.flat ? "pl-2.5" : "pl-1"} pr-1.5 ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-65" : ""}`}
         onClick={() => (isDir ? h.onToggleDir(node.path) : h.onSelectFile(node.path))}
       >
         {isDir ? (
@@ -118,12 +118,32 @@ export function FilesPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
-  // Keep the keyboard-focused row scrolled into view.
+  // Keep the active row in view, but never flush against the top/bottom edge:
+  // leave ~one row of padding so a neighbor is always visible (unless the row is
+  // truly first/last, where the scroll clamps). (#r3)
   useEffect(() => {
     if (!activePath) return;
-    const el = scrollRef.current?.querySelector(`[data-path="${activePath}"]`);
-    (el as HTMLElement | null)?.scrollIntoView?.({ block: "nearest" });
+    const container = scrollRef.current;
+    const el = container?.querySelector(`[data-path="${activePath}"]`) as HTMLElement | null;
+    if (!container || !el) return;
+    const cRect = container.getBoundingClientRect();
+    const eRect = el.getBoundingClientRect();
+    const rowTop = eRect.top - cRect.top + container.scrollTop;
+    const pad = eRect.height + 6; // one neighbor row of breathing room
+    if (rowTop - pad < container.scrollTop) {
+      container.scrollTop = Math.max(0, rowTop - pad);
+    } else if (rowTop + eRect.height + pad > container.scrollTop + container.clientHeight) {
+      container.scrollTop = rowTop + eRect.height + pad - container.clientHeight;
+    }
   }, [activePath]);
+
+  // Follow the diff viewport (scroll-spy): when the top file changes, select it
+  // so the highlight tracks what you're looking at. Keyboard/click selection
+  // still wins until the diff scrolls again (which is when `selected` changes). (#r3)
+  useEffect(() => {
+    // react-doctor-disable-next-line react-hooks-js/set-state-in-effect
+    if (selected) setActivePath(selected);
+  }, [selected]);
 
   // ⌘F focuses the file search (Escape on the input clears, then blurs). (#3)
   useEffect(() => {
@@ -197,14 +217,17 @@ export function FilesPanel({
     if (!visible.length) return;
     const idx = visible.findIndex((n) => n.path === activePath);
     const cur = idx >= 0 ? visible[idx] : undefined;
+    // Arrows loop and jump-scroll the diff to the file; Enter toggles viewed;
+    // left/right collapse/expand dirs. (#r5)
+    const moveTo = (n: TreeNode) => (n.kind === "file" ? selectFile(n.path) : setActivePath(n.path));
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        setActivePath(visible[Math.min(idx + 1, visible.length - 1)]?.path ?? visible[0].path);
+        moveTo(visible[idx < 0 ? 0 : (idx + 1) % visible.length]);
         break;
       case "ArrowUp":
         e.preventDefault();
-        setActivePath(visible[Math.max((idx < 0 ? 0 : idx) - 1, 0)]?.path ?? visible[0].path);
+        moveTo(visible[idx <= 0 ? visible.length - 1 : idx - 1]);
         break;
       case "ArrowRight":
         e.preventDefault();
@@ -216,7 +239,7 @@ export function FilesPanel({
         break;
       case "Enter":
         e.preventDefault();
-        if (cur?.kind === "file") selectFile(cur.path);
+        if (cur?.kind === "file") onToggleViewed(cur.path);
         else if (cur?.kind === "dir") toggleDir(cur.path);
         break;
     }
@@ -254,11 +277,11 @@ export function FilesPanel({
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-[12px]">
         <span
-          className={`inline-flex select-none items-center rounded-md px-1.5 py-0.5 text-[11px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
+          className={`inline-block select-none rounded-md px-1.5 py-0.5 text-[11px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
           title="Files viewed"
         >
           <span className={`font-medium ${allViewed ? "" : "text-foreground"}`}>{viewedFiles.size}</span>
-          <span className="opacity-80">{" / "}{files.length} viewed</span>
+          <span className="opacity-80">{" / "}{files.length} viewed</span>
         </span>
         <span className="ml-auto tabular-nums">
           {totalAdds > 0 && <span className="text-emerald-500">+{totalAdds}</span>}{" "}

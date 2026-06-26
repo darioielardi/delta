@@ -188,7 +188,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       .filter((r) => match(r.name) || match(r.root))
       .map((r) => ({
         key: r.id,
-        leading: <Folder className="size-4 shrink-0 text-muted-foreground" />,
+        leading: <Folder className="size-4 shrink-0 self-start mt-0.5 text-muted-foreground" />,
         primary: r.name,
         subtitle: tildify(r.root, home),
         meta: r.worktrees.length > 1 ? <span className="whitespace-nowrap">{r.worktrees.length} worktrees</span> : undefined,
@@ -208,7 +208,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
         const ex = reviewForWorktree(repo, w);
         return {
           key: w.path,
-          leading: <GitBranch className="size-4 shrink-0 text-muted-foreground" />,
+          leading: <GitBranch className="size-4 shrink-0 self-start mt-0.5 text-muted-foreground" />,
           primary: w.branch,
           badge: w.isMain ? "main worktree" : undefined,
           subtitle: tildify(w.path, home),
@@ -272,7 +272,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   return (
     <div
       data-testid="command-palette"
-      className="absolute inset-0 z-50 flex items-start justify-center bg-black/20 pt-[12vh]"
+      className="absolute inset-0 z-50 flex items-start justify-center bg-black/30 pt-[12vh] supports-backdrop-filter:backdrop-blur-[2px]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
