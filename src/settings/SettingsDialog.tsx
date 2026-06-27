@@ -2,7 +2,6 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Monitor, Moon, Sun, X } from "lucide-react";
 import { useThemePref, type ThemePref } from "../theme";
-import { useDiffRenderer } from "../diff/useDiffRenderer";
 
 // Mocked options for now — the controls render and feel real, but only Theme is
 // wired up. Font family/size are placeholders we'll define behavior for later.
@@ -44,7 +43,6 @@ const selectClass =
 // it. Escape and click-outside close; the card grabs focus so Escape works.
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [theme, setTheme] = useThemePref();
-  const [renderer, setRenderer] = useDiffRenderer();
   // Mocked, local-only until we decide what these should do.
   const [fontFamily, setFontFamily] = useState(FONT_FAMILIES[0].value);
   const [fontSize, setFontSize] = useState(13);
@@ -172,26 +170,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 </select>
                 <Chevron />
               </div>
-            }
-          />
-
-          <div className="mb-1 mt-5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Experimental
-          </div>
-          <Row
-            label="Diff renderer"
-            hint="Virtual is row-virtualized — faster, but unified-only for now."
-            control={
-              <ToggleGroup
-                type="single"
-                size="sm"
-                value={renderer}
-                onValueChange={(v) => v && setRenderer(v as "classic" | "virtual")}
-                className="gap-0.5 rounded-lg bg-muted/70 p-0.5"
-              >
-                <ToggleGroupItem value="classic" aria-label="Classic" title="Classic" className="h-7 rounded-md border-0 px-2.5 text-[12px] text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">Classic</ToggleGroupItem>
-                <ToggleGroupItem value="virtual" aria-label="Virtual" title="Virtual" className="h-7 rounded-md border-0 px-2.5 text-[12px] text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">Virtual</ToggleGroupItem>
-              </ToggleGroup>
             }
           />
         </div>

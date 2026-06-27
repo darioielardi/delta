@@ -6,9 +6,7 @@ import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
 import { FilesPanel } from "../files/FilesPanel";
 import { flattenTreeFiles } from "../files/buildTree";
-import { DiffPane } from "../diff/DiffPane";
 import { VirtualDiffPane } from "../diff/VirtualDiffPane";
-import { useDiffRenderer } from "../diff/useDiffRenderer";
 import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
@@ -48,7 +46,6 @@ function reviewSig(s: DiffSummary | null, r: Review | null): string {
 export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: Target; onOpenPalette?: () => void; onOpenSettings?: () => void }) {
   const theme = useResolvedTheme();
   const [layout, setLayout] = useDiffLayout();
-  const [diffRenderer] = useDiffRenderer();
   // Diff mode is local, controlled state seeded once from the URL-derived target.
   // syncModeParam keeps the URL in sync on every change, so target.mode never
   // diverges from diffMode — the stale-prop case this rule guards can't occur.
@@ -66,11 +63,6 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   const [visibleFile, setVisibleFile] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // DiffPane registers its prefetch fn here; the tree calls it on hover. (#perf)
-  // The ref lives here (not passed down for the child to mutate) so the child
-  // registers through a stable setter instead of writing to a prop.
-  const prefetchRef = useRef<((path: string) => void) | null>(null);
-  const registerPrefetch = useCallback((fn: ((path: string) => void) | null) => { prefetchRef.current = fn; }, []);
 
   const { review, setReview, addComment, updateCommentBody, deleteComment, toggleViewed } = useReview(null);
 
@@ -222,15 +214,10 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     }
   }
 
-  // Stable handler identities so FilesPanel/DiffPane/CommentIndex keep their
+  // Stable handler identities so FilesPanel/VirtualDiffPane/CommentIndex keep their
   // memoization — otherwise toggling the comments pane (Workspace state) would
-  // hand DiffPane new callbacks and re-render every mounted file section.
+  // hand the diff pane new callbacks and re-render every mounted file section.
   const onSelectFile = useCallback((p: string) => setJump({ file: p, n: Date.now() }), []);
-  // Hover-prefetch: the tree calls this when the pointer rests on a file row; the
-  // diff pane builds that file's model ahead of the click so opening is instant.
-  // Routed through a ref (filled by DiffPane) so hovering never re-renders the
-  // pane. (#perf)
-  const onPrefetch = useCallback((p: string) => prefetchRef.current?.(p), []);
   const onVisibleFileChange = useCallback((p: string) => setVisibleFile(p), []);
   const onToggleViewedFile = useCallback((file: string) => toggleViewed(file, ""), [toggleViewed]);
   const onAddComment = useCallback(
@@ -403,49 +390,28 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 files={orderedFiles}
                 selected={visibleFile}
                 onSelect={onSelectFile}
-                onPrefetch={onPrefetch}
                 viewedFiles={viewedFiles}
                 onToggleViewed={onToggleViewedFile}
                 commentCounts={commentCountsByFile}
               />
             </aside>
             <main className="min-h-0 min-w-0 flex-1">
-              {diffRenderer === "virtual" ? (
-                <VirtualDiffPane
-                  target={review.target}
-                  files={orderedFiles}
-                  theme={theme}
-                  layout={layout}
-                  viewedFiles={viewedFiles}
-                  comments={comments}
-                  jump={jump}
-                  invalidate={diffInval}
-                  onVisibleFileChange={onVisibleFileChange}
-                  onToggleViewed={onToggleViewedFile}
-                  onAddComment={onAddComment}
-                  onAddFileComment={onAddFileComment}
-                  onEditComment={updateCommentBody}
-                  onDeleteComment={deleteComment}
-                />
-              ) : (
-                <DiffPane
-                  target={review.target}
-                  files={orderedFiles}
-                  comments={comments}
-                  viewedFiles={viewedFiles}
-                  theme={theme}
-                  layout={layout}
-                  jump={jump}
-                  invalidate={diffInval}
-                  registerPrefetch={registerPrefetch}
-                  onVisibleFileChange={onVisibleFileChange}
-                  onToggleViewed={onToggleViewedFile}
-                  onAddComment={onAddComment}
-                  onAddFileComment={onAddFileComment}
-                  onEditComment={updateCommentBody}
-                  onDeleteComment={deleteComment}
-                />
-              )}
+              <VirtualDiffPane
+                target={review.target}
+                files={orderedFiles}
+                theme={theme}
+                layout={layout}
+                viewedFiles={viewedFiles}
+                comments={comments}
+                jump={jump}
+                invalidate={diffInval}
+                onVisibleFileChange={onVisibleFileChange}
+                onToggleViewed={onToggleViewedFile}
+                onAddComment={onAddComment}
+                onAddFileComment={onAddFileComment}
+                onEditComment={updateCommentBody}
+                onDeleteComment={deleteComment}
+              />
             </main>
             <CommentIndex
               open={indexOpen}
