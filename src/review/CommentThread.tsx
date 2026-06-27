@@ -36,7 +36,7 @@ export function CommentThread({
     <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70 bg-card/60 text-[13px] shadow-sm">
       {comments.map((c) =>
         editing?.id === c.id ? (
-          <div key={c.id} data-comment-id={c.id} className="p-1">
+          <div key={c.id} data-comment-id={c.id} className="flex flex-col gap-1.5 px-3.5 py-3">
             <CommentEditor
               initialValue={c.body}
               onSubmit={(body) => {
@@ -56,7 +56,7 @@ export function CommentThread({
             />
           </div>
         ) : (
-          <div key={c.id} data-comment-id={c.id} className="group flex flex-col gap-1.5 px-3 py-2.5">
+          <div key={c.id} data-comment-id={c.id} className="group flex flex-col gap-1.5 px-3.5 py-3">
             {c.stale && (
               <span className="flex w-fit items-center gap-1 rounded-md squircle bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">⚠ stale</span>
             )}
@@ -72,9 +72,9 @@ export function CommentThread({
                 <Markdown>{c.body}</Markdown>
               </div>
             )}
-            <div className="mt-0.5 flex gap-1">
-              <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground" onClick={() => open(c)}>Edit</Button>
-              <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => onDelete(c.id)}>Delete</Button>
+            <div className="mt-2 flex gap-1.5">
+              <Button size="sm" variant="ghost" className="h-7 px-2.5 text-[12px] text-muted-foreground hover:text-foreground" onClick={() => open(c)}>Edit</Button>
+              <Button size="sm" variant="ghost" className="h-7 px-2.5 text-[12px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => onDelete(c.id)}>Delete</Button>
             </div>
           </div>
         ),

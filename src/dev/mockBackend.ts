@@ -14,6 +14,8 @@ const SUMMARY: DiffSummary = {
     { path: "src/auth/session.ts", status: "modified", additions: 3, deletions: 2, binary: false },
     { path: "src/auth/login.ts", status: "modified", additions: 1, deletions: 0, binary: false },
     { path: "src/api/routes.ts", status: "modified", additions: 2, deletions: 2, binary: false },
+    // Sparse changes far apart → a long unchanged middle that folds. (#10)
+    { path: "src/config/limits.ts", status: "modified", additions: 2, deletions: 2, binary: false },
     { path: "src/legacy/cache.ts", status: "deleted", additions: 0, deletions: 9, binary: false },
     { path: "README.md", status: "added", additions: 3, deletions: 0, binary: false },
     { path: "assets/logo.png", status: "added", additions: 0, deletions: 0, binary: true },
@@ -73,6 +75,24 @@ const FILES: Record<string, FileDiff> = {
     oldContent: ROUTES_OLD,
     newContent: ROUTES_NEW,
   },
+  // Two changes far apart (line 2 + the second-to-last line) with a long unchanged
+  // middle, so the diff folds the gap — and it's big enough to expand 25-by-25. (#10/#2)
+  "src/config/limits.ts": (() => {
+    const file = (retries: number, keepalive: number): string => {
+      const lines = [
+        "// Runtime limits and tunables for the API layer.",
+        `export const MAX_RETRIES = ${retries}`,
+      ];
+      for (let i = 0; i < 56; i++) lines.push(`export const LIMIT_${String(i).padStart(2, "0")} = ${1000 + i * 25}`);
+      lines.push(`export const KEEPALIVE_MS = ${keepalive}`, "export const DRAIN_TIMEOUT_MS = 8000");
+      return lines.join("\n") + "\n";
+    };
+    return {
+      oldFileName: "src/config/limits.ts", newFileName: "src/config/limits.ts",
+      oldLang: "typescript", newLang: "typescript", status: "modified", binary: false,
+      oldContent: file(3, 30_000), newContent: file(5, 45_000),
+    };
+  })(),
   // Deleted file: only old content exists. Used to verify deleted files are
   // hidden behind a reveal (item 3) rather than rendered/collapsed like others.
   "src/legacy/cache.ts": {
@@ -132,6 +152,16 @@ const REVIEW: Review = {
       stale: false,
       createdAt: "2026-06-25T18:51:00Z",
       updatedAt: "2026-06-25T18:51:00Z",
+    },
+    // Range comment → exercises the multi-line highlight (#7) over context lines.
+    {
+      id: "c3",
+      scope: "range",
+      anchor: { file: "src/config/limits.ts", side: "new", startLine: 3, endLine: 5, snippet: "export const RETRY_BACKOFF_MS = 250\nexport const REQUEST_TIMEOUT_MS = 5000\nexport const MAX_PAYLOAD_BYTES = 1_048_576" },
+      body: "These three belong in env config, not hardcoded.",
+      stale: false,
+      createdAt: "2026-06-25T18:52:00Z",
+      updatedAt: "2026-06-25T18:52:00Z",
     },
   ],
   viewed: [],

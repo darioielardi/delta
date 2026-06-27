@@ -1,7 +1,7 @@
 // src/files/FilesPanel.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, FileCode, FileJson, FileText, Check, List, ListTree, Search, X } from "lucide-react";
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, FileCode, FileJson, FileText, Check, List, ListTree, MessageSquare, Search, X } from "lucide-react";
 import type { FileEntry, FileStatus } from "../types";
 import { buildTree, type TreeNode } from "./buildTree";
 
@@ -19,6 +19,8 @@ const CODE_EXT = new Set([
 
 // Stable empty set so search-mode (force-open) rendering doesn't allocate per render.
 const NO_COLLAPSE: Set<string> = new Set();
+// Stable empty map fallback when no comment counts are supplied. (#1)
+const EMPTY_COUNTS: Map<string, number> = new Map();
 
 function FileGlyph({ name, status }: { name: string; status: FileStatus }) {
   const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
@@ -31,6 +33,7 @@ interface RowHandlers {
   activePath: string | null;
   collapsed: Set<string>;
   viewedFiles: Set<string>;
+  commentCounts: Map<string, number>;
   flat: boolean;
   onToggleDir: (path: string) => void;
   onSelectFile: (path: string) => void;
@@ -54,6 +57,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
   const open = isDir && !h.collapsed.has(node.path);
   const active = node.path === h.activePath;
   const isViewed = !isDir && node.entry ? h.viewedFiles.has(node.entry.path) : false;
+  const commentN = !isDir && node.entry ? h.commentCounts.get(node.entry.path) ?? 0 : 0;
 
   return (
     <div>
@@ -81,6 +85,15 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
         </span>
         {!isDir && node.entry && (
           <>
+            {commentN > 0 && (
+              <span
+                className="flex shrink-0 items-center gap-0.5 text-[11px] tabular-nums text-muted-foreground"
+                title={`${commentN} comment${commentN === 1 ? "" : "s"}`}
+              >
+                <MessageSquare className="size-3" />
+                {commentN}
+              </span>
+            )}
             <span className="shrink-0 text-[11px] tabular-nums">
               {node.entry.additions > 0 && <span className="text-emerald-500">+{node.entry.additions}</span>}{" "}
               {node.entry.deletions > 0 && <span className="text-rose-500">−{node.entry.deletions}</span>}
@@ -107,7 +120,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
 }
 
 export function FilesPanel({
-  files, selected, onSelect, onPrefetch, viewedFiles, onToggleViewed,
+  files, selected, onSelect, onPrefetch, viewedFiles, onToggleViewed, commentCounts,
 }: {
   files: FileEntry[];
   selected: string | null;
@@ -116,6 +129,8 @@ export function FilesPanel({
   onPrefetch?: (path: string) => void;
   viewedFiles: Set<string>;
   onToggleViewed: (file: string) => void;
+  // Per-file comment counts → a small badge on rows that have any. (#1)
+  commentCounts?: Map<string, number>;
 }) {
   const [mode, setMode] = useState<"tree" | "list">("tree");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -288,6 +303,7 @@ export function FilesPanel({
     activePath,
     collapsed: searching ? NO_COLLAPSE : collapsed,
     viewedFiles,
+    commentCounts: commentCounts ?? EMPTY_COUNTS,
     flat: mode === "list",
     onToggleDir: toggleDir,
     onSelectFile: selectFile,
@@ -345,6 +361,11 @@ export function FilesPanel({
           onKeyDown={onSearchKey}
           placeholder="Search files…"
           aria-label="Search files"
+          // Paths aren't prose — kill macOS autocorrect/capitalization/suggestions.
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
+          autoComplete="off"
           className="h-7 w-full rounded-md border border-input bg-muted/40 pl-8 pr-12 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 hover:bg-muted focus:bg-background"
         />
         {searching ? (

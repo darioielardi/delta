@@ -8,6 +8,10 @@ import { rankReviews } from "./picker/fuzzy";
 import { FolderPlus, GitBranch, MessageSquare, Settings, TriangleAlert } from "lucide-react";
 import type { Registry, ReviewEntry } from "./types";
 
+// Cap the recent list so a longer history doesn't grow the centered column and
+// shove the hero/import button around. (#1)
+const MAX_RECENT = 4;
+
 function relTime(iso: string): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "";
@@ -37,7 +41,7 @@ export function Home({ onOpenSettings }: { onOpenSettings?: () => void }) {
     })();
   }, []);
 
-  const reviews = registry ? rankReviews(registry.reviews, "") : [];
+  const reviews = registry ? rankReviews(registry.reviews, "").slice(0, MAX_RECENT) : [];
 
   function openReview(r: ReviewEntry) {
     void api.openTarget(r.target.repoPath, r.target.mode, r.target.base ?? undefined);

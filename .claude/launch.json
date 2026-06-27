@@ -13,6 +13,13 @@
       "runtimeArgs": ["-c", "VITE_MOCK_IPC=1 pnpm exec vite --port 5610 --strictPort"],
       "port": 5610,
       "autoPort": false
+    },
+    {
+      "name": "delta-mock-nl",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "VITE_MOCK_IPC=1 pnpm exec vite --port 5621"],
+      "port": 5621,
+      "autoPort": true
     }
   ]
 }

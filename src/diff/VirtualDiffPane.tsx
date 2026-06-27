@@ -17,9 +17,10 @@
 // Supports unified + split, line/range/file comments, word-level intra-line diff,
 // jump-to-comment, and the viewed toggle.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
-import { Check, ChevronDown, ChevronRight, MessageSquarePlus } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ChevronUp, Eye, FileQuestion, FileX, MessageSquarePlus, Plus } from "lucide-react";
 import { getSyntaxLineTemplate } from "@git-diff-view/file";
 import { SplitSide } from "@git-diff-view/react";
+import { Button } from "@/components/ui/button";
 import { toDiffFile } from "./toDiffFile";
 import { CommentThread } from "../review/CommentThread";
 import type { Anchor, Comment, FileDiff, FileEntry, Side, Target } from "../types";
@@ -31,6 +32,9 @@ const HEADER_H = 37; // sticky file header (border-box)
 const OVERSCAN = 1500; // px of rows to render/build beyond the viewport each way
 const GIANT_CHANGED_LINES = 500;
 const EST_BLOCK_H = 96; // placeholder height for a comment thread before it measures
+const PLACEHOLDER_BODY_H = 72; // fixed body height for binary / deleted placeholders (#11, shared layout #5, padding #8)
+const CONTEXT = 3; // unchanged lines kept around each change before folding (#10)
+const EXPAND_STEP = 25; // lines revealed per fold expand click (#2)
 
 type Model = ReturnType<typeof toDiffFile>;
 type ChangeRange = { location: number; length: number } | undefined;
@@ -56,6 +60,11 @@ const rowCountOf = (m: Model, layout: DiffLayout) => (layout === "split" ? m.spl
 // not rebuilt every render (and safe to read inside memos without being deps).
 const isGiant = (e: FileEntry) => e.additions + e.deletions >= GIANT_CHANGED_LINES;
 const estBodyH = (e: FileEntry) => Math.max(1, Math.round((e.additions + e.deletions) * 1.1) + 6) * ROW_H;
+// Binary + deleted files render a fixed-height placeholder, never a model — so
+// their reserved height is KNOWN, not estimated. Using this (not estBodyH) as the
+// offset fallback keeps them exact even after a bodyHeights reset (layout flip),
+// when a placeholder section can't re-report (its effect deps don't change). (#9)
+const estReserved = (e: FileEntry) => (e.binary || e.status === "deleted" ? PLACEHOLDER_BODY_H : estBodyH(e));
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -83,30 +92,30 @@ function Code({ html, range, changeBg }: { html: string; range: ChangeRange; cha
 }
 
 const gutterCls = "w-12 shrink-0 select-none border-r border-border/40 px-1 text-right text-[11px] text-muted-foreground/60 tabular-nums cursor-ns-resize";
-const addBtnCls = "absolute z-10 hidden size-[18px] -translate-y-1/2 items-center justify-center rounded bg-primary text-primary-foreground shadow-sm group-hover:flex";
+const addBtnCls = "absolute z-10 hidden size-5 -translate-y-1/2 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm group-hover:flex hover:brightness-110";
 
 // Unified row: old# · new# · marker · code, hover `+` to comment, gutters drag-select.
-function Row({ model, index, top, selected, onComment }: { model: Model; index: number; top: number; selected: boolean; onComment: (side: Side, line: number) => void }) {
+function Row({ model, index, top, selected, highlighted, onComment }: { model: Model; index: number; top: number; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void }) {
   const line = model.getUnifiedLine(index);
   const hasOld = line.oldLineNumber != null, hasNew = line.newLineNumber != null;
   const kind = hasOld && hasNew ? "ctx" : hasNew ? "add" : hasOld ? "del" : "hunk";
   const side: Side = hasNew ? "new" : "old";
   const html = kind === "hunk" ? escapeHtml(line.value ?? "") : syntaxHtml(model, side, (hasNew ? line.newLineNumber : line.oldLineNumber)!, line.value);
-  const bg = kind === "add" ? "bg-emerald-500/10" : kind === "del" ? "bg-rose-500/10" : kind === "hunk" ? "bg-muted/40" : "";
+  const bg = kind === "add" ? "bg-emerald-500/15" : kind === "del" ? "bg-rose-500/15" : kind === "hunk" ? "bg-muted/40" : "";
   const range = kind === "add" || kind === "del" ? changeRangeOf(line.diff) : undefined;
   const marker = kind === "add" ? "+" : kind === "del" ? "−" : "";
   const markerColor = kind === "add" ? "text-emerald-500" : kind === "del" ? "text-rose-500" : "text-transparent";
   return (
-    <div data-row-index={index} className={`group absolute inset-x-0 flex items-stretch font-mono text-[13px] leading-[22px] ${bg} ${selected ? "!bg-primary/20" : ""}`} style={{ top, height: ROW_H }}>
+    <div data-row-index={index} className={`group absolute inset-x-0 flex items-stretch font-mono text-[13px] leading-[22px] ${bg} ${highlighted && kind === "ctx" ? "bg-primary/[0.06]" : ""} ${selected ? "!bg-primary/20" : ""}`} style={{ top, height: ROW_H, boxShadow: highlighted ? "inset 3px 0 0 var(--primary)" : undefined }}>
       {kind !== "hunk" && (
-        <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.5rem] top-1/2 ${addBtnCls}`}>
-          <MessageSquarePlus className="size-3" />
+        <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 ${addBtnCls}`}>
+          <Plus className="size-3.5" strokeWidth={2.5} />
         </button>
       )}
       <span data-gutter="old" className={gutterCls}>{hasOld ? line.oldLineNumber : ""}</span>
       <span data-gutter="new" className={gutterCls}>{hasNew ? line.newLineNumber : ""}</span>
       <span className={`w-4 shrink-0 select-none text-center ${markerColor}`}>{marker}</span>
-      <Code html={html} range={kind === "hunk" ? undefined : range} changeBg={kind === "add" ? "bg-emerald-500/20" : "bg-rose-500/20"} />
+      <Code html={html} range={kind === "hunk" ? undefined : range} changeBg={kind === "add" ? "bg-emerald-400/25" : "bg-rose-400/25"} />
     </div>
   );
 }
@@ -116,31 +125,64 @@ function SplitCell({ model, side, line, changed, selected, onComment, className 
   const has = line.lineNumber != null;
   const ln = line.lineNumber!;
   const html = has ? syntaxHtml(model, side, ln, line.value) : "";
-  const baseBg = changed ? (side === "old" ? "bg-rose-500/10" : "bg-emerald-500/10") : "";
+  const baseBg = changed ? (side === "old" ? "bg-rose-500/15" : "bg-emerald-500/15") : "";
   const range = changed ? changeRangeOf(line.diff) : undefined;
   return (
     <div className={`relative flex items-stretch ${selected ? "!bg-primary/15" : baseBg} ${className}`}>
       {has && (
-        <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-[3.2rem] top-1/2 ${addBtnCls}`}>
-          <MessageSquarePlus className="size-3" />
+        <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-[3rem] top-1/2 ${addBtnCls}`}>
+          <Plus className="size-3.5" strokeWidth={2.5} />
         </button>
       )}
       <span data-gutter={side} className={gutterCls}>{has ? ln : ""}</span>
-      {has ? <Code html={html} range={range} changeBg={side === "old" ? "bg-rose-500/20" : "bg-emerald-500/20"} /> : <span className="flex-1" />}
+      {has ? <Code html={html} range={range} changeBg={side === "old" ? "bg-rose-400/25" : "bg-emerald-400/25"} /> : <span className="flex-1" />}
     </div>
   );
 }
 
 // Split row: old | new, each a cell.
-function SplitRow({ model, index, top, selected, onComment }: { model: Model; index: number; top: number; selected: boolean; onComment: (side: Side, line: number) => void }) {
+function SplitRow({ model, index, top, selected, highlighted, onComment }: { model: Model; index: number; top: number; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void }) {
   const left = model.getSplitLeftLine(index), right = model.getSplitRightLine(index);
   const leftHas = left.lineNumber != null, rightHas = right.lineNumber != null;
   const leftChanged = leftHas && (!rightHas || !!changeRangeOf(left.diff));
   const rightChanged = rightHas && (!leftHas || !!changeRangeOf(right.diff));
   return (
-    <div data-row-index={index} className="group absolute inset-x-0 flex items-stretch font-mono text-[13px] leading-[22px]" style={{ top, height: ROW_H }}>
+    <div data-row-index={index} className={`group absolute inset-x-0 flex items-stretch font-mono text-[13px] leading-[22px] ${highlighted ? "bg-primary/[0.06]" : ""}`} style={{ top, height: ROW_H, boxShadow: highlighted ? "inset 3px 0 0 var(--primary)" : undefined }}>
       <SplitCell model={model} side="old" line={left} changed={leftChanged} selected={selected} onComment={onComment} className="w-1/2 min-w-0 border-r border-border/60" />
       <SplitCell model={model} side="new" line={right} changed={rightChanged} selected={selected} onComment={onComment} className="w-1/2 min-w-0" />
+    </div>
+  );
+}
+
+// A visual row is either a real model line, or a fold standing in for a run of
+// hidden unchanged lines [start,end] (inclusive model indices). (#10)
+type VisualRow = { kind: "line"; index: number } | { kind: "fold"; start: number; end: number; count: number };
+
+// Stand-in for a folded run of unchanged lines. The ↓/↑ controls at the start of
+// the row reveal EXPAND_STEP lines from the top / bottom so a large gap opens
+// incrementally; clicking the label expands the whole gap. The blue tint reads as
+// "collapsed, expandable" — clearly not code. (#2/#3/#10)
+function FoldRow({ top, count, onDown, onUp, onAll }: { top: number; count: number; onDown: () => void; onUp: () => void; onAll: () => void }) {
+  // Either direction reveals at most the remaining gap, so don't promise 25 when
+  // fewer are left. (#8)
+  const step = Math.min(EXPAND_STEP, count);
+  return (
+    <div
+      data-fold
+      className="absolute inset-x-0 flex items-stretch bg-primary/10 font-mono text-[12px] font-medium leading-[22px] text-muted-foreground"
+      style={{ top, height: ROW_H }}
+    >
+      <div className="flex h-full w-[6.5rem] shrink-0 border-r border-border/40">
+        <button type="button" onClick={onDown} title={`Show ${step} more line${step === 1 ? "" : "s"} (down)`} className="flex flex-1 items-center justify-center gap-px tabular-nums transition-colors hover:bg-primary/20 hover:text-foreground">
+          <ChevronDown className="size-3.5" />{step}
+        </button>
+        <button type="button" onClick={onUp} title={`Show ${step} more line${step === 1 ? "" : "s"} (up)`} className="flex flex-1 items-center justify-center gap-px border-l border-border/40 tabular-nums transition-colors hover:bg-primary/20 hover:text-foreground">
+          <ChevronUp className="size-3.5" />{step}
+        </button>
+      </div>
+      <button type="button" onClick={onAll} title="Expand all hidden lines" className="flex flex-1 items-center px-3 text-left tabular-nums transition-colors hover:text-foreground">
+        {count} hidden line{count === 1 ? "" : "s"}
+      </button>
     </div>
   );
 }
@@ -158,7 +200,9 @@ function CommentBlock({ id, top, comments, onEdit, onDelete, onHeight }: { id: s
     return () => ro.disconnect();
   }, [id, onHeight]);
   return (
-    <div ref={ref} className="absolute inset-x-0 px-3 py-2" style={{ top }}>
+    // `delta-comment-ui` flips the comment UI back to the sans font (the diff
+    // wrapper forces mono on everything inside it) and restores app colors. (#3)
+    <div ref={ref} className="delta-comment-ui absolute inset-x-0 px-3 py-3" style={{ top }}>
       <CommentThread comments={comments} onEdit={onEdit} onDelete={onDelete} />
     </div>
   );
@@ -186,9 +230,18 @@ const VFileSection = memo(function VFileSection({
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { registerRef(entry.path, ref.current); return () => registerRef(entry.path, null); }, [entry.path]);
 
-  const visible = view != null && !collapsed;
-  const fd = useFileDiffCacheEntry(cache, entry.path, visible);
-  const model = useMemo(() => (fd && visible ? buildModel(fd, theme, layout) : null), [fd, theme, layout, visible]);
+  // Binary files have no textual diff; deleted files hide their (removed) content
+  // behind a reveal so the pane isn't dominated by deletions. Both render a fixed-
+  // height placeholder instead of a diff model — restoring the classic pane's
+  // treatment that the virtual refactor dropped. (#11)
+  const isBinary = entry.binary;
+  const isDeleted = entry.status === "deleted";
+  const [revealed, setRevealed] = useState(false);
+  const showPlaceholder = !collapsed && (isBinary || (isDeleted && !revealed));
+
+  const wantModel = view != null && !collapsed && !isBinary && (!isDeleted || revealed);
+  const fd = useFileDiffCacheEntry(cache, entry.path, wantModel);
+  const model = useMemo(() => (fd && wantModel ? buildModel(fd, theme, layout) : null), [fd, theme, layout, wantModel]);
   const rowCount = model ? rowCountOf(model, layout) : 0;
 
   // Comment blocks: file-scope → index -1 (top); line/range → the row they anchor.
@@ -216,16 +269,102 @@ const VFileSection = memo(function VFileSection({
     return out.sort((x, y) => x.index - y.index);
   }, [model, comments, layout]);
 
+  // Lines that carry a comment must always stay visible (never folded). (#10)
+  const commentedRows = useMemo(() => {
+    const s = new Set<number>();
+    for (const b of blocks) if (b.index >= 0) s.add(b.index);
+    return s;
+  }, [blocks]);
+
+  // Per-gap reveal counts (lines shown from the top / bottom of the hidden run),
+  // keyed `${start}_${end}`. Each ↓/↑ adds EXPAND_STEP; "all" reveals the rest. (#2)
+  const [expansions, setExpansions] = useState<Map<string, { top: number; bottom: number }>>(() => new Map());
+  const growFold = useCallback((key: string, dir: "top" | "bottom" | "all") => {
+    setExpansions((p) => {
+      const n = new Map(p);
+      const cur = n.get(key) ?? { top: 0, bottom: 0 };
+      n.set(key, dir === "all" ? { top: Number.MAX_SAFE_INTEGER, bottom: 0 } : { ...cur, [dir]: cur[dir] + EXPAND_STEP });
+      return n;
+    });
+  }, []);
+
+  // Model rows covered by a multi-line (range) comment — force-shown and given a
+  // left accent so the commented span reads as one group. (#7)
+  const rangeRows = useMemo(() => {
+    const s = new Set<number>();
+    if (!model) return s;
+    for (const c of comments) {
+      const a = c.anchor;
+      if (!a || a.startLine == null || a.endLine == null || a.endLine <= a.startLine || c.scope === "file") continue;
+      const ss = a.side === "old" ? SplitSide.old : SplitSide.new;
+      const lo = layout === "split" ? model.getSplitLineIndexByLineNumber(a.startLine, ss) : model.getUnifiedLineIndexByLineNumber(a.startLine, ss);
+      const hi = layout === "split" ? model.getSplitLineIndexByLineNumber(a.endLine, ss) : model.getUnifiedLineIndexByLineNumber(a.endLine, ss);
+      if (lo == null || hi == null || lo < 0 || hi < 0) continue;
+      for (let i = Math.min(lo, hi); i <= Math.max(lo, hi); i++) s.add(i);
+    }
+    return s;
+  }, [model, comments, layout]);
+
+  // Only show changed lines plus CONTEXT unchanged lines around each change (and
+  // around every commented line); collapse the rest into expandable fold rows.
+  // Built per (model, layout, comments, expanded) — not per scroll frame. (#10)
+  const { visualRows, modelToVisual } = useMemo(() => {
+    const rows: VisualRow[] = [];
+    const m2v = new Map<number, number>();
+    if (!model) return { visualRows: rows, modelToVisual: m2v };
+    const isChanged = (i: number): boolean => {
+      if (layout === "split") {
+        const left = model.getSplitLeftLine(i), right = model.getSplitRightLine(i);
+        const lh = left.lineNumber != null, rh = right.lineNumber != null;
+        return (lh && (!rh || !!changeRangeOf(left.diff))) || (rh && (!lh || !!changeRangeOf(right.diff)));
+      }
+      const l = model.getUnifiedLine(i);
+      return !(l.oldLineNumber != null && l.newLineNumber != null); // add / del / hunk
+    };
+    const shown = new Array<boolean>(rowCount).fill(false);
+    for (let i = 0; i < rowCount; i++) {
+      if (isChanged(i) || commentedRows.has(i) || rangeRows.has(i)) {
+        for (let j = Math.max(0, i - CONTEXT); j <= Math.min(rowCount - 1, i + CONTEXT); j++) shown[j] = true;
+      }
+    }
+    const pushLine = (k: number) => { m2v.set(k, rows.length); rows.push({ kind: "line", index: k }); };
+    let i = 0;
+    while (i < rowCount) {
+      if (shown[i]) { pushLine(i); i++; continue; }
+      let j = i;
+      while (j < rowCount && !shown[j]) j++;
+      const start = i, end = j - 1, len = end - start + 1;
+      const ex = expansions.get(`${start}_${end}`);
+      const top = ex ? Math.min(ex.top, len) : 0;
+      const bottom = ex ? Math.min(ex.bottom, len - top) : 0;
+      for (let k = start; k < start + top; k++) pushLine(k);
+      const midStart = start + top, midEnd = end - bottom, remaining = midEnd - midStart + 1;
+      // A 1-line leftover isn't worth a fold row (same height, needless click).
+      if (remaining >= 2) rows.push({ kind: "fold", start, end, count: remaining });
+      else for (let k = midStart; k <= midEnd; k++) pushLine(k);
+      for (let k = end - bottom + 1; k <= end; k++) pushLine(k);
+      i = j;
+    }
+    return { visualRows: rows, modelToVisual: m2v };
+  }, [model, layout, rowCount, commentedRows, rangeRows, expansions]);
+  const visualCount = visualRows.length;
+
   const [blockH, setBlockH] = useState<Record<string, number>>({});
   const onHeight = useCallback((id: string, h: number) => {
     setBlockH((prev) => (Math.abs((prev[id] ?? -1) - h) < 1 ? prev : { ...prev, [id]: h }));
   }, []);
   const heightOf = (b: Block) => blockH[b.id] ?? EST_BLOCK_H;
-  const commentAbove = (i: number) => { let s = 0; for (const b of blocks) { if (b.index < i) s += heightOf(b); else break; } return s; };
-  const rowTop = (i: number) => i * ROW_H + commentAbove(i);
+  // A block's visual anchor row (file-scope = -1, above everything). Blocks are
+  // sorted by model index, which maps monotonically to visual rows, so the
+  // running sum below can break early. (#10)
+  const blockVa = (b: Block) => (b.index < 0 ? -1 : modelToVisual.get(b.index) ?? 0);
+  const commentAbove = (v: number) => { let s = 0; for (const b of blocks) { if (blockVa(b) < v) s += heightOf(b); else break; } return s; };
+  const visualRowTop = (v: number) => v * ROW_H + commentAbove(v);
   const totalCommentH = blocks.reduce((s, b) => s + heightOf(b), 0);
-  const bodyH = collapsed ? 0 : rowCount * ROW_H + totalCommentH;
-  useEffect(() => { if (model) reportBodyHeight(entry.path, bodyH); }, [model, entry.path, bodyH, reportBodyHeight]);
+  const bodyH = collapsed ? 0 : showPlaceholder ? PLACEHOLDER_BODY_H : visualCount * ROW_H + totalCommentH;
+  // Report a definite height once it's known — model built, or a fixed-height
+  // placeholder shown — so the parent's offsets are exact. (#10/#11)
+  useEffect(() => { if (model || showPlaceholder) reportBodyHeight(entry.path, bodyH); }, [model, showPlaceholder, isBinary, entry.path, bodyH, reportBodyHeight]);
 
   // Create a line/range anchor and add an (empty) comment, mirroring the classic renderer.
   const commentLine = useCallback((side: Side, lineNumber: number) => {
@@ -277,49 +416,104 @@ const VFileSection = memo(function VFileSection({
   const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : "";
   const base = slash >= 0 ? entry.path.slice(slash + 1) : entry.path;
 
-  // Visible rows for the window (rowTop is monotonic; binary-search the bounds).
-  const renderRows: number[] = [];
+  // Visible visual rows for the window (visualRowTop is monotonic; binary-search).
+  const renderVisual: number[] = [];
   if (model && view) {
-    const findRowAtY = (y: number) => { let lo = 0, hi = rowCount; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (rowTop(m) <= y) lo = m; else hi = m - 1; } return lo; };
-    const first = Math.max(0, findRowAtY(view[0]));
-    const last = Math.min(rowCount, findRowAtY(view[1]) + 2);
-    for (let i = first; i < last; i++) renderRows.push(i);
+    const findVAtY = (y: number) => { let lo = 0, hi = visualCount; while (lo < hi) { const m = (lo + hi + 1) >> 1; if (visualRowTop(m) <= y) lo = m; else hi = m - 1; } return lo; };
+    const first = Math.max(0, findVAtY(view[0]));
+    const last = Math.min(visualCount, findVAtY(view[1]) + 2);
+    for (let v = first; v < last; v++) renderVisual.push(v);
   }
 
   return (
     <div ref={ref} data-file={entry.path} className="border-b border-border/70">
-      <div className="group/h sticky top-0 z-20 flex items-center gap-1 border-b border-border/70 bg-background px-3" style={{ height: HEADER_H }}>
-        <button type="button" className="absolute inset-0" aria-label={collapsed ? `expand ${entry.path}` : `collapse ${entry.path}`} onClick={() => onToggleCollapse(entry.path)} />
-        <span className={`pointer-events-none relative flex min-w-0 flex-1 items-center gap-2 ${viewed ? "opacity-55 group-hover/h:opacity-100" : ""}`}>
-          <span className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground">
-            {collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-[13px]">
-            {dir && <span className="text-muted-foreground">{dir}</span>}
-            <span className="font-medium text-foreground">{base}</span>
-          </span>
+      <div className="group/h sticky top-0 z-20 flex items-center gap-2 border-b border-border/70 bg-background px-3" style={{ height: HEADER_H }}>
+        {/* Full-box collapse target. The label/counts above it are
+            pointer-events-none, so hovering anywhere in the header (padding +
+            gaps included) reaches this button and — via peer-hover — lights the
+            chevron like a ghost button. The action buttons sit on top (relative),
+            so hovering them does NOT trigger it. (#2) */}
+        <button
+          type="button"
+          onClick={() => onToggleCollapse(entry.path)}
+          aria-label={collapsed ? `expand ${entry.path}` : `collapse ${entry.path}`}
+          aria-expanded={!collapsed}
+          className="peer/col absolute inset-0"
+        />
+        <span className="pointer-events-none relative flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors peer-hover/col:bg-foreground/[0.06] peer-hover/col:text-foreground">
+          {collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
+        </span>
+        <span className={`pointer-events-none relative min-w-0 flex-1 truncate text-[13px] ${viewed ? "opacity-55 group-hover/h:opacity-100" : ""}`}>
+          {dir && <span className="text-muted-foreground">{dir}</span>}
+          <span className="font-medium text-foreground">{base}</span>
         </span>
         <span className={`pointer-events-none relative shrink-0 text-[12px] tabular-nums ${viewed ? "opacity-55 group-hover/h:opacity-100" : ""}`}>
           {entry.additions > 0 && <span className="text-emerald-500">+{entry.additions}</span>}{" "}
           {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
         </span>
-        <button type="button" onClick={(e) => { e.stopPropagation(); onAddFileComment(entry.path, ""); }} aria-label={`comment on ${entry.path}`} title="Comment on file" className="relative z-10 flex h-7 shrink-0 items-center justify-center rounded-md px-2 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground">
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onAddFileComment(entry.path, "")}
+          aria-label={`comment on ${entry.path}`}
+          title="Comment on file"
+          className="relative h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
+        >
           <MessageSquarePlus className="size-4" />
-        </button>
-        <button type="button" onClick={(e) => { e.stopPropagation(); onToggleViewed(entry.path); }} aria-pressed={viewed} aria-label={`viewed ${entry.path}`} title="Mark viewed" className={`relative z-10 flex h-7 shrink-0 items-center gap-1.5 rounded-md px-2 text-[12px] ${viewed ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => onToggleViewed(entry.path)}
+          aria-pressed={viewed}
+          aria-label={`viewed ${entry.path}`}
+          title="Mark viewed"
+          className={`relative h-7 shrink-0 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+        >
           <span className={`flex size-4 items-center justify-center rounded-[5px] border transition-colors ${viewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80"}`}>
             {viewed && <Check className="size-3" strokeWidth={3} />}
           </span>
           Viewed
-        </button>
+        </Button>
       </div>
       {!collapsed && (
         <div className="relative" style={{ height: bodyH }} onPointerDown={onGutterPointerDown}>
-          {model && layout === "split" && renderRows.map((i) => <SplitRow key={i} model={model} index={i} top={rowTop(i)} selected={i >= selLo && i <= selHi} onComment={commentLine} />)}
-          {model && layout !== "split" && renderRows.map((i) => <Row key={i} model={model} index={i} top={rowTop(i)} selected={i >= selLo && i <= selHi} onComment={commentLine} />)}
-          {model && blocks.map((b) => (
-            <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : rowTop(b.index) + ROW_H} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onHeight={onHeight} />
-          ))}
+          {isBinary ? (
+            <div className="flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
+              <FileQuestion className="size-4 shrink-0 opacity-70" />
+              <span>Unsupported file — binary or non-text content.</span>
+            </div>
+          ) : isDeleted && !revealed ? (
+            <div className="flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
+              <FileX className="size-4 shrink-0 text-rose-500/80" />
+              <span>File deleted</span>
+              <button
+                type="button"
+                onClick={() => { setRevealed(true); void cache.load(entry.path); }}
+                className="flex h-7 items-center gap-1.5 rounded-md px-2 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <Eye className="size-4" /> Show deleted content
+              </button>
+            </div>
+          ) : (
+            <>
+              {model && renderVisual.map((v) => {
+                const vr = visualRows[v];
+                const top = visualRowTop(v);
+                if (vr.kind === "fold") {
+                  const key = `${vr.start}_${vr.end}`;
+                  return <FoldRow key={`fold-${vr.start}`} top={top} count={vr.count} onDown={() => growFold(key, "top")} onUp={() => growFold(key, "bottom")} onAll={() => growFold(key, "all")} />;
+                }
+                const hl = rangeRows.has(vr.index);
+                return layout === "split"
+                  ? <SplitRow key={vr.index} model={model} index={vr.index} top={top} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} />
+                  : <Row key={vr.index} model={model} index={vr.index} top={top} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} />;
+              })}
+              {model && blocks.map((b) => (
+                <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + ROW_H} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onHeight={onHeight} />
+              ))}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -334,11 +528,14 @@ function useFileDiffCacheEntry(cache: ReturnType<typeof useFileDiffCache>, path:
 }
 
 export function VirtualDiffPane({
-  target, files, theme, layout, viewedFiles, comments, jump, onVisibleFileChange, onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment,
+  target, files, theme, layout, viewedFiles, comments, jump, invalidate, onVisibleFileChange, onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment,
 }: {
   target: Target; files: FileEntry[]; theme: "light" | "dark"; layout: DiffLayout;
   viewedFiles: Set<string>; comments: Comment[];
   jump?: { file: string; commentId?: string; n: number } | null;
+  // Reload signal from the header Refresh button: { paths: null } reloads all
+  // mounted files, otherwise just the listed ones. The nonce re-fires it. (#12)
+  invalidate?: { paths: string[] | null; n: number } | null;
   onVisibleFileChange?: (file: string) => void;
   onToggleViewed: (file: string) => void;
   onAddComment: (a: Anchor, body: string) => void;
@@ -347,6 +544,16 @@ export function VirtualDiffPane({
   onDeleteComment: (id: string) => void;
 }) {
   const cache = useFileDiffCache(target);
+
+  // Drop + reload changed files when the user hits Refresh; a fresh FileDiff
+  // invalidates its cached model (WeakMap-keyed) so the section rebuilds. (#12)
+  useEffect(() => {
+    if (!invalidate) return;
+    if (invalidate.paths === null) cache.refreshAll();
+    else cache.invalidate(invalidate.paths);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invalidate?.n]);
+
   const paneRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const registerRef = useCallback((path: string, el: HTMLDivElement | null) => {
@@ -404,7 +611,7 @@ export function VirtualDiffPane({
     for (const f of files) {
       offs.push(top);
       const collapsed = collapsedFor(f);
-      const bh = collapsed ? 0 : (bodyHeights[f.path] ?? estBodyH(f));
+      const bh = collapsed ? 0 : (bodyHeights[f.path] ?? estReserved(f));
       top += HEADER_H + bh + 1; // +1 border-b
     }
     return { offsets: offs, total: top };
@@ -514,7 +721,7 @@ export function VirtualDiffPane({
       <div className="diff-tailwindcss-wrapper" data-theme={theme} style={{ position: "relative", height: total }}>
         {files.map((entry, i) => {
           const collapsed = collapsedFor(entry);
-          const bh = collapsed ? 0 : (bodyHeights[entry.path] ?? estBodyH(entry));
+          const bh = collapsed ? 0 : (bodyHeights[entry.path] ?? estReserved(entry));
           const sectionTop = offsets[i], bodyTop = sectionTop + HEADER_H;
           const onScreen = viewportH > 0 && !collapsed && bodyTop + bh > top0 && bodyTop < bot0;
           const view: [number, number] | null = onScreen ? [Math.max(0, top0 - bodyTop), Math.max(0, bot0 - bodyTop)] : null;

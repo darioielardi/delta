@@ -13,8 +13,8 @@ import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
-import { ArrowRight, Check, ChevronDown, CircleAlert, Columns2, Copy, GitBranch, MessageSquare, Rows2, Search, Settings } from "lucide-react";
-import type { Anchor, Comment, DiffMode, DiffSummary, Review, Target } from "../types";
+import { ArrowRight, Check, ChevronDown, CircleAlert, Columns2, Copy, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
+import type { Anchor, Comment, DiffMode, DiffSummary, Review, ReviewSession, Target } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
   { id: "all-changes", label: "All changes" },
@@ -78,14 +78,22 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   // listener always refresh the *current* review; sigRef skips no-op state
   // churn; diffInval is the bump-able reload signal handed to the diff pane.
   const reviewRef = useRef(review);
+  const summaryRef = useRef(summary);
   const sigRef = useRef("");
   const invalNonce = useRef(0);
   const [diffInval, setDiffInval] = useState<{ paths: string[] | null; n: number } | null>(null);
-  // Keep reviewRef current via an effect (not during render — the compiler
-  // forbids ref writes in render, and the listener only reads it on fs events).
+  // A detected-but-not-applied change to the diff. We never mutate the displayed
+  // diff under the user; instead we stash the re-diffed session + the changed
+  // paths and surface a Refresh button. Applying it is always explicit. (#12)
+  const pendingRef = useRef<{ session: ReviewSession; paths: string[] | null } | null>(null);
+  const [pendingRefresh, setPendingRefresh] = useState(false);
+  // Keep reviewRef/summaryRef current via an effect (not during render — the
+  // compiler forbids ref writes in render, and the listener only reads them on
+  // fs events).
   useEffect(() => {
     reviewRef.current = review;
-  }, [review]);
+    summaryRef.current = summary;
+  }, [review, summary]);
 
   async function open() {
     try {
@@ -95,6 +103,8 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
       setSummary(session.summary);
       setRepoName(session.repoName);
       sigRef.current = reviewSig(session.summary, session.review);
+      pendingRef.current = null;
+      setPendingRefresh(false);
     } catch (e) {
       setError(String(e));
       setSummary(null);
@@ -110,29 +120,67 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target.repoPath, diffMode, target.base]);
 
-  // Recompute the diff + reconcile comments, updating UI state only when content
-  // actually changed, and tell the diff pane which files to reload. `which` is
-  // "all" (base shifted) or the specific changed paths. (#9)
-  async function doRefresh(which: "all" | string[]) {
+  // A filesystem change fired: re-diff in the background but DON'T touch the
+  // displayed diff. If the result differs from what's on screen (structure via
+  // the signature, or a changed file we're showing, or a base/HEAD move), stash
+  // it and flip on the Refresh button. Genuine no-ops are ignored. (#12)
+  async function onFsChanged(paths: string[], gitMeta: boolean) {
     const cur = reviewRef.current;
     if (!cur) return;
     try {
       const session = await api.refreshReview(cur);
       const sig = reviewSig(session.summary, session.review);
-      if (sig !== sigRef.current) {
-        sigRef.current = sig;
-        setReview(session.review);
-        setSummary(session.summary);
-        setRepoName(session.repoName);
-      }
-      setDiffInval({ paths: which === "all" ? null : which, n: ++invalNonce.current });
+      const shown = new Set((summaryRef.current?.files ?? []).map((f) => f.path));
+      const touches = gitMeta || paths.some((p) => shown.has(p));
+      if (sig === sigRef.current && !touches) return; // nothing we display changed
+      // Merge the changed scope with any already-pending one (null === reload all).
+      const prev = pendingRef.current?.paths;
+      const incoming: string[] | null = gitMeta ? null : paths.filter((p) => shown.has(p));
+      const merged: string[] | null =
+        prev === null || incoming === null ? null : Array.from(new Set([...(prev ?? []), ...incoming]));
+      pendingRef.current = { session, paths: merged };
+      setPendingRefresh(true);
     } catch (e) {
       setError(String(e));
     }
   }
 
-  // Live auto-refresh: the backend watches this worktree and emits `fs:changed`
-  // with the changed paths (or a git-meta flag) — re-diff in place, no button. (#9)
+  // Apply the stashed change: swap in the re-diffed session and reload the
+  // affected file diffs. The only path that mutates the displayed diff. (#12)
+  function applyRefresh() {
+    const p = pendingRef.current;
+    if (!p) return;
+    sigRef.current = reviewSig(p.session.summary, p.session.review);
+    setReview(p.session.review);
+    setSummary(p.session.summary);
+    setRepoName(p.session.repoName);
+    setDiffInval({ paths: p.paths, n: ++invalNonce.current });
+    pendingRef.current = null;
+    setPendingRefresh(false);
+  }
+
+  // Manual force-reload (the `r` key): re-diff now and apply immediately,
+  // reloading every mounted file. Clears any pending refresh. (#9/#12)
+  async function forceRefresh() {
+    const cur = reviewRef.current;
+    if (!cur) return;
+    try {
+      const session = await api.refreshReview(cur);
+      sigRef.current = reviewSig(session.summary, session.review);
+      setReview(session.review);
+      setSummary(session.summary);
+      setRepoName(session.repoName);
+      setDiffInval({ paths: null, n: ++invalNonce.current });
+      pendingRef.current = null;
+      setPendingRefresh(false);
+    } catch (e) {
+      setError(String(e));
+    }
+  }
+
+  // The backend watches this worktree and emits `fs:changed` with the changed
+  // paths (or a git-meta flag). We never mutate the displayed diff under the
+  // user — instead surface a Refresh button they choose to apply. (#9/#12)
   useEffect(() => {
     if (import.meta.env.VITE_MOCK_IPC) return;
     let unlisten: (() => void) | undefined;
@@ -140,7 +188,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     void (async () => {
       try {
         const un = await listen<{ paths: string[]; gitMeta: boolean }>("fs:changed", (e) => {
-          void doRefresh(e.payload.gitMeta ? "all" : e.payload.paths);
+          void onFsChanged(e.payload.paths, e.payload.gitMeta);
         });
         if (cancelled) un();
         else unlisten = un;
@@ -210,6 +258,15 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   const comments = review?.comments ?? [];
   // General notes were removed; ignore any legacy ones in the count/export gate.
   const commentCount = comments.filter((c) => c.scope !== "general").length;
+  // Per-file comment counts for the tree/list badges. (#1)
+  const commentCountsByFile = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of comments) {
+      const f = c.anchor?.file;
+      if (f && c.scope !== "general") m.set(f, (m.get(f) ?? 0) + 1);
+    }
+    return m;
+  }, [comments]);
   // One canonical order — the tree's depth-first order — so the files list and
   // the diff pane match the tree instead of raw git order. (#3)
   const orderedFiles = flattenTreeFiles(summary?.files ?? []);
@@ -220,10 +277,10 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
         e.preventDefault();
         setIndexOpen((o) => !o);
       } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
-        // The diff auto-refreshes; `r` stays as a manual force-reload. (#9)
+        // `r` is a manual force-reload — re-diff and apply now. (#9/#12)
         const tag = document.activeElement?.tagName ?? "";
         const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-        if (!typing) void doRefresh("all");
+        if (!typing) void forceRefresh();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -239,7 +296,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
         <button
           type="button"
           onClick={onOpenPalette}
-          title="Open command palette (⌘K)"
+          title="Open command palette (⌘P)"
           className="inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-muted/40 px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <Search className="size-3.5 text-muted-foreground" />
@@ -250,6 +307,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               {review.target.worktree}
             </span>
           ) : null}
+          <kbd className="ml-1 rounded border border-border/70 bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">⌘P</kbd>
         </button>
         {summary && (
           <>
@@ -271,7 +329,18 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               <ArrowRight className="size-3 opacity-50" />
               {summary.headLabel}
             </span>
-            <div className="ml-auto flex items-center gap-1">
+            <div className="ml-auto flex items-center gap-3">
+              {pendingRefresh && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={applyRefresh}
+                  title="The diff changed on disk — click to update"
+                  className="h-7 gap-1.5 px-2.5 text-[13px] border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 hover:text-amber-700 dark:border-amber-400/40 dark:bg-amber-400/10 dark:text-amber-400 dark:hover:text-amber-300"
+                >
+                  <RefreshCw className="size-3.5" /> Refresh
+                </Button>
+              )}
               <ToggleGroup
                 type="single"
                 size="sm"
@@ -282,12 +351,12 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 <ToggleGroupItem value="unified" aria-label="Unified" title="Unified view" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><Rows2 className="size-3.5" /></ToggleGroupItem>
                 <ToggleGroupItem value="split" aria-label="Split" title="Split view" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><Columns2 className="size-3.5" /></ToggleGroupItem>
               </ToggleGroup>
-              <Button size="sm" variant="ghost" aria-label={`Comments (${commentCount})`} aria-pressed={indexOpen} className="h-7 gap-1.5 px-2 text-[13px] text-muted-foreground hover:text-foreground aria-pressed:text-foreground" onClick={() => setIndexOpen((o) => !o)}>
+              <Button size="sm" variant="outline" aria-label={`Comments (${commentCount})`} aria-pressed={indexOpen} className="h-7 gap-1.5 px-2.5 text-[13px] text-muted-foreground hover:text-foreground aria-pressed:bg-muted aria-pressed:text-foreground" onClick={() => setIndexOpen((o) => !o)}>
                 <MessageSquare className="size-4" /> {commentCount}
               </Button>
               <Button
                 size="sm"
-                className="h-7 min-w-[9.5rem] justify-center gap-1.5 px-3 text-[13px] transition-colors"
+                className="h-7 min-w-[8.75rem] justify-center gap-1.5 px-2.5 text-[13px] transition-colors"
                 style={
                   copyState === "ok"
                     ? { backgroundColor: "#059669", color: "#fff" }
@@ -318,7 +387,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
           onClick={onOpenSettings}
           title="Settings (⌘,)"
           aria-label="Settings"
-          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring dark:bg-transparent dark:hover:bg-input/30"
         >
           <Settings className="size-4" />
         </button>
@@ -337,6 +406,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 onPrefetch={onPrefetch}
                 viewedFiles={viewedFiles}
                 onToggleViewed={onToggleViewedFile}
+                commentCounts={commentCountsByFile}
               />
             </aside>
             <main className="min-h-0 min-w-0 flex-1">
@@ -349,6 +419,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                   viewedFiles={viewedFiles}
                   comments={comments}
                   jump={jump}
+                  invalidate={diffInval}
                   onVisibleFileChange={onVisibleFileChange}
                   onToggleViewed={onToggleViewedFile}
                   onAddComment={onAddComment}

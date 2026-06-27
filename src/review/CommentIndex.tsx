@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import type { Comment } from "../types";
@@ -24,9 +25,22 @@ export function CommentIndex({
   comments: Comment[];
   onJump: (comment: Comment) => void;
 }) {
-  // Inset right panel — part of the layout, not an overlay. Rendering nothing
-  // when closed keeps it out of the flex row entirely.
-  if (!open) return null;
+  // Inset right panel — part of the layout, not an overlay. It slides in/out by
+  // animating its width 0↔20rem. The <aside> stays mounted so the width
+  // transition fires reliably (a mount-then-flip needs rAF, which the webview
+  // pauses while offscreen); only the contents unmount, kept alive through the
+  // close animation by `render`. (#4) Reduced-motion gets the instant change via
+  // the app-wide media rule.
+  const [render, setRender] = useState(open);
+  // Mount immediately on open by adjusting state during render (no effect cascade);
+  // the effect below only DEFERS unmount until the close animation finishes.
+  if (open && !render) setRender(true);
+  useEffect(() => {
+    if (open) return;
+    const t = window.setTimeout(() => setRender(false), 220);
+    return () => clearTimeout(t);
+  }, [open]);
+  const visible = open || render;
 
   const anchored = comments
     .filter((c) => c.scope !== "general")
@@ -34,31 +48,44 @@ export function CommentIndex({
       const fa = a.anchor?.file ?? "", fb = b.anchor?.file ?? "";
       return fa === fb ? (a.anchor?.startLine ?? 0) - (b.anchor?.startLine ?? 0) : fa.localeCompare(fb);
     });
+  const staleCount = anchored.filter((c) => c.stale).length;
 
   return (
-    <aside data-testid="comment-index" className="flex min-h-0 w-80 shrink-0 flex-col border-l border-border/70 bg-muted/20">
+    <aside
+      className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-out ${open ? "w-80" : "w-0"}`}
+    >
+      {visible && (
+      <div data-testid="comment-index" className="flex h-full w-80 min-h-0 flex-col border-l border-border/70 bg-muted/20">
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-[12px]">
         <span className="font-medium text-foreground">Comments</span>
         <span className="text-muted-foreground/50">·</span>
         <span className="text-muted-foreground">{anchored.length}</span>
+        {staleCount > 0 && (
+          <span
+            className="ml-auto flex items-center gap-1 rounded-md squircle bg-amber-500/15 px-1.5 py-0.5 font-medium text-amber-600 dark:text-amber-400"
+            title={`${staleCount} stale comment${staleCount === 1 ? "" : "s"}`}
+          >
+            ⚠ {staleCount} stale
+          </span>
+        )}
         <Button
           size="icon-sm"
           variant="ghost"
-          className="ml-auto size-6 text-muted-foreground hover:text-foreground"
+          className={`${staleCount > 0 ? "" : "ml-auto "}size-6 text-muted-foreground hover:text-foreground`}
           aria-label="Close comments"
           onClick={() => onOpenChange(false)}
         >
           <X className="size-4" />
         </Button>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-auto p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
         {anchored.length === 0 && (
           <p className="py-8 text-center text-[13px] text-muted-foreground">No comments yet</p>
         )}
         {anchored.map((c) => (
           <button
             key={c.id}
-            className="group flex w-full min-w-0 shrink-0 flex-col items-start gap-1 overflow-hidden rounded-lg border border-border/70 bg-card/40 px-3 py-2.5 text-left text-[13px] hover:border-border/80 hover:bg-foreground/[0.04]"
+            className="group flex w-full min-w-0 shrink-0 flex-col items-start gap-1 overflow-hidden rounded-lg border border-border bg-card/40 px-3 py-2.5 text-left text-[13px] hover:border-foreground/25 hover:bg-foreground/[0.04]"
             onClick={() => onJump(c)}
           >
             <span className="flex w-full min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
@@ -82,6 +109,8 @@ export function CommentIndex({
           </button>
         ))}
       </div>
+      </div>
+      )}
     </aside>
   );
 }

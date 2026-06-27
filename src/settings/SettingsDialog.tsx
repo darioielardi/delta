@@ -69,7 +69,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
   return (
     <div
       data-testid="settings-dialog"
-      className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4 data-[open]:animate-in data-[open]:fade-in-0"
+      className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4 duration-100 data-[open]:animate-in data-[open]:fade-in-0"
       data-open
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onOpenChange(false);
@@ -81,7 +81,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         aria-modal="true"
         aria-labelledby="settings-title"
         tabIndex={-1}
-        className="w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none data-[open]:animate-in data-[open]:fade-in-0 data-[open]:zoom-in-95 dark:ring-foreground/10"
+        className="w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-popover text-popover-foreground shadow-2xl ring-1 ring-foreground/5 outline-none duration-100 data-[open]:animate-in data-[open]:fade-in-0 data-[open]:zoom-in-95 dark:ring-foreground/10"
         data-open
       >
         <div className="flex items-start justify-between border-b border-border/70 px-5 py-4">

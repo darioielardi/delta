@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { rankReviews } from "./fuzzy";
 import { Folder, GitBranch, MessageSquare, TriangleAlert } from "lucide-react";
-import type { Registry, RepoEntry, ReviewEntry, WorktreeEntry } from "../types";
+import type { Registry, RepoEntry, ReviewEntry, Target, WorktreeEntry } from "../types";
 
 function relTime(iso: string): string {
   const then = new Date(iso).getTime();
@@ -37,8 +37,9 @@ type Item = {
 };
 
 // Mounted only while open (App conditionally renders it), so every open gets fresh
-// state — no open prop, no reset effects.
-export function CommandPalette({ onClose }: { onClose: () => void }) {
+// state — no open prop, no reset effects. `current` is the review open right now,
+// excluded from the list (you can't switch to where you already are). (#7)
+export function CommandPalette({ onClose, current }: { onClose: () => void; current?: Target }) {
   const [registry, setRegistry] = useState<Registry | null>(null);
   const [page, setPage] = useState<Page>({ kind: "root" });
   const [query, setQuery] = useState("");
@@ -155,7 +156,13 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   let placeholder = "Search reviews…";
 
   if (page.kind === "root") {
-    const reviews = registry ? rankReviews(registry.reviews, query) : [];
+    // Drop the review that's open right now — switching to it is a no-op. (#7)
+    const isCurrent = (r: ReviewEntry) =>
+      current != null &&
+      r.target.repoPath === current.repoPath &&
+      r.target.mode === current.mode &&
+      (r.target.base ?? null) === (current.base ?? null);
+    const reviews = registry ? rankReviews(registry.reviews.filter((r) => !isCurrent(r)), query) : [];
     items = reviews.map((r) => ({
       key: r.id,
       leading: <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />,
@@ -272,20 +279,22 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   return (
     <div
       data-testid="command-palette"
-      className="absolute inset-0 z-50 flex items-start justify-center bg-black/40 pt-[12vh]"
+      className="absolute inset-0 z-50 flex items-start justify-center bg-black/40 pt-[16vh] duration-100 data-[open]:animate-in data-[open]:fade-in-0"
+      data-open
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        className="flex max-h-[64vh] w-[40rem] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-border bg-popover text-[13px] text-popover-foreground shadow-2xl"
+        className="flex max-h-[64vh] w-[40rem] max-w-[92vw] flex-col overflow-hidden rounded-xl border border-border bg-popover text-[13px] text-popover-foreground shadow-2xl duration-100 data-[open]:animate-in data-[open]:fade-in-0 data-[open]:zoom-in-95"
+        data-open
         onKeyDown={onKey}
       >
         <div className="relative shrink-0 border-b border-border/70">
           <input
             ref={inputRef}
             autoFocus
-            className="h-11 w-full bg-transparent px-4 pr-16 text-[14px] outline-none placeholder:text-muted-foreground/70"
+            className="h-11 w-full bg-transparent px-4 text-[14px] outline-none placeholder:text-muted-foreground/70"
             placeholder={placeholder}
             value={query}
             onChange={(e) => {
@@ -293,7 +302,6 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
               setSel(0);
             }}
           />
-          <kbd className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded border border-border/70 bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">⌘K</kbd>
         </div>
         {error && <div className="shrink-0 whitespace-pre-wrap bg-destructive/10 px-4 py-1.5 text-[12px] text-destructive">{error}</div>}
         {installMsg && (

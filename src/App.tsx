@@ -37,7 +37,7 @@ export default function App() {
         return;
       }
       if (!isReview) return; // no command palette on the launch screen (#6)
-      if ((e.key === "k" || e.key === "o") && (e.metaKey || e.ctrlKey)) {
+      if ((e.key === "k" || e.key === "o" || e.key === "p") && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setPaletteOpen((o) => !o);
       }
@@ -85,7 +85,7 @@ export default function App() {
       ) : (
         <Home onOpenSettings={() => setSettingsOpen(true)} />
       )}
-      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} current={route.kind === "review" ? route.target : undefined} />}
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
     </>
   );
