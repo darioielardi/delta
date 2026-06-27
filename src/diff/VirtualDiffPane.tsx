@@ -35,6 +35,11 @@ const EST_BLOCK_H = 96; // placeholder height for a comment thread before it mea
 const PLACEHOLDER_BODY_H = 72; // fixed body height for binary / deleted placeholders (#11, shared layout #5, padding #8)
 const CONTEXT = 3; // unchanged lines kept around each change before folding (#10)
 const EXPAND_STEP = 25; // lines revealed per fold expand click (#2)
+// Card layout: each file's diff is a rounded card inset from the pane edges by
+// PAD, with GAP of empty space between cards. These fold into the offset math
+// below so row-windowing stays exact. (#card)
+const PAD = 14;
+const GAP = 10;
 
 type Model = ReturnType<typeof toDiffFile>;
 type ChangeRange = { location: number; length: number } | undefined;
@@ -426,8 +431,8 @@ const VFileSection = memo(function VFileSection({
   }
 
   return (
-    <div ref={ref} data-file={entry.path} className="border-b border-border/70">
-      <div className="group/h sticky top-0 z-20 flex items-center gap-2 border-b border-border/70 bg-background px-3" style={{ height: HEADER_H }}>
+    <div ref={ref} data-file={entry.path} className="rounded-lg border border-border bg-card">
+      <div className={`group/h sticky top-0 z-20 flex items-center gap-2 bg-card px-3 ${collapsed ? "rounded-lg" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H }}>
         {/* Full-box collapse target. The label/counts above it are
             pointer-events-none, so hovering anywhere in the header (padding +
             gaps included) reaches this button and — via peer-hover — lights the
@@ -477,7 +482,7 @@ const VFileSection = memo(function VFileSection({
         </Button>
       </div>
       {!collapsed && (
-        <div className="relative" style={{ height: bodyH }} onPointerDown={onGutterPointerDown}>
+        <div className="relative overflow-hidden rounded-b-lg" style={{ height: bodyH }} onPointerDown={onGutterPointerDown}>
           {isBinary ? (
             <div className="flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
               <FileQuestion className="size-4 shrink-0 opacity-70" />
@@ -607,14 +612,14 @@ export function VirtualDiffPane({
 
   const { offsets, total } = useMemo(() => {
     const offs: number[] = [];
-    let top = 0;
+    let top = PAD; // top padding above the first card
     for (const f of files) {
       offs.push(top);
       const collapsed = collapsedFor(f);
       const bh = collapsed ? 0 : (bodyHeights[f.path] ?? estReserved(f));
-      top += HEADER_H + bh + 1; // +1 border-b
+      top += HEADER_H + bh + GAP; // card body + gap to the next card
     }
-    return { offsets: offs, total: top };
+    return { offsets: offs, total: top - GAP + PAD }; // trailing gap → bottom padding
   }, [files, collapsedFor, bodyHeights]);
 
   useEffect(() => {
@@ -726,7 +731,7 @@ export function VirtualDiffPane({
           const onScreen = viewportH > 0 && !collapsed && bodyTop + bh > top0 && bodyTop < bot0;
           const view: [number, number] | null = onScreen ? [Math.max(0, top0 - bodyTop), Math.max(0, bot0 - bodyTop)] : null;
           return (
-            <div key={entry.path} style={{ position: "absolute", top: sectionTop, left: 0, right: 0 }}>
+            <div key={entry.path} style={{ position: "absolute", top: sectionTop, left: PAD, right: PAD }}>
               <VFileSection
                 entry={entry} theme={theme} layout={layout} cache={cache}
                 collapsed={collapsed} viewed={viewedFiles.has(entry.path)}
