@@ -55,6 +55,7 @@
     --color-popover: var(--popover);
     --color-card-foreground: var(--card-foreground);
     --color-card: var(--card);
+    --color-code: var(--code);
     --color-foreground: var(--foreground);
     --color-background: var(--background);
     --radius-sm: calc(var(--radius) * 0.6);
@@ -73,6 +74,9 @@
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.145 0 0);
+    /* The code/diff surface. In light it's white — same as `card` — so each file
+       diff floats on the soft gray canvas. In dark (below) the relationship flips. */
+    --code: oklch(1 0 0);
     --popover: oklch(1 0 0);
     --popover-foreground: oklch(0.145 0 0);
     --primary: oklch(0.55 0.21 256);
@@ -112,6 +116,10 @@
     --foreground: oklch(0.985 0 0);
     --card: oklch(0.225 0 0);
     --card-foreground: oklch(0.985 0 0);
+    /* Inverted from light: the code well is the DARKEST surface — sunk below the
+       canvas/cards, like an editor pane — so syntax stays vivid (not dimmed by a
+       mid-gray base) and the surrounding chrome reads as lifted above it. */
+    --code: oklch(0.165 0 0);
     --popover: oklch(0.225 0 0);
     --popover-foreground: oklch(0.985 0 0);
     --primary: oklch(0.62 0.19 256);

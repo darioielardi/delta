@@ -431,8 +431,8 @@ const VFileSection = memo(function VFileSection({
   }
 
   return (
-    <div ref={ref} data-file={entry.path} className="rounded-lg border border-border bg-card">
-      <div className={`group/h sticky top-0 z-20 flex items-center gap-2 bg-card px-3 ${collapsed ? "rounded-lg" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H }}>
+    <div ref={ref} data-file={entry.path} className="rounded-lg border border-border bg-code">
+      <div className={`group/h sticky top-0 z-20 flex items-center gap-2 bg-code px-3 ${collapsed ? "rounded-lg" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H }}>
         {/* Full-box collapse target. The label/counts above it are
             pointer-events-none, so hovering anywhere in the header (padding +
             gaps included) reaches this button and — via peer-hover — lights the
