@@ -1,5 +1,5 @@
 // src/diff/DiffPane.tsx
-import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Check, ChevronDown, ChevronRight, Eye, FileX, MessageSquarePlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DiffView } from "./DiffView";
@@ -9,14 +9,22 @@ import type { Anchor, Comment, FileEntry, Target } from "../types";
 import type { DiffLayout } from "./useDiffLayout";
 
 // Files with at least this many changed lines start collapsed.
-const GIANT_CHANGED_LINES = 600;
+const GIANT_CHANGED_LINES = 500;
+
+// Fallback height for a never-yet-rendered file's diff body: px per changed line
+// (measured median ~35, fit slope ~45; 42 splits it). Only seeds the scrollbar /
+// skeleton / content-visibility intrinsic-size before the file has rendered once.
+// Not load-bearing: once a file renders, the browser remembers its real height
+// (contain-intrinsic-size: auto), so a wrong estimate just means a slightly-off
+// scrollbar for unvisited files, never a scroll jump.
+const EST_PER_LINE = 42;
 
 function commentsForFile(comments: Comment[], file: string): Comment[] {
   return comments.filter((c) => c.anchor?.file === file);
 }
 
 function FileSection({
-  entry, cache, comments, viewed, collapsed, theme, layout, onToggleViewed, onToggleCollapse, onAddComment, onAddFileComment, onEditComment, onDeleteComment, registerRef,
+  entry, cache, comments, viewed, collapsed, theme, layout, onToggleViewed, onToggleCollapse, onAddComment, onAddFileComment, onEditComment, onDeleteComment, registerRef, requestLoad, estimateHeight, forced, prefetch,
 }: {
   entry: FileEntry; cache: ReturnType<typeof useFileDiffCache>;
   comments: Comment[]; viewed: boolean; collapsed: boolean; theme: "light" | "dark"; layout: "unified" | "split";
@@ -26,15 +34,30 @@ function FileSection({
   onAddFileComment: (file: string, body: string) => void;
   onEditComment: (id: string, body: string) => void; onDeleteComment: (id: string) => void;
   registerRef: (file: string, el: HTMLDivElement | null) => void;
+  // Velocity-gated load request — see the pane's scheduler. `want` is whether
+  // this section currently wants its diff built (near + expanded + not a hidden
+  // deleted file). The pane defers the actual load while flinging.
+  requestLoad: (path: string, want: boolean) => void;
+  // Seed height for the skeleton + content-visibility intrinsic-size.
+  estimateHeight: (entry: FileEntry) => number;
+  // Jump target: mount this section's diff even when off-screen, so a jump can
+  // land on built content (and a jump-to-comment can find the comment node).
+  forced: boolean;
+  // Hover-prefetch: mount this section ahead of a click so opening it is instant.
+  prefetch: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   // Subscribe to just this file's diff. Only this section re-renders when its
   // own load resolves (or when the target resets) — not the whole pane.
   const subscribe = useCallback((cb: () => void) => cache.subscribe(entry.path, cb), [cache, entry.path]);
   const fd = useSyncExternalStore(subscribe, () => cache.get(entry.path));
-  // Viewport proximity (within ~1 screen). Drives eager paint so the diff is
-  // ready before it scrolls into view, instead of painting on arrival.
+  // Within ~2.7 screens of the viewport — triggers the (gated) build.
   const [near, setNear] = useState(false);
+  // Latch: once the diff has been mounted we KEEP it mounted. content-visibility
+  // (below) makes it cheap to leave in the DOM off-screen, and never unmounting is
+  // what kills the regression where scrolling back to a file re-rendered it from a
+  // skeleton. The browser, not us, skips the paint of what's off-screen.
+  const [built, setBuilt] = useState(false);
   // Deleted files are hidden by default behind a reveal (their diff is just the
   // removed file). Don't load or render it until the user asks.
   const isDeleted = entry.status === "deleted";
@@ -43,47 +66,50 @@ function FileSection({
   const slash = entry.path.lastIndexOf("/");
   const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : "";
   const base = slash >= 0 ? entry.path.slice(slash + 1) : entry.path;
+  const want = !collapsed && (!isDeleted || revealed);
+  // Latch built the first time we have data + a reason to show it. Done during
+  // render, not via a setState effect (see react.dev "you might not need an
+  // effect"): once true it sticks, so scrolling back never re-skeletons the file.
+  if (!built && fd && want && (near || forced || prefetch)) setBuilt(true);
 
   useEffect(() => {
     registerRef(entry.path, ref.current);
     return () => registerRef(entry.path, null);
   }, [entry.path]);
 
-  // Track viewport proximity with a ~1-screen margin: load the diff data and
-  // mark the section `near` so it paints eagerly (content-visibility below).
-  // Without this, content-visibility:auto defers layout/paint until the section
-  // actually enters the viewport — a brief blank-then-fill on scroll. Persistent
-  // (not disconnect-after-load) so it can also drop back to skipped when the
-  // section scrolls far away again. cache.load is idempotent, so re-entry is a
-  // no-op once cached.
+  // Track viewport proximity with a ~2.7-screen margin and request the (gated)
+  // load when near. Once built we no longer care about `near` for mounting, but
+  // the observer stays cheap and keeps `near` honest for the build latch.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const io = new IntersectionObserver((entries) => {
       const isNear = entries.some((e) => e.isIntersecting);
       setNear(isNear);
-      if (isNear && !collapsed && (!isDeleted || revealed)) void cache.load(entry.path);
-    }, { rootMargin: "800px 0px" });
+      requestLoad(entry.path, isNear && want);
+    }, { rootMargin: "2000px 0px" });
     io.observe(el);
-    return () => io.disconnect();
-    // cache has stable identity (useFileDiffCache storeRef); listed to satisfy
-    // exhaustive-deps without changing behavior.
-  }, [entry.path, collapsed, isDeleted, revealed, cache]);
+    return () => {
+      io.disconnect();
+      requestLoad(entry.path, false);
+    };
+  }, [entry.path, want, requestLoad]);
 
-  // Far sections use content-visibility:auto so the engine skips their
-  // layout/paint (keeps scroll smooth and pane-resize reflow cheap). Near ones
-  // are forced visible so they're painted ~1 screen before arrival. contain-
-  // intrinsic-size seeds a height estimate so the scrollbar stays stable while a
-  // section is skipped (the `auto` keyword then remembers the real size).
-  const estPx = collapsed ? 48 : Math.min(4000, 80 + (entry.additions + entry.deletions) * 18);
+  // Seed height for the skeleton + intrinsic-size (real height is remembered by
+  // the browser after first render).
+  const estPx = estimateHeight(entry);
+  const showDiff = !!fd && want && (built || near || forced || prefetch);
   return (
     <div
       ref={ref}
       data-file={entry.path}
       className="border-b border-border/70"
-      style={{ contentVisibility: near ? "visible" : "auto", containIntrinsicSize: `auto ${estPx}px` }}
     >
-      <div className="group sticky top-0 z-10 flex items-center gap-1 border-b border-border/70 bg-background/85 px-3 py-2 backdrop-blur">
+      {/* Opaque (not bg/85 + backdrop-blur): a translucent blurred sticky header
+          forces the compositor to re-rasterize + blur the code scrolling beneath
+          it every frame — on a long diff that alone halved scroll FPS. Solid bg,
+          no filter. */}
+      <div className="group sticky top-0 z-10 flex items-center gap-1 border-b border-border/70 bg-background px-3 py-2">
         {/* Full-box collapse target: an absolutely-positioned button fills the
             header including its padding, so hover + click land anywhere in the
             box (not just over the filename). The visible content sits above it
@@ -162,19 +188,29 @@ function FileSection({
                 <Eye className="size-4" /> Show deleted content
               </Button>
             </div>
-          ) : fd ? (
-            <DiffView
-              fileDiff={fd}
-              filePath={entry.path}
-              layout={layout}
-              theme={theme}
-              comments={commentsForFile(comments, entry.path)}
-              onAddComment={onAddComment}
-              onEditComment={onEditComment}
-              onDeleteComment={onDeleteComment}
-            />
+          ) : showDiff ? (
+            // Built diff. content-visibility:auto lets the browser skip its layout
+            // + paint while off-screen (the perf win windowing gave us) WITHOUT
+            // unmounting it — so scrolling back is instant, never a re-skeleton.
+            // contain-intrinsic-size: auto seeds the off-screen size from the
+            // estimate, then remembers the real height once rendered. (#cv)
+            <div className="diff-cv" style={{ ["--cv-h" as string]: `${estPx}px` } as React.CSSProperties}>
+              <DiffView
+                fileDiff={fd}
+                filePath={entry.path}
+                layout={layout}
+                theme={theme}
+                comments={commentsForFile(comments, entry.path)}
+                onAddComment={onAddComment}
+                onEditComment={onEditComment}
+                onDeleteComment={onDeleteComment}
+              />
+            </div>
           ) : (
-            <div className="px-3 py-6 text-[12px] text-muted-foreground">Loading…</div>
+            // Not built yet (never reached, or a fling outran the build): a
+            // skeleton at the estimated height. Shown at most once per file —
+            // once built it never reverts. (#cv)
+            <div aria-hidden className="diff-skeleton" style={{ minHeight: estPx }} />
           )}
         </div>
       )}
@@ -185,7 +221,7 @@ function FileSection({
 // memo so toggling unrelated Workspace state (e.g. the comments pane) skips the
 // whole diff pane — its props are kept referentially stable by the parent.
 export const DiffPane = memo(function DiffPane({
-  target, files, comments, viewedFiles, theme, layout, jump, invalidate,
+  target, files, comments, viewedFiles, theme, layout, jump, invalidate, registerPrefetch,
   onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onVisibleFileChange,
 }: {
   target: Target; files: FileEntry[]; comments: Comment[]; viewedFiles: Set<string>;
@@ -193,6 +229,11 @@ export const DiffPane = memo(function DiffPane({
   // Auto-refresh signal: { paths: null } reloads everything, otherwise just the
   // listed files. The nonce re-fires the effect even for a repeat path set. (#9)
   invalidate?: { paths: string[] | null; n: number } | null;
+  // Prefetch channel: the parent owns the ref; we register our prefetch fn
+  // through this setter so the tree can call it on hover to mount a file's diff
+  // ahead of the click (instant open vs a ~250ms render-on-arrival). A setter,
+  // not a ref we mutate, keeps prop-mutation out of the component.
+  registerPrefetch?: (fn: ((path: string) => void) | null) => void;
   onToggleViewed: (file: string) => void;
   onAddComment: (a: Anchor, body: string) => void;
   onAddFileComment: (file: string, body: string) => void;
@@ -201,6 +242,22 @@ export const DiffPane = memo(function DiffPane({
   onVisibleFileChange?: (file: string) => void;
 }) {
   const cache = useFileDiffCache(target);
+
+  // Hover-prefetch: mount a file's diff off-screen ahead of a click so opening it
+  // is instant. Rendering the table (~250ms on a big file) is the cost; doing it
+  // on hover gets it out of the click path. At LOW priority so a real click/scroll
+  // interrupts it — a hover never blocks interaction. One at a time; the next
+  // hover replaces it. (Built files stay built via the section's latch, so a
+  // hovered-then-not-clicked file simply stays mounted, which is fine.)
+  const [prefetchPath, setPrefetchPath] = useState<string | null>(null);
+  const prefetch = useCallback((path: string) => {
+    void cache.load(path);
+    startTransition(() => setPrefetchPath(path));
+  }, [cache]);
+  useEffect(() => {
+    registerPrefetch?.(prefetch);
+    return () => registerPrefetch?.(null);
+  }, [registerPrefetch, prefetch]);
 
   // Drop + reload changed files (or all, when the base shifted) so the diff
   // tracks the working tree without a manual Refresh. (#9)
@@ -218,10 +275,87 @@ export const DiffPane = memo(function DiffPane({
     else sectionRefs.current.delete(file);
   };
 
+  // Per-file seed height for the skeleton + content-visibility intrinsic-size.
+  // A plain estimate from the change size — the browser remembers real heights
+  // after first render, so this only sizes never-yet-rendered files.
+  const estimates = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const f of files) m.set(f.path, Math.max(120, (f.additions + f.deletions) * EST_PER_LINE));
+    return m;
+  }, [files]);
+  const estimateHeight = useCallback((entry: FileEntry) => estimates.get(entry.path) ?? 120, [estimates]);
+
+  // Velocity-gated diff loading. Rendering a file's diff table is the expensive
+  // per-file step; firing it the instant a section crosses the IO margin means a
+  // fast scroll builds every file it flies past — seconds of main-thread blocking.
+  // So sections only *request* a load (near/far); the pane flushes immediately
+  // while scrolling slowly or stopped, and defers while flinging so the build
+  // storm never lands mid-scroll. cache.load is idempotent, so a path that scrolls
+  // away before the flush is simply dropped from the wanted set.
+  const wantedRef = useRef<Set<string>>(new Set());
+  const velRef = useRef(0);
+  const flushTimer = useRef(0);
+  const buildTimer = useRef(0);
+  // Drain the wanted set a couple files per tick instead of all at once, so the
+  // settle band fills progressively rather than freezing in one long task.
+  const flushLoads = useCallback(() => {
+    clearTimeout(buildTimer.current);
+    const drain = () => {
+      const pane = paneRef.current;
+      // Build nearest-to-viewport first so what you're looking at fills soonest.
+      const center = pane ? pane.scrollTop + pane.clientHeight / 2 : 0;
+      const pending = [...wantedRef.current].filter((p) => !cache.get(p));
+      if (pending.length === 0) return;
+      pending.sort((a, b) => {
+        const ea = sectionRefs.current.get(a), eb = sectionRefs.current.get(b);
+        const da = ea ? Math.abs(ea.offsetTop + ea.offsetHeight / 2 - center) : Infinity;
+        const db = eb ? Math.abs(eb.offsetTop + eb.offsetHeight / 2 - center) : Infinity;
+        return da - db;
+      });
+      for (let i = 0; i < 2 && i < pending.length; i++) void cache.load(pending[i]);
+      if (pending.length > 2) buildTimer.current = window.setTimeout(drain, 24);
+    };
+    drain();
+  }, [cache]);
+  const scheduleFlush = useCallback(() => {
+    clearTimeout(flushTimer.current);
+    // px/ms: a read-scroll is ~0.2–0.6, a fling is several. Only a genuine fling
+    // (the case that would build dozens of fly-past files at once) defers; moderate
+    // scrolling builds immediately so it stays ahead of the viewport.
+    flushTimer.current = window.setTimeout(flushLoads, velRef.current > 2.5 ? 120 : 0);
+  }, [flushLoads]);
+  const requestLoad = useCallback((path: string, want: boolean) => {
+    if (want) wantedRef.current.add(path);
+    else wantedRef.current.delete(path);
+    scheduleFlush();
+  }, [scheduleFlush]);
+
+  // Track scroll velocity so requestLoad can tell a fling from a read-scroll, and
+  // flush once motion settles (the trailing scroll events decay to low velocity).
+  useEffect(() => {
+    const pane = paneRef.current;
+    if (!pane) return;
+    let last = { t: performance.now(), top: pane.scrollTop };
+    const onScroll = () => {
+      const now = performance.now();
+      const top = pane.scrollTop;
+      const dt = now - last.t || 16;
+      velRef.current = Math.abs(top - last.top) / dt;
+      last = { t: now, top };
+      scheduleFlush();
+    };
+    pane.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      pane.removeEventListener("scroll", onScroll);
+      clearTimeout(flushTimer.current);
+      clearTimeout(buildTimer.current);
+    };
+  }, [scheduleFlush]);
+
   // Scroll-spy: report the file whose section sits at the top of the viewport so
   // the tree/list can highlight what you're actually looking at. Sections are in
   // file order, so the current one is the last whose top is at/above the pane
-  // top. rAF-throttled; only fires when the file changes. (#r3)
+  // top. setTimeout-throttled; only fires when the file changes. (#r3)
   const lastVisible = useRef<string | null>(null);
   useEffect(() => {
     const pane = paneRef.current;
@@ -253,6 +387,11 @@ export const DiffPane = memo(function DiffPane({
   // Collapse is independent of viewed. Explicit user choices override the
   // giant-file default; marking a file viewed collapses it (un-marking expands).
   const [collapseOverrides, setCollapseOverrides] = useState<Record<string, boolean>>({});
+
+  // The current jump target, force-mounted even when off-screen so a jump lands
+  // on built content and a jump-to-comment can locate + center the comment node.
+  // Only one at a time (the next jump replaces it).
+  const [forcedPath, setForcedPath] = useState<string | null>(null);
 
   // When a file's viewed state flips (tree, list, or diff header), drop any manual
   // collapse override so the section follows viewed — collapse on view, expand on
@@ -300,72 +439,64 @@ export const DiffPane = memo(function DiffPane({
   };
 
   // Jump to a file (tree click) or an exact comment (panel click). The nonce
-  // re-fires this on every click, even for the same target. For a comment we
-  // expand + load the file, then poll for the comment's DOM node (extend rows
-  // mount a few frames after the diff loads) and center it; we fall back to the
-  // file header if it never appears.
+  // re-fires this on every click, even for the same target.
   //
-  // Because off-screen sections use content-visibility:auto, the rows between
-  // here and the target only get their real heights once they scroll into view —
-  // a single scroll computed from intrinsic-size *estimates* undershoots. So we
-  // converge: jump (instantly), let the newly revealed region settle, re-measure,
-  // and repeat until the target position stops moving.
+  // Because files now stay mounted (content-visibility skips off-screen paint,
+  // it doesn't unmount), off-screen sections keep a stable height — so a single
+  // scroll lands the target and *stays* put; no estimate→real "hop" to correct,
+  // hence no pin/convergence machinery. We just align the target to the pane top
+  // (a couple of passes to cover the forced section's own mount), or center the
+  // comment node once it renders.
   useEffect(() => {
     if (!jump) return;
     const { file, commentId } = jump;
     setCollapseOverrides((o) => (o[file] === false ? o : { ...o, [file]: false }));
+    setForcedPath(file); // mount an off-screen target so we land on built content
     void cache.load(file);
     const pane = paneRef.current;
     if (!pane) return;
-    const centerOn = (node: HTMLElement): number => {
-      const pr = pane.getBoundingClientRect();
-      const nr = node.getBoundingClientRect();
-      const target = Math.max(0, pane.scrollTop + (nr.top - pr.top) - Math.max(0, pane.clientHeight / 2 - nr.height / 2));
-      pane.scrollTop = target; // instant — a smooth animation would fight the re-measure
-      return target;
-    };
-    // tries/lastTarget are passed as recursion args rather than mutated captured
-    // vars, so React Compiler can still optimize this component (a captured `i++`
-    // inside a lambda makes it bail). jumpTimer (a ref) holds the pending poll.
-    const attempt = (tries: number, lastTarget: number) => {
-      const sec = sectionRefs.current.get(file);
-      const node = commentId
-        ? (pane.querySelector(`[data-comment-id="${CSS.escape(commentId)}"]`) as HTMLElement | null)
-        : null;
-      if (commentId) {
+
+    if (commentId) {
+      // Center the comment once its row mounts (extend rows mount a few frames
+      // after the diff builds); converge a little as the region settles.
+      const centerOn = (node: HTMLElement): number => {
+        const pr = pane.getBoundingClientRect();
+        const nr = node.getBoundingClientRect();
+        const target = Math.max(0, pane.scrollTop + (nr.top - pr.top) - Math.max(0, pane.clientHeight / 2 - nr.height / 2));
+        pane.scrollTop = target;
+        return target;
+      };
+      const attempt = (tries: number, lastTarget: number) => {
+        const sec = sectionRefs.current.get(file);
+        const node = pane.querySelector(`[data-comment-id="${CSS.escape(commentId)}"]`) as HTMLElement | null;
         if (node) {
           const target = centerOn(node);
-          // Keep correcting until the position is stable (heights have settled)
-          // or we run out of tries.
           if (Math.abs(target - lastTarget) > 2 && tries < 40) {
             jumpTimer.current = window.setTimeout(() => attempt(tries + 1, target), 32);
           }
           return;
         }
         if (tries < 40) {
-          // Node not mounted yet: coarse-scroll toward the section (centered, so
-          // the region renders) and keep polling — setTimeout, not rAF, so it
-          // runs even when the window is occluded.
           sec?.scrollIntoView({ behavior: "auto", block: "center" });
           jumpTimer.current = window.setTimeout(() => attempt(tries + 1, lastTarget), 32);
-          return;
         }
+      };
+      attempt(0, -1);
+      return () => clearTimeout(jumpTimer.current);
+    }
+
+    // File jump: align the section header to the pane top. A few passes over
+    // ~150ms cover the forced section mounting (which grows it downward, not up,
+    // so the header stays put — the passes are just belt-and-suspenders).
+    const align = (tries: number) => {
+      const sec = sectionRefs.current.get(file);
+      if (sec) {
+        const drift = sec.getBoundingClientRect().top - pane.getBoundingClientRect().top;
+        if (Math.abs(drift) > 1) pane.scrollTop = Math.max(0, pane.scrollTop + drift);
       }
-      // File-only jump (or comment-jump giving up): align the section header to
-      // the pane top, then converge. Sections above settle to real heights
-      // (content-visibility) and shift the target, so a single estimate-based
-      // scroll lands off — re-measure until it stops moving. `sec` is from the
-      // top of attempt(). Instant, never animated.
-      if (!sec) return;
-      const pr = pane.getBoundingClientRect();
-      const nr = sec.getBoundingClientRect();
-      const target = Math.max(0, pane.scrollTop + (nr.top - pr.top));
-      pane.scrollTop = target;
-      if (Math.abs(target - lastTarget) > 2 && tries < 40) {
-        jumpTimer.current = window.setTimeout(() => attempt(tries + 1, target), 32);
-      }
+      if (tries < 4) jumpTimer.current = window.setTimeout(() => align(tries + 1), 48);
     };
-    attempt(0, -1);
+    align(0);
     return () => clearTimeout(jumpTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jump?.n]);
@@ -389,6 +520,10 @@ export const DiffPane = memo(function DiffPane({
           onEditComment={onEditComment}
           onDeleteComment={onDeleteComment}
           registerRef={registerRef}
+          requestLoad={requestLoad}
+          estimateHeight={estimateHeight}
+          forced={forcedPath === entry.path}
+          prefetch={prefetchPath === entry.path}
         />
       ))}
       {/* Small bottom breathing room — not a full viewport, so you can't scroll

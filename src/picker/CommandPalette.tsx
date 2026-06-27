@@ -272,7 +272,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   return (
     <div
       data-testid="command-palette"
-      className="absolute inset-0 z-50 flex items-start justify-center bg-black/30 pt-[12vh] supports-backdrop-filter:backdrop-blur-[2px]"
+      className="absolute inset-0 z-50 flex items-start justify-center bg-black/40 pt-[12vh]"
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
