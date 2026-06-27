@@ -10,6 +10,27 @@ import { CommentThread } from "../review/CommentThread";
 
 const enumToSide = (s: SplitSide): Side => (s === SplitSide.old ? "old" : "new");
 
+// Building a diff model (parse + diff + tokenize/highlight) is the expensive
+// per-file step. Off-screen files are unmounted to keep the DOM bounded, so a
+// section can mount more than once (scroll away, scroll back); cache the built
+// model so a remount is instant instead of rebuilding. Keyed by the FileDiff
+// object via a WeakMap — when a file is invalidated/reloaded it gets a fresh
+// FileDiff, so the stale models drop out and get GC'd automatically — and by
+// layout+theme, since each produces a distinct model.
+const modelCache = new WeakMap<FileDiff, Map<string, ReturnType<typeof toDiffFile>>>();
+function buildModel(fileDiff: FileDiff, layout: "unified" | "split", theme: "light" | "dark") {
+  let byKey = modelCache.get(fileDiff);
+  if (!byKey) modelCache.set(fileDiff, (byKey = new Map()));
+  const key = `${layout}|${theme}`;
+  const cached = byKey.get(key);
+  if (cached) return cached;
+  const f = toDiffFile(fileDiff); // adapter already calls .init()
+  f.initTheme(theme);
+  layout === "split" ? f.buildSplitDiffLines() : f.buildUnifiedDiffLines();
+  byKey.set(key, f);
+  return f;
+}
+
 export function DiffView({
   fileDiff,
   filePath,
@@ -36,13 +57,10 @@ export function DiffView({
   // as happens when a sibling state change re-renders the pane — measured as the
   // dominant cost on large reviews, so memoize explicitly rather than trusting
   // the compiler to cache these mutating calls.
-  const file = useMemo(() => {
-    if (fileDiff.binary) return null;
-    const f = toDiffFile(fileDiff); // adapter already calls .init()
-    f.initTheme(theme);
-    layout === "split" ? f.buildSplitDiffLines() : f.buildUnifiedDiffLines();
-    return f;
-  }, [fileDiff, layout, theme]);
+  const file = useMemo(
+    () => (fileDiff.binary ? null : buildModel(fileDiff, layout, theme)),
+    [fileDiff, layout, theme],
+  );
 
   const extendData = useMemo(() => buildExtendData(comments), [comments]);
 

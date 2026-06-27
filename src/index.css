@@ -157,6 +157,33 @@
   --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 
+/* Diff skeleton — a stand-in shown where a file's diff is windowed out or still
+   building. An inline-SVG background draws varied-width, indented, rounded "code
+   lines" with a line-number gutter, tiled at the code line-height — it reads as
+   real code loading, not a flat barcode. Still a single element with no child
+   nodes, so the windowing keeps the DOM bounded. Neutral gray at low opacity so
+   it sits softly on both light and dark themes (nudged up in dark, below). */
+.diff-skeleton {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='126'%3E%3Cg fill='%23808080' fill-opacity='0.16'%3E%3Crect x='14' y='7.5' width='15' height='6' rx='3'/%3E%3Crect x='14' y='28.5' width='15' height='6' rx='3'/%3E%3Crect x='14' y='49.5' width='15' height='6' rx='3'/%3E%3Crect x='14' y='70.5' width='15' height='6' rx='3'/%3E%3Crect x='14' y='91.5' width='15' height='6' rx='3'/%3E%3Crect x='14' y='112.5' width='15' height='6' rx='3'/%3E%3C/g%3E%3Cg fill='%23808080' fill-opacity='0.11'%3E%3Crect x='46' y='7.5' width='430' height='6' rx='3'/%3E%3Crect x='66' y='28.5' width='250' height='6' rx='3'/%3E%3Crect x='66' y='49.5' width='338' height='6' rx='3'/%3E%3Crect x='90' y='70.5' width='196' height='6' rx='3'/%3E%3Crect x='46' y='91.5' width='392' height='6' rx='3'/%3E%3Crect x='66' y='112.5' width='150' height='6' rx='3'/%3E%3C/g%3E%3C/svg%3E");
+  background-repeat: repeat-y;
+  background-position: 0 6px;
+}
+.dark .diff-skeleton {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1200' height='126'%3E%3Cg fill='%23ffffff' fill-opacity='0.10'%3E%3Crect x='14' y='7.5' width='15' height='6' rx='3'/%3E%3Crect x='14' y='28.5' width='15' height='6' rx='3'/%3E%3Crect x='14' y='49.5' width='15' height='6' rx='3'/%3E%3Crect x='14' y='70.5' width='15' height='6' rx='3'/%3E%3Crect x='14' y='91.5' width='15' height='6' rx='3'/%3E%3Crect x='14' y='112.5' width='15' height='6' rx='3'/%3E%3C/g%3E%3Cg fill='%23ffffff' fill-opacity='0.06'%3E%3Crect x='46' y='7.5' width='430' height='6' rx='3'/%3E%3Crect x='66' y='28.5' width='250' height='6' rx='3'/%3E%3Crect x='66' y='49.5' width='338' height='6' rx='3'/%3E%3Crect x='90' y='70.5' width='196' height='6' rx='3'/%3E%3Crect x='46' y='91.5' width='392' height='6' rx='3'/%3E%3Crect x='66' y='112.5' width='150' height='6' rx='3'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Built-but-maybe-off-screen diff body. content-visibility:auto lets the browser
+   skip its layout + paint while scrolled away — the perf win the old manual
+   windowing gave us — but the nodes stay mounted, so scrolling back is instant
+   (no rebuild, no re-skeleton). contain-intrinsic-size: auto seeds the off-screen
+   size from the per-file estimate (--cv-h), then remembers the real height after
+   the first render. Scoped to the diff BODY, not the whole section, so the sticky
+   file header is never inside a containment context. (#cv) */
+.diff-cv {
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--cv-h, 800px);
+}
+
 @layer base {
   body {
     font-family: var(--font-sans);

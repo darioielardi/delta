@@ -35,6 +35,8 @@ interface RowHandlers {
   onToggleDir: (path: string) => void;
   onSelectFile: (path: string) => void;
   onToggleViewed: (file: string) => void;
+  // Pointer rested on / left a file row — drives hover-prefetch of its diff.
+  onHoverFile: (path: string | null) => void;
 }
 
 function TreeRows({ nodes, h }: { nodes: TreeNode[]; h: RowHandlers }) {
@@ -59,6 +61,8 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
         data-path={node.path}
         className={`group flex h-[26px] select-none items-center gap-1.5 rounded-md ${h.flat ? "pl-2.5" : "pl-1"} pr-1.5 ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-65" : ""}`}
         onClick={() => (isDir ? h.onToggleDir(node.path) : h.onSelectFile(node.path))}
+        onMouseEnter={isDir ? undefined : () => h.onHoverFile(node.path)}
+        onMouseLeave={isDir ? undefined : () => h.onHoverFile(null)}
       >
         {isDir ? (
           <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
@@ -103,11 +107,13 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
 }
 
 export function FilesPanel({
-  files, selected, onSelect, viewedFiles, onToggleViewed,
+  files, selected, onSelect, onPrefetch, viewedFiles, onToggleViewed,
 }: {
   files: FileEntry[];
   selected: string | null;
   onSelect: (path: string) => void;
+  // Build a file's diff ahead of a click (pointer hover). Optional. (#perf)
+  onPrefetch?: (path: string) => void;
   viewedFiles: Set<string>;
   onToggleViewed: (file: string) => void;
 }) {
@@ -117,10 +123,13 @@ export function FilesPanel({
   const [query, setQuery] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Keep the active row in view, but never flush against the top/bottom edge:
   // leave ~one row of padding so a neighbor is always visible (unless the row is
-  // truly first/last, where the scroll clamps). (#r3)
+  // truly first/last, where the scroll clamps). Always smooth — whether the row
+  // changed via keyboard nav, a click, or scroll-spy following the diff — so the
+  // highlight glides to its new spot instead of teleporting. (#r3)
   useEffect(() => {
     if (!activePath) return;
     const container = scrollRef.current;
@@ -130,11 +139,17 @@ export function FilesPanel({
     const eRect = el.getBoundingClientRect();
     const rowTop = eRect.top - cRect.top + container.scrollTop;
     const pad = eRect.height + 6; // one neighbor row of breathing room
+    let top: number | null = null;
     if (rowTop - pad < container.scrollTop) {
-      container.scrollTop = Math.max(0, rowTop - pad);
+      top = Math.max(0, rowTop - pad);
     } else if (rowTop + eRect.height + pad > container.scrollTop + container.clientHeight) {
-      container.scrollTop = rowTop + eRect.height + pad - container.clientHeight;
+      top = rowTop + eRect.height + pad - container.clientHeight;
     }
+    if (top === null) return; // already comfortably in view — don't nudge
+    // Honor reduced-motion; otherwise glide. Repeated calls (e.g. held arrow key,
+    // continuous scroll-spy) retarget the in-flight animation smoothly.
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    container.scrollTo({ top, behavior: reduce ? "auto" : "smooth" });
   }, [activePath]);
 
   // Follow the diff viewport (scroll-spy): when the top file changes, select it
@@ -212,6 +227,12 @@ export function FilesPanel({
     setCollapsed((s) => { const n = new Set(s); if (n.has(path)) n.delete(path); else n.add(path); return n; });
   const toggleAll = () => setCollapsed(anyDirOpen ? new Set(treeDirPaths) : new Set());
   const selectFile = (path: string) => { setActivePath(path); onSelect(path); };
+  // Debounced hover-prefetch: only fire after the pointer rests ~110ms, so
+  // sweeping the mouse down the tree doesn't kick off a build per row. (#perf)
+  const onHoverFile = (path: string | null) => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    if (path && onPrefetch) hoverTimer.current = setTimeout(() => onPrefetch(path), 110);
+  };
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (!visible.length) return;
@@ -271,6 +292,7 @@ export function FilesPanel({
     onToggleDir: toggleDir,
     onSelectFile: selectFile,
     onToggleViewed,
+    onHoverFile,
   };
 
   return (
