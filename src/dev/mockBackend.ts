@@ -327,6 +327,9 @@ export function installMockBackend(): void {
         return undefined as T;
       case "install_cli":
         return { kind: "linked", path: "/usr/local/bin/delta" } as T;
+      case "open_in_editor":
+        console.info("[delta mock] open_in_editor", args);
+        return undefined as T;
       default:
         throw new Error(`mockBackend: unhandled command "${cmd}"`);
     }

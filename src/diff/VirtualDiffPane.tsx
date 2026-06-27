@@ -16,19 +16,27 @@
 //
 // Supports unified + split, line/range/file comments, word-level intra-line diff,
 // jump-to-comment, and the viewed toggle.
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
-import { Check, ChevronDown, ChevronRight, ChevronUp, Eye, FileQuestion, FileX, MessageSquarePlus, Plus } from "lucide-react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { Check, ChevronDown, ChevronRight, ChevronUp, ExternalLink, Eye, FileQuestion, FileX, MessageSquarePlus, Plus } from "lucide-react";
 import { getSyntaxLineTemplate } from "@git-diff-view/file";
 import { SplitSide } from "@git-diff-view/react";
 import { Button } from "@/components/ui/button";
+import { api } from "../api";
+import { getEditorPref } from "../editor";
 import { toDiffFile } from "./toDiffFile";
 import { CommentThread } from "../review/CommentThread";
+import { DiffFind } from "./DiffFind";
 import type { Anchor, Comment, FileDiff, FileEntry, Side, Target } from "../types";
 import type { DiffLayout } from "./useDiffLayout";
 import { useFileDiffCache } from "./useFileDiffCache";
 
 const ROW_H = 22;
 const HEADER_H = 37; // sticky file header (border-box)
+const SCROLLBAR_H = 10; // horizontal scrollbar height (matches *::-webkit-scrollbar) — reserved at a wide file's body bottom so it never overlaps the last line (#hscroll)
+const CH_PX = 7.85; // ≈ width of one mono char at 13px (SF Mono/Menlo) — only used to decide whether a file overflows the pane (so we reserve scrollbar space); layout itself uses exact `ch` units (#hscroll)
+// Left-accent colors for changed lines, mirroring the comment-range accent. (#border)
+const ADD_ACCENT = "var(--color-emerald-500)";
+const DEL_ACCENT = "var(--color-rose-500)";
 const OVERSCAN = 1500; // px of rows to render/build beyond the viewport each way
 const GIANT_CHANGED_LINES = 500;
 const EST_BLOCK_H = 96; // placeholder height for a comment thread before it measures
@@ -82,15 +90,37 @@ function syntaxHtml(model: Model, side: Side, lineNumber: number, raw?: string):
 const changeRangeOf = (diff: { changes?: unknown } | undefined): ChangeRange =>
   (diff?.changes as { range?: ChangeRange } | undefined)?.range;
 
+// In-code find (#find). A highlight mark over matched characters; RowMark adds
+// the split side so a row's two cells can each render only their own matches.
+type Mark = { col: number; len: number; active: boolean };
+type RowMark = Mark & { side: Side };
+// A match reported up to the pane: model row + side + char offset, plus the
+// body-relative y of its row (rough scroll target before exact centering).
+interface FindMatch { file: string; modelIndex: number; side: Side; col: number; len: number; y: number }
+
+// Case-insensitive, non-overlapping occurrences of `q` in `text`.
+function findOccurrences(text: string, q: string): { col: number; len: number }[] {
+  if (!q) return [];
+  const hay = text.toLowerCase(), needle = q.toLowerCase();
+  const out: { col: number; len: number }[] = [];
+  for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + needle.length)) out.push({ col: i, len: q.length });
+  return out;
+}
+
 // The code area: highlighted line + a brighter tint over exactly the changed
 // characters (word-level diff). Monospace ⇒ char N is at N`ch`, so the overlay
 // lines up without splitting tokens.
-function Code({ html, range, changeBg }: { html: string; range: ChangeRange; changeBg: string }) {
+function Code({ html, range, changeBg, marks }: { html: string; range: ChangeRange; changeBg: string; marks?: Mark[] }) {
   return (
-    <code className="diff-line-syntax-raw relative flex-1 overflow-hidden whitespace-pre pr-3">
+    <code className="diff-line-syntax-raw relative flex-1 whitespace-pre pr-3">
       {range && range.length > 0 && (
         <span aria-hidden className={`pointer-events-none absolute inset-y-[2.5px] rounded ${changeBg}`} style={{ left: `${range.location}ch`, width: `${range.length}ch` }} />
       )}
+      {/* Find highlights sit behind the text (which is `relative` below). The
+          active match gets a stronger fill + ring. (#find) */}
+      {marks?.map((m, k) => (
+        <span key={k} aria-hidden className={`pointer-events-none absolute inset-y-px rounded-[2px] ${m.active ? "bg-amber-400/80 ring-1 ring-amber-500" : "bg-amber-400/30"}`} style={{ left: `${m.col}ch`, width: `${m.len}ch` }} />
+      ))}
       <span className="relative whitespace-pre" dangerouslySetInnerHTML={{ __html: html }} />
     </code>
   );
@@ -100,7 +130,7 @@ const gutterCls = "w-12 shrink-0 select-none border-r border-border/40 px-1 text
 const addBtnCls = "absolute z-10 hidden size-5 -translate-y-1/2 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm group-hover:flex hover:brightness-110";
 
 // Unified row: old# · new# · marker · code, hover `+` to comment, gutters drag-select.
-function Row({ model, index, top, selected, highlighted, onComment }: { model: Model; index: number; top: number; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void }) {
+function Row({ model, index, top, selected, highlighted, onComment, marks }: { model: Model; index: number; top: number; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
   const line = model.getUnifiedLine(index);
   const hasOld = line.oldLineNumber != null, hasNew = line.newLineNumber != null;
   const kind = hasOld && hasNew ? "ctx" : hasNew ? "add" : hasOld ? "del" : "hunk";
@@ -110,8 +140,11 @@ function Row({ model, index, top, selected, highlighted, onComment }: { model: M
   const range = kind === "add" || kind === "del" ? changeRangeOf(line.diff) : undefined;
   const marker = kind === "add" ? "+" : kind === "del" ? "−" : "";
   const markerColor = kind === "add" ? "text-emerald-500" : kind === "del" ? "text-rose-500" : "text-transparent";
+  // Left accent: a commented range wins (primary), else changed lines get a
+  // green/red edge mirroring the comment accent. (#border)
+  const accent = highlighted ? "var(--primary)" : kind === "add" ? ADD_ACCENT : kind === "del" ? DEL_ACCENT : undefined;
   return (
-    <div data-row-index={index} className={`group absolute inset-x-0 flex items-stretch font-mono text-[13px] leading-[22px] ${bg} ${highlighted && kind === "ctx" ? "bg-primary/[0.06]" : ""} ${selected ? "!bg-primary/20" : ""}`} style={{ top, height: ROW_H, boxShadow: highlighted ? "inset 3px 0 0 var(--primary)" : undefined }}>
+    <div data-row-index={index} className={`group absolute left-0 flex items-stretch font-mono text-[13px] leading-[22px] ${bg} ${highlighted && kind === "ctx" ? "bg-primary/[0.06]" : ""} ${selected ? "!bg-primary/20" : ""}`} style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%", boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
       {kind !== "hunk" && (
         <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 ${addBtnCls}`}>
           <Plus className="size-3.5" strokeWidth={2.5} />
@@ -120,41 +153,41 @@ function Row({ model, index, top, selected, highlighted, onComment }: { model: M
       <span data-gutter="old" className={gutterCls}>{hasOld ? line.oldLineNumber : ""}</span>
       <span data-gutter="new" className={gutterCls}>{hasNew ? line.newLineNumber : ""}</span>
       <span className={`w-4 shrink-0 select-none text-center ${markerColor}`}>{marker}</span>
-      <Code html={html} range={kind === "hunk" ? undefined : range} changeBg={kind === "add" ? "bg-emerald-400/25" : "bg-rose-400/25"} />
+      <Code html={html} range={kind === "hunk" ? undefined : range} changeBg={kind === "add" ? "bg-emerald-400/25" : "bg-rose-400/25"} marks={marks} />
     </div>
   );
 }
 
 // One side of a split row.
-function SplitCell({ model, side, line, changed, selected, onComment, className }: { model: Model; side: Side; line: import("@git-diff-view/file").SplitLineItem; changed: boolean; selected: boolean; onComment: (side: Side, line: number) => void; className: string }) {
+function SplitCell({ model, side, line, changed, selected, onComment, className, marks }: { model: Model; side: Side; line: import("@git-diff-view/file").SplitLineItem; changed: boolean; selected: boolean; onComment: (side: Side, line: number) => void; className: string; marks?: RowMark[] }) {
   const has = line.lineNumber != null;
   const ln = line.lineNumber!;
   const html = has ? syntaxHtml(model, side, ln, line.value) : "";
   const baseBg = changed ? (side === "old" ? "bg-rose-500/15" : "bg-emerald-500/15") : "";
   const range = changed ? changeRangeOf(line.diff) : undefined;
   return (
-    <div className={`relative flex items-stretch ${selected ? "!bg-primary/15" : baseBg} ${className}`}>
+    <div className={`relative flex items-stretch ${selected ? "!bg-primary/15" : baseBg} ${className}`} style={changed ? { boxShadow: `inset 3px 0 0 ${side === "old" ? DEL_ACCENT : ADD_ACCENT}` } : undefined}>
       {has && (
         <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-[3rem] top-1/2 ${addBtnCls}`}>
           <Plus className="size-3.5" strokeWidth={2.5} />
         </button>
       )}
       <span data-gutter={side} className={gutterCls}>{has ? ln : ""}</span>
-      {has ? <Code html={html} range={range} changeBg={side === "old" ? "bg-rose-400/25" : "bg-emerald-400/25"} /> : <span className="flex-1" />}
+      {has ? <Code html={html} range={range} changeBg={side === "old" ? "bg-rose-400/25" : "bg-emerald-400/25"} marks={marks} /> : <span className="flex-1" />}
     </div>
   );
 }
 
 // Split row: old | new, each a cell.
-function SplitRow({ model, index, top, selected, highlighted, onComment }: { model: Model; index: number; top: number; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void }) {
+function SplitRow({ model, index, top, selected, highlighted, onComment, marks }: { model: Model; index: number; top: number; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
   const left = model.getSplitLeftLine(index), right = model.getSplitRightLine(index);
   const leftHas = left.lineNumber != null, rightHas = right.lineNumber != null;
   const leftChanged = leftHas && (!rightHas || !!changeRangeOf(left.diff));
   const rightChanged = rightHas && (!leftHas || !!changeRangeOf(right.diff));
   return (
-    <div data-row-index={index} className={`group absolute inset-x-0 flex items-stretch font-mono text-[13px] leading-[22px] ${highlighted ? "bg-primary/[0.06]" : ""}`} style={{ top, height: ROW_H, boxShadow: highlighted ? "inset 3px 0 0 var(--primary)" : undefined }}>
-      <SplitCell model={model} side="old" line={left} changed={leftChanged} selected={selected} onComment={onComment} className="w-1/2 min-w-0 border-r border-border/60" />
-      <SplitCell model={model} side="new" line={right} changed={rightChanged} selected={selected} onComment={onComment} className="w-1/2 min-w-0" />
+    <div data-row-index={index} className={`group absolute left-0 flex items-stretch font-mono text-[13px] leading-[22px] ${highlighted ? "bg-primary/[0.06]" : ""}`} style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%", boxShadow: highlighted ? "inset 3px 0 0 var(--primary)" : undefined }}>
+      <SplitCell model={model} side="old" line={left} changed={leftChanged} selected={selected} onComment={onComment} className="w-1/2 min-w-0 border-r border-border/60" marks={marks?.filter((m) => m.side === "old")} />
+      <SplitCell model={model} side="new" line={right} changed={rightChanged} selected={selected} onComment={onComment} className="w-1/2 min-w-0" marks={marks?.filter((m) => m.side === "new")} />
     </div>
   );
 }
@@ -216,14 +249,20 @@ function CommentBlock({ id, top, comments, onEdit, onDelete, onHeight }: { id: s
 interface Block { id: string; index: number; comments: Comment[] }
 
 const VFileSection = memo(function VFileSection({
-  entry, theme, layout, cache, collapsed, viewed, onToggleCollapse, onToggleViewed, view, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, reportBodyHeight, registerRef,
+  entry, theme, layout, cache, collapsed, viewed, repoPath, onToggleCollapse, onToggleViewed, view, paneW, query, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, reportBodyHeight, registerRef,
 }: {
   entry: FileEntry; theme: "light" | "dark"; layout: DiffLayout;
   cache: ReturnType<typeof useFileDiffCache>;
   collapsed: boolean; viewed: boolean;
+  repoPath: string; // absolute repo/worktree root — joined with entry.path to open in an editor (#editor)
   onToggleCollapse: (path: string) => void;
   onToggleViewed: (path: string) => void;
   view: [number, number] | null; // body-relative visible window [top, bottom] px, or null off-screen
+  paneW: number; // diff pane client width — decides if a file overflows → horizontal scroll (#hscroll)
+  query: string; // in-code find query ("" when find is closed) (#find)
+  activeMatch: { modelIndex: number; side: Side; col: number } | null; // the active match, if it lives in THIS file
+  onMatches: (path: string, matches: FindMatch[]) => void; // report this file's matches up for the global list
+  forceModel: boolean; // find active → build the model even off-screen/collapsed so this file is searchable (#find)
   comments: Comment[];
   onAddComment: (a: Anchor, body: string) => void;
   onAddFileComment: (file: string, body: string) => void;
@@ -244,10 +283,30 @@ const VFileSection = memo(function VFileSection({
   const [revealed, setRevealed] = useState(false);
   const showPlaceholder = !collapsed && (isBinary || (isDeleted && !revealed));
 
-  const wantModel = view != null && !collapsed && !isBinary && (!isDeleted || revealed);
+  // Build the model when on-screen, or whenever find is active (forceModel) so
+  // every searchable file contributes matches even while off-screen/collapsed.
+  const wantModel = !isBinary && (!isDeleted || revealed) && (forceModel || (view != null && !collapsed));
   const fd = useFileDiffCacheEntry(cache, entry.path, wantModel);
   const model = useMemo(() => (fd && wantModel ? buildModel(fd, theme, layout) : null), [fd, theme, layout, wantModel]);
   const rowCount = model ? rowCountOf(model, layout) : 0;
+
+  // Horizontal scroll (#hscroll): rows are widened to the file's longest line so
+  // long code can scroll instead of clipping. Width is exact `ch` (mono) + fixed
+  // gutter px; min-width:100% on the rows keeps narrow files full-bleed. Only
+  // files genuinely wider than the pane scroll — and only those reserve space at
+  // their body bottom for the horizontal scrollbar so it never hides the last line.
+  const maxCols = useMemo(() => {
+    if (!fd) return 0;
+    let m = 0;
+    for (const c of [fd.oldContent, fd.newContent]) {
+      if (!c) continue;
+      for (const ln of c.split("\n")) if (ln.length > m) m = ln.length;
+    }
+    return m;
+  }, [fd]);
+  const rowWidthCss = layout === "split" ? `calc(120px + ${2 * maxCols}ch)` : `calc(124px + ${maxCols}ch)`;
+  const rowPx = (layout === "split" ? 120 : 124) + maxCols * CH_PX * (layout === "split" ? 2 : 1);
+  const wide = paneW > 0 && rowPx > paneW - 2 * PAD - 2; // card is inset by PAD each side, minus its 1px borders
 
   // Comment blocks: file-scope → index -1 (top); line/range → the row they anchor.
   const blocks = useMemo<Block[]>(() => {
@@ -259,11 +318,14 @@ const VFileSection = memo(function VFileSection({
     for (const c of comments) {
       const a = c.anchor;
       if (!a || a.startLine == null || c.scope === "file") continue;
-      const key = `${a.side}:${a.startLine}`;
+      // Anchor multi-line (range) comments to the LAST selected line, not the
+      // first, so the thread sits under the end of the span. (#anchor)
+      const anchorLine = a.endLine ?? a.startLine;
+      const key = `${a.side}:${anchorLine}`;
       let b = byKey.get(key);
       if (!b) {
         const ss = a.side === "old" ? SplitSide.old : SplitSide.new;
-        const idx = layout === "split" ? model.getSplitLineIndexByLineNumber(a.startLine, ss) : model.getUnifiedLineIndexByLineNumber(a.startLine, ss);
+        const idx = layout === "split" ? model.getSplitLineIndexByLineNumber(anchorLine, ss) : model.getUnifiedLineIndexByLineNumber(anchorLine, ss);
         if (idx == null || idx < 0) continue;
         b = { id: key, index: idx, comments: [] };
         byKey.set(key, b);
@@ -354,6 +416,52 @@ const VFileSection = memo(function VFileSection({
   }, [model, layout, rowCount, commentedRows, rangeRows, expansions]);
   const visualCount = visualRows.length;
 
+  // In-code find (#find): scan SHOWN lines for the query. Matches map to model
+  // rows (folded/hidden lines are skipped). `fileMatches` feeds the global list;
+  // `marksByRow` drives the per-row highlight overlays. y is the row's body-top
+  // (rows × ROW_H — a rough scroll target; exact centering is done via the DOM).
+  const q = query.trim();
+  const { fileMatches, marksByRow } = useMemo(() => {
+    const fm: FindMatch[] = [];
+    const mbr = new Map<number, RowMark[]>();
+    if (!model || !q) return { fileMatches: fm, marksByRow: mbr };
+    const add = (i: number, side: Side, text: string) => {
+      const occ = findOccurrences(text, q);
+      if (!occ.length) return;
+      const vr = modelToVisual.get(i);
+      if (vr == null) return; // line folded away — not visible, skip
+      const y = vr * ROW_H;
+      let arr = mbr.get(i);
+      if (!arr) mbr.set(i, (arr = []));
+      for (const o of occ) {
+        fm.push({ file: entry.path, modelIndex: i, side, col: o.col, len: o.len, y });
+        arr.push({ side, col: o.col, len: o.len, active: false });
+      }
+    };
+    if (layout === "split") {
+      for (let i = 0; i < rowCount; i++) {
+        const l = model.getSplitLeftLine(i), r = model.getSplitRightLine(i);
+        if (l.lineNumber != null && l.value) add(i, "old", l.value);
+        if (r.lineNumber != null && r.value) add(i, "new", r.value);
+      }
+    } else {
+      for (let i = 0; i < rowCount; i++) {
+        const l = model.getUnifiedLine(i);
+        if (l.value == null) continue;
+        const hasNew = l.newLineNumber != null, hasOld = l.oldLineNumber != null;
+        if (hasNew || hasOld) add(i, hasNew ? "new" : "old", l.value);
+      }
+    }
+    return { fileMatches: fm, marksByRow: mbr };
+  }, [model, q, layout, rowCount, modelToVisual, entry.path]);
+  useEffect(() => { onMatches(entry.path, fileMatches); }, [entry.path, fileMatches, onMatches]);
+  // The active match's row gets its matching mark flagged active (cheap, at render).
+  const rowMarks = (mi: number): RowMark[] | undefined => {
+    const arr = marksByRow.get(mi);
+    if (!arr || !activeMatch || activeMatch.modelIndex !== mi) return arr;
+    return arr.map((m) => ({ ...m, active: m.side === activeMatch.side && m.col === activeMatch.col }));
+  };
+
   const [blockH, setBlockH] = useState<Record<string, number>>({});
   const onHeight = useCallback((id: string, h: number) => {
     setBlockH((prev) => (Math.abs((prev[id] ?? -1) - h) < 1 ? prev : { ...prev, [id]: h }));
@@ -366,7 +474,7 @@ const VFileSection = memo(function VFileSection({
   const commentAbove = (v: number) => { let s = 0; for (const b of blocks) { if (blockVa(b) < v) s += heightOf(b); else break; } return s; };
   const visualRowTop = (v: number) => v * ROW_H + commentAbove(v);
   const totalCommentH = blocks.reduce((s, b) => s + heightOf(b), 0);
-  const bodyH = collapsed ? 0 : showPlaceholder ? PLACEHOLDER_BODY_H : visualCount * ROW_H + totalCommentH;
+  const bodyH = collapsed ? 0 : showPlaceholder ? PLACEHOLDER_BODY_H : visualCount * ROW_H + totalCommentH + (wide ? SCROLLBAR_H : 0);
   // Report a definite height once it's known — model built, or a fixed-height
   // placeholder shown — so the parent's offsets are exact. (#10/#11)
   useEffect(() => { if (model || showPlaceholder) reportBodyHeight(entry.path, bodyH); }, [model, showPlaceholder, isBinary, entry.path, bodyH, reportBodyHeight]);
@@ -431,7 +539,7 @@ const VFileSection = memo(function VFileSection({
   }
 
   return (
-    <div ref={ref} data-file={entry.path} className="rounded-lg border border-border bg-code">
+    <div ref={ref} data-file={entry.path} className="rounded-lg border border-border bg-code shadow-sm dark:shadow-none">
       <div className={`group/h sticky top-0 z-20 flex items-center gap-2 bg-code px-3 ${collapsed ? "rounded-lg" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H }}>
         {/* Full-box collapse target. The label/counts above it are
             pointer-events-none, so hovering anywhere in the header (padding +
@@ -459,6 +567,16 @@ const VFileSection = memo(function VFileSection({
         <Button
           size="sm"
           variant="ghost"
+          onClick={() => { void api.openInEditor(getEditorPref(), repoPath, entry.path).catch((e) => console.error("open in editor:", e)); }}
+          aria-label={`open ${entry.path} in editor`}
+          title="Open in editor"
+          className="relative h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
+        >
+          <ExternalLink className="size-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
           onClick={() => onAddFileComment(entry.path, "")}
           aria-label={`comment on ${entry.path}`}
           title="Comment on file"
@@ -482,7 +600,11 @@ const VFileSection = memo(function VFileSection({
         </Button>
       </div>
       {!collapsed && (
-        <div className="relative overflow-hidden rounded-b-lg" style={{ height: bodyH }} onPointerDown={onGutterPointerDown}>
+        <div
+          className={`relative rounded-b-lg ${wide ? "overflow-x-auto overflow-y-hidden" : "overflow-hidden"}`}
+          style={{ height: bodyH, overscrollBehaviorY: wide ? "auto" : undefined, "--rw": rowWidthCss } as CSSProperties}
+          onPointerDown={onGutterPointerDown}
+        >
           {isBinary ? (
             <div className="flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
               <FileQuestion className="size-4 shrink-0 opacity-70" />
@@ -511,8 +633,8 @@ const VFileSection = memo(function VFileSection({
                 }
                 const hl = rangeRows.has(vr.index);
                 return layout === "split"
-                  ? <SplitRow key={vr.index} model={model} index={vr.index} top={top} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} />
-                  : <Row key={vr.index} model={model} index={vr.index} top={top} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} />;
+                  ? <SplitRow key={vr.index} model={model} index={vr.index} top={top} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} marks={rowMarks(vr.index)} />
+                  : <Row key={vr.index} model={model} index={vr.index} top={top} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} marks={rowMarks(vr.index)} />;
               })}
               {model && blocks.map((b) => (
                 <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + ROW_H} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onHeight={onHeight} />
@@ -571,6 +693,44 @@ export function VirtualDiffPane({
 
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(0);
+  const [viewportW, setViewportW] = useState(0); // pane width → per-file horizontal-overflow test (#hscroll)
+
+  // In-code find (#find): ⌘F opens a floating box; matches are reported up from
+  // each file section into matchesByFile, flattened in file order for next/prev.
+  const [findOpen, setFindOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIdx, setActiveIdx] = useState(0);
+  const findInputRef = useRef<HTMLInputElement>(null);
+  const findScrollTimer = useRef(0);
+  const [matchesByFile, setMatchesByFile] = useState<Map<string, FindMatch[]>>(() => new Map());
+  const findActive = findOpen && query.trim().length > 0;
+  const onMatches = useCallback((path: string, m: FindMatch[]) => {
+    setMatchesByFile((prev) => {
+      const had = prev.has(path);
+      if (m.length === 0) {
+        if (!had) return prev;
+        const next = new Map(prev); next.delete(path); return next;
+      }
+      const next = new Map(prev); next.set(path, m); return next;
+    });
+  }, []);
+  // ⌘F opens find (⌘⇧F is the file filter, handled in FilesPanel). Esc closes.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.key === "f" || e.key === "F") && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+        e.preventDefault();
+        setFindOpen(true);
+        requestAnimationFrame(() => { findInputRef.current?.focus(); findInputRef.current?.select(); });
+      } else if (e.key === "Escape" && findOpen) {
+        setFindOpen(false); setQuery("");
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [findOpen]);
+  const closeFind = useCallback(() => { setFindOpen(false); setQuery(""); }, []);
+  // Reset to the first match whenever the query changes.
+  useEffect(() => { setActiveIdx(0); }, [query]);
   // Measured per-file body heights (comment threads are variable-height, so a
   // file's body isn't pure arithmetic). Kept in state, not a ref: offsets derive
   // from it during render, and reading a ref in render is unsafe under React
@@ -622,14 +782,60 @@ export function VirtualDiffPane({
     return { offsets: offs, total: top - GAP + PAD }; // trailing gap → bottom padding
   }, [files, collapsedFor, bodyHeights]);
 
+  // Flatten matches in file (tree) order → global next/prev list. (#find)
+  const allMatches = useMemo(() => {
+    const out: FindMatch[] = [];
+    for (const f of files) { const m = matchesByFile.get(f.path); if (m) out.push(...m); }
+    return out;
+  }, [files, matchesByFile]);
+  const matchCount = allMatches.length;
+  const activeMatch = matchCount > 0 ? allMatches[Math.min(activeIdx, matchCount - 1)] : null;
+  const [navNonce, setNavNonce] = useState(0);
+  const stepMatch = useCallback((dir: 1 | -1) => {
+    setActiveIdx((i) => (matchCount === 0 ? 0 : (i + dir + matchCount) % matchCount));
+    setNavNonce((n) => n + 1);
+  }, [matchCount]);
+  // Auto-scroll to the first match once results land for a query — but only once
+  // per query, so matches streaming in as off-screen models build don't re-jump.
+  const autoScrolledFor = useRef<string>("");
+  useEffect(() => {
+    if (!findActive) { autoScrolledFor.current = ""; return; }
+    if (matchCount === 0 || autoScrolledFor.current === query) return;
+    autoScrolledFor.current = query;
+    setNavNonce((n) => n + 1);
+  }, [findActive, matchCount, query]);
+  // Bring the active match into view: expand its file, rough-scroll by its body
+  // offset, then exact-center the row once it mounts (retry, like comment jump).
+  useEffect(() => {
+    if (!navNonce) return;
+    const m = activeMatch;
+    const pane = paneRef.current;
+    if (!m || !pane) return;
+    const i = files.findIndex((f) => f.path === m.file);
+    if (i < 0) return;
+    setOverrides((o) => (o[m.file] === false ? o : { ...o, [m.file]: false }));
+    const rough = offsets[i] + HEADER_H + m.y - pane.clientHeight / 2;
+    pane.scrollTop = Math.max(0, Math.min(rough, pane.scrollHeight - pane.clientHeight));
+    let tries = 0;
+    const center = () => {
+      const row = pane.querySelector(`[data-file="${CSS.escape(m.file)}"] [data-row-index="${m.modelIndex}"]`) as HTMLElement | null;
+      if (row) { row.scrollIntoView({ block: "center" }); return; }
+      if (tries++ < 20) findScrollTimer.current = window.setTimeout(center, 30);
+    };
+    findScrollTimer.current = window.setTimeout(center, 0);
+    return () => clearTimeout(findScrollTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [navNonce]);
+
   useEffect(() => {
     const pane = paneRef.current;
     if (!pane) return;
     setViewportH(pane.clientHeight);
+    setViewportW(pane.clientWidth);
     let raf = 0;
     const onScroll = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; setScrollTop(pane.scrollTop); }); };
     pane.addEventListener("scroll", onScroll, { passive: true });
-    const ro = new ResizeObserver(() => setViewportH(pane.clientHeight));
+    const ro = new ResizeObserver(() => { setViewportH(pane.clientHeight); setViewportW(pane.clientWidth); });
     ro.observe(pane);
     return () => { pane.removeEventListener("scroll", onScroll); ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
   }, []);
@@ -720,7 +926,20 @@ export function VirtualDiffPane({
   const top0 = scrollTop - OVERSCAN, bot0 = scrollTop + viewportH + OVERSCAN;
 
   return (
-    <div ref={paneRef} className="h-full overflow-auto" data-testid="diff-pane">
+    <div className="relative h-full">
+      {findOpen && (
+        <DiffFind
+          query={query}
+          onQueryChange={setQuery}
+          count={matchCount}
+          activeIndex={matchCount > 0 ? Math.min(activeIdx, matchCount - 1) : -1}
+          onPrev={() => stepMatch(-1)}
+          onNext={() => stepMatch(1)}
+          onClose={closeFind}
+          inputRef={findInputRef}
+        />
+      )}
+      <div ref={paneRef} className="h-full overflow-auto" data-testid="diff-pane">
       {/* diff-tailwindcss-wrapper + data-theme scope @git-diff-view's hljs token
           colors onto our rows; the gdv layer sits below `utilities`, so our layout wins. */}
       <div className="diff-tailwindcss-wrapper" data-theme={theme} style={{ position: "relative", height: total }}>
@@ -735,15 +954,21 @@ export function VirtualDiffPane({
               <VFileSection
                 entry={entry} theme={theme} layout={layout} cache={cache}
                 collapsed={collapsed} viewed={viewedFiles.has(entry.path)}
+                repoPath={target.repoPath}
                 onToggleCollapse={toggleCollapse} onToggleViewed={onToggleViewed}
-                view={view}
-                comments={view ? (commentsByFile.get(entry.path) ?? noComments) : noComments}
+                view={view} paneW={viewportW}
+                query={findActive ? query : ""}
+                activeMatch={activeMatch && activeMatch.file === entry.path ? { modelIndex: activeMatch.modelIndex, side: activeMatch.side, col: activeMatch.col } : null}
+                onMatches={onMatches}
+                forceModel={findActive}
+                comments={view || findActive ? (commentsByFile.get(entry.path) ?? noComments) : noComments}
                 onAddComment={onAddComment} onAddFileComment={onAddFileComment} onEditComment={onEditComment} onDeleteComment={onDeleteComment}
                 reportBodyHeight={reportBodyHeight} registerRef={registerRef}
               />
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Monitor, Moon, Sun, X } from "lucide-react";
 import { useThemePref, type ThemePref } from "../theme";
+import { useEditorPref, EDITORS, type EditorId } from "../editor";
 
 // Mocked options for now — the controls render and feel real, but only Theme is
 // wired up. Font family/size are placeholders we'll define behavior for later.
@@ -43,6 +44,7 @@ const selectClass =
 // it. Escape and click-outside close; the card grabs focus so Escape works.
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [theme, setTheme] = useThemePref();
+  const [editor, setEditor] = useEditorPref();
   // Mocked, local-only until we decide what these should do.
   const [fontFamily, setFontFamily] = useState(FONT_FAMILIES[0].value);
   const [fontSize, setFontSize] = useState(13);
@@ -126,6 +128,28 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                   </ToggleGroupItem>
                 ))}
               </ToggleGroup>
+            }
+          />
+
+          <div className="h-px bg-border/50" />
+
+          <Row
+            label="External editor"
+            hint="Used by the “open in editor” buttons."
+            control={
+              <div className="relative">
+                <select
+                  aria-label="External editor"
+                  value={editor}
+                  onChange={(e) => setEditor(e.target.value as EditorId)}
+                  className={selectClass}
+                >
+                  {EDITORS.map((ed) => (
+                    <option key={ed.id} value={ed.id}>{ed.label}</option>
+                  ))}
+                </select>
+                <Chevron />
+              </div>
             }
           />
 

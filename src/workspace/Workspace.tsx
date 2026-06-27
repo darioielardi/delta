@@ -11,7 +11,8 @@ import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
-import { ArrowRight, Check, ChevronDown, CircleAlert, Columns2, Copy, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
+import { getEditorPref } from "../editor";
 import type { Anchor, Comment, DiffMode, DiffSummary, Review, ReviewSession, Target } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
@@ -369,6 +370,15 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
         {/* Settings sits last on the right; the spacer keeps it edge-aligned even
             before the summary (and its toolbar) has loaded. (#5) */}
         {!summary && <div className="ml-auto" />}
+        <button
+          type="button"
+          onClick={() => { void api.openInEditor(getEditorPref(), target.repoPath).catch((e) => setError(String(e))); }}
+          title="Open repository in editor"
+          aria-label="Open repository in editor"
+          className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring dark:bg-transparent dark:hover:bg-input/30"
+        >
+          <ExternalLink className="size-4" />
+        </button>
         <button
           type="button"
           onClick={onOpenSettings}

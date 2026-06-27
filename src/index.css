@@ -69,8 +69,10 @@
 
 :root {
     /* A soft neutral gray base so the white header + file-diff cards read as
-       floating surfaces above it. `card` stays pure white. */
-    --background: oklch(0.975 0 0);
+       floating surfaces above it. `card` stays pure white. Kept a touch darker
+       than the cards so the white code wells visibly separate from the canvas —
+       at 0.975 they nearly matched and the diff pane read as flat/dimmed. (#7) */
+    --background: oklch(0.955 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.145 0 0);
@@ -118,8 +120,10 @@
     --card-foreground: oklch(0.985 0 0);
     /* Inverted from light: the code well is the DARKEST surface — sunk below the
        canvas/cards, like an editor pane — so syntax stays vivid (not dimmed by a
-       mid-gray base) and the surrounding chrome reads as lifted above it. */
-    --code: oklch(0.165 0 0);
+       mid-gray base) and the surrounding chrome reads as lifted above it. Kept
+       just under the canvas (0.208) so it still reads as a sunken well without
+       being a near-black pit. (#6) */
+    --code: oklch(0.188 0 0);
     --popover: oklch(0.225 0 0);
     --popover-foreground: oklch(0.985 0 0);
     --primary: oklch(0.62 0.19 256);

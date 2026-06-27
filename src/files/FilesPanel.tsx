@@ -175,10 +175,12 @@ export function FilesPanel({
     if (selected) setActivePath(selected);
   }, [selected]);
 
-  // ⌘F focuses the file search (Escape on the input clears, then blurs). (#3)
+  // ⌘⇧F focuses the file search (Escape on the input clears, then blurs). Plain
+  // ⌘F is the in-code find (handled by the diff pane), so the file filter moved
+  // to ⌘⇧F. (#find)
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if ((e.key === "f" || e.key === "F") && (e.metaKey || e.ctrlKey)) {
+      if ((e.key === "f" || e.key === "F") && (e.metaKey || e.ctrlKey) && e.shiftKey) {
         e.preventDefault();
         searchRef.current?.focus();
         searchRef.current?.select();
@@ -379,7 +381,7 @@ export function FilesPanel({
             <X className="size-3" strokeWidth={2.5} />
           </button>
         ) : (
-          <kbd className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 rounded border border-border/70 bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">⌘F</kbd>
+          <kbd className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 rounded border border-border/70 bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">⌘⇧F</kbd>
         )}
       </div>
 

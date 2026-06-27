@@ -44,7 +44,8 @@ pub fn run() {
             commands::list_worktrees,
             commands::import_repo,
             commands::delete_review,
-            commands::install_cli
+            commands::install_cli,
+            commands::open_in_editor
         ])
         .setup(|app| {
             let args: Vec<String> = std::env::args().skip(1).collect();

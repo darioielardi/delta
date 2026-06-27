@@ -250,6 +250,61 @@ pub fn install_cli() -> Result<InstallOutcome, String> {
     launch_install_cli()
 }
 
+// "Open in your editor" (#editor). Each curated editor maps to a CLI; where the
+// CLI supports it, `line` jumps to that line. Pure so it's unit-testable.
+fn editor_invocation(editor: &str, path: &str, line: Option<u32>) -> Result<(&'static str, Vec<String>), String> {
+    let prog = match editor {
+        "vscode" => "code",
+        "cursor" => "cursor",
+        "zed" => "zed",
+        "sublime" => "subl",
+        "intellij" => "idea",
+        other => return Err(format!("Unknown editor: {other}")),
+    };
+    let args: Vec<String> = match (editor, line) {
+        // VS Code / Cursor: `-g <path>:<line>` opens and goes to the line.
+        ("vscode", Some(l)) | ("cursor", Some(l)) => vec!["-g".into(), format!("{path}:{l}")],
+        // Zed / Sublime accept `<path>:<line>` directly.
+        ("zed", Some(l)) | ("sublime", Some(l)) => vec![format!("{path}:{l}")],
+        ("intellij", Some(l)) => vec!["--line".into(), l.to_string(), path.into()],
+        _ => vec![path.into()],
+    };
+    Ok((prog, args))
+}
+
+/// Resolve an editor CLI to an absolute path. A GUI-launched macOS app inherits a
+/// minimal PATH, so search the usual install dirs on top of $PATH.
+fn resolve_program(prog: &str) -> Option<PathBuf> {
+    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    dirs.push(PathBuf::from("/usr/local/bin"));
+    dirs.push(PathBuf::from("/opt/homebrew/bin"));
+    if let Ok(home) = std::env::var("HOME") {
+        dirs.push(PathBuf::from(&home).join(".local/bin"));
+        dirs.push(PathBuf::from(&home).join("bin"));
+    }
+    dirs.into_iter().map(|d| d.join(prog)).find(|c| c.is_file())
+}
+
+#[tauri::command]
+pub fn open_in_editor(editor: String, repo_path: String, file: Option<String>, line: Option<u32>) -> Result<(), String> {
+    // file omitted → open the repo/worktree root; otherwise join it onto the root.
+    let target = match file {
+        Some(f) => PathBuf::from(&repo_path).join(f),
+        None => PathBuf::from(&repo_path),
+    };
+    let (prog, args) = editor_invocation(&editor, &target.to_string_lossy(), line)?;
+    let resolved = resolve_program(prog).ok_or_else(|| {
+        format!("Couldn't find the '{prog}' command on your PATH. Install {editor}'s shell command and try again.")
+    })?;
+    std::process::Command::new(resolved)
+        .args(&args)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("launch {editor}: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -366,6 +421,28 @@ mod tests {
         let entry = reg.reviews.iter().find(|e| e.id == session.review.id).unwrap();
         assert_eq!(entry.file_count, original_file_count, "file_count preserved across save");
         assert_eq!(entry.comment_count, 1);
+    }
+
+    #[test]
+    fn editor_invocation_builds_line_aware_args() {
+        assert_eq!(
+            editor_invocation("vscode", "/a/b.ts", Some(42)).unwrap(),
+            ("code", vec!["-g".to_string(), "/a/b.ts:42".to_string()])
+        );
+        assert_eq!(
+            editor_invocation("zed", "/a/b.ts", Some(7)).unwrap(),
+            ("zed", vec!["/a/b.ts:7".to_string()])
+        );
+        assert_eq!(
+            editor_invocation("intellij", "/a/b.ts", Some(3)).unwrap(),
+            ("idea", vec!["--line".to_string(), "3".to_string(), "/a/b.ts".to_string()])
+        );
+        // No line → just the path (e.g. opening the repo root).
+        assert_eq!(
+            editor_invocation("vscode", "/repo", None).unwrap(),
+            ("code", vec!["/repo".to_string()])
+        );
+        assert!(editor_invocation("emacs", "/a", None).is_err());
     }
 
     #[test]
