@@ -119,7 +119,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     value={value}
                     aria-label={label}
                     title={label}
-                    className="h-7 gap-1.5 rounded-md border-0 px-2.5 text-[12px] text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+                    className="h-7 gap-1.5 rounded-md border-0 px-2.5 text-[12px] text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"
                   >
                     <Icon className="size-3.5" />
                     {label}

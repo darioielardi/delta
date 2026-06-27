@@ -279,7 +279,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     <div data-testid="app-root" className="flex h-screen flex-col overflow-hidden bg-background text-[13px] text-foreground">
       {/* Overlay titlebar: the macOS traffic lights float over the top-left, so
           inset the controls past them and make the bar a drag region. */}
-      <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border/70 pl-24 pr-3">
+      <header data-tauri-drag-region className="flex h-12 shrink-0 items-center gap-2.5 border-b border-border bg-card pl-24 pr-3">
         <button
           type="button"
           onClick={onOpenPalette}
@@ -335,8 +335,8 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 onValueChange={(v) => v && setLayout(v as "unified" | "split")}
                 className="gap-0.5 rounded-md bg-muted/70 p-0.5"
               >
-                <ToggleGroupItem value="unified" aria-label="Unified" title="Unified view" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><Rows2 className="size-3.5" /></ToggleGroupItem>
-                <ToggleGroupItem value="split" aria-label="Split" title="Split view" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><Columns2 className="size-3.5" /></ToggleGroupItem>
+                <ToggleGroupItem value="unified" aria-label="Unified" title="Unified view" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"><Rows2 className="size-3.5" /></ToggleGroupItem>
+                <ToggleGroupItem value="split" aria-label="Split" title="Split view" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"><Columns2 className="size-3.5" /></ToggleGroupItem>
               </ToggleGroup>
               <Button size="sm" variant="outline" aria-label={`Comments (${commentCount})`} aria-pressed={indexOpen} className="h-7 gap-1.5 px-2.5 text-[13px] text-muted-foreground hover:text-foreground aria-pressed:bg-muted aria-pressed:text-foreground" onClick={() => setIndexOpen((o) => !o)}>
                 <MessageSquare className="size-4" /> {commentCount}
@@ -385,7 +385,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
       <div className="flex min-h-0 flex-1">
         {summary && review ? (
           <>
-            <aside className="flex w-80 min-h-0 shrink-0 flex-col border-r border-border/70 bg-muted/20">
+            <aside className="flex w-80 min-h-0 shrink-0 flex-col">
               <FilesPanel
                 files={orderedFiles}
                 selected={visibleFile}

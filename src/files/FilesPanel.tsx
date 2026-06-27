@@ -313,7 +313,7 @@ export function FilesPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-[12px]">
+      <div className="flex h-9 shrink-0 items-center gap-2 px-3 text-[12px]">
         <span
           className={`inline-block select-none rounded-md px-1.5 py-0.5 text-[11px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
           title="Files viewed"
@@ -344,14 +344,14 @@ export function FilesPanel({
             onValueChange={(v) => v && setMode(v as "tree" | "list")}
             className="gap-0.5 rounded-md bg-muted/70 p-0.5"
           >
-            <ToggleGroupItem value="list" aria-label="List" title="List" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><List className="size-3.5" /></ToggleGroupItem>
-            <ToggleGroupItem value="tree" aria-label="Tree" title="Tree" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm"><ListTree className="size-3.5" /></ToggleGroupItem>
+            <ToggleGroupItem value="list" aria-label="List" title="List" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"><List className="size-3.5" /></ToggleGroupItem>
+            <ToggleGroupItem value="tree" aria-label="Tree" title="Tree" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"><ListTree className="size-3.5" /></ToggleGroupItem>
           </ToggleGroup>
         </div>
       </div>
 
       {/* Search sits directly on top of the tree/list; ⌘F focuses it. (#3) */}
-      <div className="relative shrink-0 border-b border-border/70 px-2 py-1.5">
+      <div className="relative shrink-0 px-2 py-1.5">
         <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <input
           ref={searchRef}
@@ -366,7 +366,7 @@ export function FilesPanel({
           autoCorrect="off"
           autoCapitalize="off"
           autoComplete="off"
-          className="h-7 w-full rounded-md border border-input bg-muted/40 pl-8 pr-12 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 hover:bg-muted focus:bg-background"
+          className="h-7 w-full rounded-md border border-input bg-card pl-8 pr-12 text-[12px] text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 hover:border-foreground/25 focus:border-ring"
         />
         {searching ? (
           <button
