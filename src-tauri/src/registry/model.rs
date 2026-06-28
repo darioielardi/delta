@@ -37,6 +37,8 @@ pub struct ReviewEntry {
     pub last_opened_at: String,
     pub comment_count: u32,
     pub stale_count: u32,
+    #[serde(default)]
+    pub resolved_count: u32,
     pub viewed_count: u32,
     pub file_count: u32,
 }
@@ -84,6 +86,7 @@ impl ReviewEntry {
         let visible = |c: &&crate::review::model::Comment| c.scope != CommentScope::General;
         let comment_count = review.comments.iter().filter(visible).count() as u32;
         let stale_count = review.comments.iter().filter(|c| c.stale && visible(c)).count() as u32;
+        let resolved_count = review.comments.iter().filter(|c| c.resolved && visible(c)).count() as u32;
         ReviewEntry {
             id: review.id.clone(),
             repo_name,
@@ -91,6 +94,7 @@ impl ReviewEntry {
             last_opened_at: review.last_opened_at.clone(),
             comment_count,
             stale_count,
+            resolved_count,
             viewed_count: review.viewed.len() as u32,
             file_count,
         }
@@ -130,14 +134,14 @@ mod tests {
         r
     }
 
-    fn comment(scope: CommentScope, stale: bool) -> Comment {
+    fn comment(scope: CommentScope, stale: bool, resolved: bool) -> Comment {
         Comment {
             id: "x".into(),
             scope,
             anchor: None,
             body: "b".into(),
             stale,
-            resolved: false,
+            resolved,
             created_at: "t".into(),
             updated_at: "t".into(),
         }
@@ -147,9 +151,9 @@ mod tests {
     fn from_review_counts_exclude_general_and_track_stale_viewed() {
         let r = review_with(
             vec![
-                comment(CommentScope::Line, false),
-                comment(CommentScope::File, true),
-                comment(CommentScope::General, false),
+                comment(CommentScope::Line, false, false),
+                comment(CommentScope::File, true, false),
+                comment(CommentScope::General, false, false),
             ],
             vec![ViewedEntry { file: "a".into(), diff_hash: "h".into() }],
         );
@@ -160,6 +164,21 @@ mod tests {
         assert_eq!(e.file_count, 7);
         assert_eq!(e.repo_name, "proj");
         assert_eq!(e.id, "0123456789abcdef");
+    }
+
+    #[test]
+    fn from_review_counts_resolved_excluding_general() {
+        let r = review_with(
+            vec![
+                comment(CommentScope::Line, false, true),    // resolved → counts
+                comment(CommentScope::File, false, true),    // resolved → counts
+                comment(CommentScope::Line, false, false),   // open
+                comment(CommentScope::General, false, true), // resolved but general → excluded
+            ],
+            vec![],
+        );
+        let e = ReviewEntry::from_review(&r, 0, "proj".into());
+        assert_eq!(e.resolved_count, 2);
     }
 
     #[test]
