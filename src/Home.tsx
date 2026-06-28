@@ -5,7 +5,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { rankReviews } from "./picker/fuzzy";
-import { FolderPlus, GitBranch, MessageSquare, Settings, TriangleAlert } from "lucide-react";
+import { Check, FolderPlus, GitBranch, MessageSquare, Settings, TriangleAlert } from "lucide-react";
 import type { Registry, ReviewEntry } from "./types";
 
 // Cap the recent list so a longer history doesn't grow the centered column and
@@ -159,6 +159,11 @@ export function Home({ onOpenSettings }: { onOpenSettings?: () => void }) {
                         {r.staleCount > 0 && (
                           <span className="inline-flex items-center gap-1 tabular-nums text-amber-500">
                             <TriangleAlert className="size-3.5" /> {r.staleCount}
+                          </span>
+                        )}
+                        {r.resolvedCount > 0 && (
+                          <span className="inline-flex items-center gap-1 tabular-nums text-emerald-500">
+                            <Check className="size-3.5" /> {r.resolvedCount}
                           </span>
                         )}
                         <span className="whitespace-nowrap">{relTime(r.lastOpenedAt)}</span>

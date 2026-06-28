@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../api";
 import { rankReviews } from "./fuzzy";
-import { Folder, GitBranch, MessageSquare, TriangleAlert } from "lucide-react";
+import { Check, Folder, GitBranch, MessageSquare, TriangleAlert } from "lucide-react";
 import type { Registry, RepoEntry, ReviewEntry, Target, WorktreeEntry } from "../types";
 
 function relTime(iso: string): string {
@@ -175,6 +175,9 @@ export function CommandPalette({ onClose, current }: { onClose: () => void; curr
           )}
           {r.staleCount > 0 && (
             <span className="inline-flex items-center gap-1 tabular-nums text-amber-500"><TriangleAlert className="size-3.5" />{r.staleCount}</span>
+          )}
+          {r.resolvedCount > 0 && (
+            <span className="inline-flex items-center gap-1 tabular-nums text-emerald-500"><Check className="size-3.5" />{r.resolvedCount}</span>
           )}
           <span className="whitespace-nowrap">{relTime(r.lastOpenedAt)}</span>
         </span>
