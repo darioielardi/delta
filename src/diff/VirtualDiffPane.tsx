@@ -31,9 +31,8 @@ import type { DiffLayout } from "./useDiffLayout";
 import { useFileDiffCache } from "./useFileDiffCache";
 
 const ROW_H = 22;
-const HEADER_H = 36; // sticky file header (border-box). Taller bar, but its content is held near the top edge via pb-2 (extra height sits below the content), so the title stays high. (#card)
-const SCROLLBAR_H = 10; // horizontal scrollbar height (matches *::-webkit-scrollbar) — reserved at a wide file's body bottom so it never overlaps the last line (#hscroll)
-const CH_PX = 7.85; // ≈ width of one mono char at 13px (SF Mono/Menlo) — only used to decide whether a file overflows the pane (so we reserve scrollbar space); layout itself uses exact `ch` units (#hscroll)
+const HEADER_H = 40; // sticky file header (border-box); content is vertically centered. (#card)
+const CH_PX = 7.85; // ≈ width of one mono char at 13px (SF Mono/Menlo) — only used to decide whether a file overflows the pane (→ enable horizontal scroll); layout itself uses exact `ch` units (#hscroll)
 // Left-accent colors for changed lines, mirroring the comment-range accent. (#border)
 const ADD_ACCENT = "var(--color-emerald-500)";
 const DEL_ACCENT = "var(--color-rose-500)";
@@ -146,6 +145,10 @@ function Code({ html, range, changeBg, marks }: { html: string; range: ChangeRan
 
 const gutterCls = "w-12 shrink-0 select-none border-r border-border/40 px-1 text-right text-[11px] text-muted-foreground/60 tabular-nums cursor-ns-resize";
 const addBtnCls = "absolute z-10 hidden size-5 -translate-y-1/2 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm group-hover:flex hover:brightness-110";
+// Wide files scroll horizontally, but the scrollbar itself is hidden — the always-
+// on thin bar flickered as the outer pane scrolled. Trackpad/shift-wheel still
+// scroll the row. (#hscroll)
+const HIDE_SCROLLBAR = "[scrollbar-width:none] [&::-webkit-scrollbar]:hidden";
 
 // A changed/empty row's tint is a translucent color. On the body it sits over
 // bg-code; but the sticky gutter rail must stay OPAQUE (it masks code scrolling
@@ -358,8 +361,8 @@ const VFileSection = memo(function VFileSection({
   // Horizontal scroll (#hscroll): rows are widened to the file's longest line so
   // long code can scroll instead of clipping. Width is exact `ch` (mono) + fixed
   // gutter px; min-width:100% on the rows keeps narrow files full-bleed. Only
-  // files genuinely wider than the pane scroll — and only those reserve space at
-  // their body bottom for the horizontal scrollbar so it never hides the last line.
+  // files genuinely wider than the pane get overflow-x — the scrollbar itself is
+  // hidden (it flickered on scroll; trackpad/shift-wheel still scroll).
   const maxCols = useMemo(() => {
     if (!fd) return 0;
     let m = 0;
@@ -541,7 +544,7 @@ const VFileSection = memo(function VFileSection({
   const commentAbove = (v: number) => { let s = 0; for (const b of blocks) { if (blockVa(b) < v) s += heightOf(b); else break; } return s; };
   const visualRowTop = (v: number) => v * ROW_H + commentAbove(v);
   const totalCommentH = blocks.reduce((s, b) => s + heightOf(b), 0);
-  const bodyH = collapsed ? 0 : showPlaceholder ? PLACEHOLDER_BODY_H : visualCount * ROW_H + totalCommentH + (wide ? SCROLLBAR_H : 0);
+  const bodyH = collapsed ? 0 : showPlaceholder ? PLACEHOLDER_BODY_H : visualCount * ROW_H + totalCommentH;
   // Report a definite height once it's known — model built, or a fixed-height
   // placeholder shown — so the parent's offsets are exact. (#10/#11)
   useEffect(() => { if (model || showPlaceholder) reportBodyHeight(entry.path, bodyH); }, [model, showPlaceholder, isBinary, entry.path, bodyH, reportBodyHeight]);
@@ -644,7 +647,7 @@ const VFileSection = memo(function VFileSection({
       <div aria-hidden className="pointer-events-none sticky z-10 h-0" style={{ top: PAD }}>
         <div className="absolute inset-x-0 top-0 bg-background" style={{ height: HEADER_H }} />
       </div>
-      <div className={`group/h sticky z-20 flex items-center gap-2 border-x border-t border-border bg-code px-3 pb-2 transition-[border-radius] duration-150 ${collapsed || headerSolo ? "rounded-lg border-b" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H, top: PAD }}>
+      <div className={`group/h sticky z-20 flex items-center gap-2 border-x border-t border-border bg-code px-3 transition-[border-radius] duration-150 ${collapsed || headerSolo ? "rounded-lg border-b" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H, top: PAD }}>
         {/* Full-box collapse target. The label/counts above it are
             pointer-events-none, so hovering anywhere in the header (padding +
             gaps included) reaches this button and — via peer-hover — lights the
@@ -705,7 +708,7 @@ const VFileSection = memo(function VFileSection({
       </div>
       {!collapsed && (
         <div
-          className={`relative rounded-b-lg border-x border-b border-border bg-code ${layout !== "split" && wide ? "overflow-x-auto overflow-y-hidden" : "overflow-hidden"}`}
+          className={`relative rounded-b-lg border-x border-b border-border bg-code ${layout !== "split" && wide ? `overflow-x-auto overflow-y-hidden ${HIDE_SCROLLBAR}` : "overflow-hidden"}`}
           style={{ height: bodyH, overscrollBehaviorY: layout !== "split" && wide ? "auto" : undefined, "--rw": rowWidthCss } as CSSProperties}
           onPointerDown={onGutterPointerDown}
         >
@@ -737,7 +740,7 @@ const VFileSection = memo(function VFileSection({
                   <div
                     ref={oldColRef}
                     onScroll={() => syncCols("old")}
-                    className="absolute inset-y-0 left-0 w-1/2 overflow-x-auto overflow-y-hidden border-r border-border/60"
+                    className={`absolute inset-y-0 left-0 w-1/2 overflow-x-auto overflow-y-hidden border-r border-border/60 ${HIDE_SCROLLBAR}`}
                     style={{ overscrollBehaviorY: "auto" }}
                   >
                     {splitColumnInner("old")}
@@ -745,7 +748,7 @@ const VFileSection = memo(function VFileSection({
                   <div
                     ref={newColRef}
                     onScroll={() => syncCols("new")}
-                    className="absolute inset-y-0 left-1/2 w-1/2 overflow-x-auto overflow-y-hidden"
+                    className={`absolute inset-y-0 left-1/2 w-1/2 overflow-x-auto overflow-y-hidden ${HIDE_SCROLLBAR}`}
                     style={{ overscrollBehaviorY: "auto" }}
                   >
                     {splitColumnInner("new")}
@@ -1033,7 +1036,7 @@ export function VirtualDiffPane({
     }
 
     jumpPin.current = file;
-    pane.scrollTop = Math.max(0, Math.min(offsets[i], pane.scrollHeight - pane.clientHeight));
+    pane.scrollTop = Math.max(0, Math.min(offsets[i] - PAD, pane.scrollHeight - pane.clientHeight));
     const release = () => { jumpPin.current = null; clearTimeout(jumpPinTimer.current); };
     jumpPinTimer.current = window.setTimeout(release, 1500);
     pane.addEventListener("wheel", release, { passive: true, once: true });
@@ -1063,7 +1066,7 @@ export function VirtualDiffPane({
     if (!p) return;
     const i = files.findIndex((f) => f.path === p);
     if (i < 0) return;
-    const want = Math.max(0, Math.min(offsets[i], pane.scrollHeight - pane.clientHeight));
+    const want = Math.max(0, Math.min(offsets[i] - PAD, pane.scrollHeight - pane.clientHeight));
     if (Math.abs(pane.scrollTop - want) > 1) pane.scrollTop = want;
   }, [offsets, total, files]);
 
@@ -1071,7 +1074,7 @@ export function VirtualDiffPane({
   useEffect(() => {
     if (!onVisibleFileChange) return;
     let current = files[0]?.path ?? null;
-    for (let i = 0; i < files.length; i++) { if (offsets[i] <= scrollTop + 4) current = files[i].path; else break; }
+    for (let i = 0; i < files.length; i++) { if (offsets[i] - PAD <= scrollTop + 4) current = files[i].path; else break; }
     if (current && current !== lastVisible.current) { lastVisible.current = current; onVisibleFileChange(current); }
   }, [scrollTop, files, offsets, onVisibleFileChange]);
 
