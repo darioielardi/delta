@@ -50,12 +50,10 @@ fn worktree_meta(repo: &git2::Repository) -> (Option<String>, bool) {
         .and_then(|h| h.peel_to_commit().ok())
         .and_then(|c| chrono::DateTime::from_timestamp(c.time().seconds(), 0))
         .map(|dt| dt.to_rfc3339());
-    let dirty = {
-        let mut opts = git2::StatusOptions::new();
-        opts.include_untracked(true).include_ignored(false);
-        repo.statuses(Some(&mut opts)).map(|s| !s.is_empty()).unwrap_or(false)
-    };
-    (last_commit_at, dirty)
+    // The dirty flag needs a full `git status` scan (working-tree walk incl. untracked)
+    // per worktree — the dominant cost when a repo has dozens of worktrees. Dropped
+    // from the hot path; the picker shows worktrees without an uncommitted marker.
+    (last_commit_at, false)
 }
 
 /// Open a linked worktree and read its display metadata. Each call uses its own

@@ -253,10 +253,16 @@ pub fn list_picker_impl(reg_store: &dyn RegistryStore, home: Option<String>) -> 
     Ok(PickerData { recents, worktrees, home })
 }
 
+// Async so Tauri runs the git enumeration OFF the main thread. A synchronous command
+// blocks the main thread for the whole scan, freezing the UI on every open — which is
+// the picker's open latency, paid per call regardless of the frontend cache.
 #[tauri::command]
-pub fn list_picker(app: tauri::AppHandle) -> Result<PickerData, String> {
+pub async fn list_picker(app: tauri::AppHandle) -> Result<PickerData, String> {
     let home = std::env::var("HOME").ok();
-    list_picker_impl(&reg_store(&app)?, home)
+    let store = reg_store(&app)?;
+    tauri::async_runtime::spawn_blocking(move || list_picker_impl(&store, home))
+        .await
+        .map_err(|e| format!("list_picker task failed: {e}"))?
 }
 
 #[tauri::command]
