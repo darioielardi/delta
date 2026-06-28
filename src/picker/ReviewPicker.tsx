@@ -107,14 +107,13 @@ export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo,
     inputRef.current?.focus();
   }, []);
 
-  const isCurrent = (r: ReviewEntry) =>
-    current != null &&
-    r.target.repoPath === current.repoPath &&
-    r.target.mode === current.mode &&
-    (r.target.base ?? null) === (current.base ?? null);
+  // Exclude the worktree you're currently viewing — it's not a switch target. Keyed
+  // on the worktree path, not mode/base: switching the diff-mode dropdown shouldn't
+  // make the current review reappear in the picker.
+  const isCurrentWorktree = (path: string) => current != null && path === current.repoPath;
 
-  const recents = data ? rankReviews(data.recents.filter((r) => !isCurrent(r)), query) : [];
-  const worktrees = data ? rankWorktrees(data.worktrees, query) : [];
+  const recents = data ? rankReviews(data.recents.filter((r) => !isCurrentWorktree(r.target.repoPath)), query) : [];
+  const worktrees = data ? rankWorktrees(data.worktrees.filter((w) => !isCurrentWorktree(w.path)), query) : [];
 
   const rows: Row[] = [
     ...recents.map((r): Row => ({ key: `rev-${r.id}`, group: "recent", node: recentNode(r), onActivate: () => onOpenReview(r), onDelete: () => onDeleteReview(r) })),

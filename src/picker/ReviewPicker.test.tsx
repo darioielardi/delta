@@ -46,6 +46,22 @@ describe("ReviewPicker", () => {
     expect(screen.getByText("spike/idea")).toBeInTheDocument();
   });
 
+  it("excludes the current worktree from the list, even when the mode differs", async () => {
+    mock(DATA);
+    render(
+      <ReviewPicker
+        current={{ repoPath: "/r/demo", mode: "uncommitted" }}
+        onOpenReview={() => {}}
+        onOpenWorktree={() => {}}
+        onAddRepo={() => {}}
+        onDeleteReview={() => {}}
+      />,
+    );
+    await waitFor(() => expect(screen.getByText("spike/idea")).toBeInTheDocument());
+    // feat/auth is the worktree we're currently in (different mode) → not a switch target.
+    expect(screen.queryByText("feat/auth")).not.toBeInTheDocument();
+  });
+
   it("shows an add-repo affordance and a hint when there are no known repos", async () => {
     mock({ recents: [], worktrees: [] });
     render(<ReviewPicker onOpenReview={() => {}} onOpenWorktree={() => {}} onAddRepo={() => {}} onDeleteReview={() => {}} />);
