@@ -282,10 +282,15 @@ function genLarge(fileCount: number): { summary: DiffSummary; files: Record<stri
 }
 
 export function installMockBackend(): void {
-  const largeParam = typeof location !== "undefined" ? new URLSearchParams(location.search).get("large") : null;
-  const ds = largeParam
-    ? genLarge(Math.max(1, Math.min(2000, parseInt(largeParam, 10) || 80)))
-    : { summary: SUMMARY, files: FILES, review: REVIEW };
+  const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
+  const largeParam = params.get("large");
+  // `?empty=1` → a review with no changed files, to exercise the empty state.
+  const emptyParam = params.get("empty") === "1";
+  const ds = emptyParam
+    ? { summary: { ...SUMMARY, files: [] }, files: {}, review: { ...REVIEW, comments: [], viewed: [] } }
+    : largeParam
+      ? genLarge(Math.max(1, Math.min(2000, parseInt(largeParam, 10) || 80)))
+      : { summary: SUMMARY, files: FILES, review: REVIEW };
   __setInvokeForDev(async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     switch (cmd) {
       case "compute_diff":
