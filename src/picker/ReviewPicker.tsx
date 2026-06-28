@@ -29,7 +29,7 @@ function worktreeIdentity(repoName: string, path: string, branch: string): React
   return (
     <>
       <Folder className="size-4 shrink-0 self-center text-muted-foreground" />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex min-w-0 items-baseline text-[13px] leading-tight">
           {!isMain && <span className="shrink-0 text-muted-foreground">{repoName}&nbsp;/&nbsp;</span>}
           <span className="truncate font-medium">{isMain ? repoName : wt}</span>
