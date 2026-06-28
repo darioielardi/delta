@@ -21,6 +21,15 @@ Always run `npx tsc --noEmit` and `pnpm test` before committing.
 
 There is **no `tauri-driver` on macOS**, so don't drive the real app for UI checks. Instead run `pnpm dev:mock` and inspect via the preview MCP / agent-browser against `localhost:5599`. Verify both light and dark (theme is in `localStorage["delta.theme"]` = `system|light|dark`) and both diff layouts (unified/split). Note: the headless preview freezes `requestAnimationFrame`, so scroll-state-driven behavior (virtualization window, sticky-header state) can't be exercised there — verify that logic by reasoning + forcing state.
 
+For the **real app** (real git, real IPC — things `dev:mock` can't cover, e.g. command timing or backend integration), a dev-only **eval bridge** runs inside `pnpm tauri dev` builds ([src-tauri/src/devbridge.rs](src-tauri/src/devbridge.rs), `debug_assertions` only). Run JS in the live webview and get the JSON result back over HTTP:
+
+```
+curl -s --data 'return document.querySelectorAll("[data-index]").length' http://127.0.0.1:7787/eval
+curl -s --data-binary @script.js http://127.0.0.1:7787/eval   # multi-line; body is a function body that `return`s
+```
+
+The body is wrapped in an async IIFE, so `await` works; `?w=<window-label>` targets a specific window. This is how to dispatch real keystrokes (`dispatchEvent`), read DOM/state, and time interactions in the actual WKWebView.
+
 ## Architecture
 
 **Frontend (`src/`)** — React 19 with the React Compiler (`babel-plugin-react-compiler`); `@` → `src`.
