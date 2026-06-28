@@ -709,7 +709,7 @@ const VFileSection = memo(function VFileSection({
       {!collapsed && (
         <div
           className={`relative rounded-b-lg border-x border-b border-border bg-code ${layout !== "split" && wide ? `overflow-x-auto overflow-y-hidden ${HIDE_SCROLLBAR}` : "overflow-hidden"}`}
-          style={{ height: bodyH, overscrollBehaviorY: layout !== "split" && wide ? "auto" : undefined, "--rw": rowWidthCss } as CSSProperties}
+          style={{ height: bodyH, overscrollBehaviorY: "auto" /* always chain a vertical wheel to the pane, not only over h-scrollable files — the app-wide overscroll-behavior:none otherwise traps it on every card (#hscroll) */, "--rw": rowWidthCss } as CSSProperties}
           onPointerDown={onGutterPointerDown}
         >
           {isBinary ? (
