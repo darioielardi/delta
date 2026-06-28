@@ -339,7 +339,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 <ToggleGroupItem value="unified" aria-label="Unified" title="Unified view" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"><Rows2 className="size-3.5" /></ToggleGroupItem>
                 <ToggleGroupItem value="split" aria-label="Split" title="Split view" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"><Columns2 className="size-3.5" /></ToggleGroupItem>
               </ToggleGroup>
-              <Button size="sm" variant="outline" aria-label={`Comments (${commentCount})`} aria-pressed={indexOpen} className="h-7 gap-1.5 px-2.5 text-[13px] text-muted-foreground hover:text-foreground aria-pressed:bg-muted aria-pressed:text-foreground" onClick={() => setIndexOpen((o) => !o)}>
+              <Button size="sm" variant="outline" aria-label={`Comments (${commentCount})`} aria-pressed={indexOpen} className="h-7 gap-1.5 px-2.5 text-[13px] text-muted-foreground hover:text-foreground aria-pressed:border-primary/40 aria-pressed:bg-primary/10 aria-pressed:text-primary dark:aria-pressed:bg-primary/10" onClick={() => setIndexOpen((o) => !o)}>
                 <MessageSquare className="size-4" /> {commentCount}
               </Button>
               <Button
@@ -405,7 +405,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 commentCounts={commentCountsByFile}
               />
             </aside>
-            <main className="min-h-0 min-w-0 flex-1">
+            <main className="min-h-0 min-w-0 flex-1 -ml-1.5">
               <VirtualDiffPane
                 target={review.target}
                 files={orderedFiles}

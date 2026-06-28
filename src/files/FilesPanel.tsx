@@ -101,7 +101,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
             <button
               aria-label={`viewed ${node.entry.path}`}
               onClick={(e) => { e.stopPropagation(); h.onToggleViewed(node.entry!.path); }}
-              className={`flex size-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors ${isViewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80 group-hover:border-foreground/40 hover:!border-foreground/60"}`}
+              className={`flex size-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors ${isViewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80 bg-card dark:bg-transparent group-hover:border-foreground/40 hover:!border-foreground/60"}`}
             >
               {isViewed && <Check className="size-2.5" strokeWidth={3} />}
             </button>
@@ -314,10 +314,12 @@ export function FilesPanel({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // Top + left padding mirrors the diff pane's card inset (PAD) so the three
+    // panes share one floating rhythm. (#pad)
+    <div className="flex min-h-0 flex-1 flex-col pl-1.5 pt-3.5">
       <div className="flex h-9 shrink-0 items-center gap-2 px-2 text-[12px]">
         <span
-          className={`inline-block select-none rounded-md px-1.5 py-0.5 text-[11px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
+          className={`inline-block select-none rounded-md px-2 py-0.5 text-[13px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
           title="Files viewed"
         >
           <span className={`font-medium ${allViewed ? "" : "text-foreground"}`}>{viewedFiles.size}</span>

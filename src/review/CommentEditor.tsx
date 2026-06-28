@@ -46,8 +46,8 @@ export function CommentEditor({
     <div className="flex flex-col gap-1.5">
       <textarea
         ref={ref}
-        rows={1}
-        className="w-full resize-none overflow-hidden rounded-md border border-input bg-muted/40 px-2.5 py-1.5 text-[13px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-ring"
+        rows={3}
+        className="min-h-[4.875rem] w-full resize-none overflow-hidden rounded-md border border-input bg-muted/40 px-2.5 py-1.5 text-[13px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-ring"
         placeholder="Leave a comment (markdown)…"
         value={value}
         onChange={(e) => {

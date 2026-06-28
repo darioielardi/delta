@@ -98,12 +98,28 @@ type RowMark = Mark & { side: Side };
 // body-relative y of its row (rough scroll target before exact centering).
 interface FindMatch { file: string; modelIndex: number; side: Side; col: number; len: number; y: number }
 
-// Case-insensitive, non-overlapping occurrences of `q` in `text`.
-function findOccurrences(text: string, q: string): { col: number; len: number }[] {
-  if (!q) return [];
-  const hay = text.toLowerCase(), needle = q.toLowerCase();
+// Find options (#find): match case + whole-word, mirroring an editor's find box.
+type FindOpts = { caseSensitive: boolean; wholeWord: boolean };
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+// Compile the query into a global regex once per (query, opts). Whole-word wraps
+// the term in word-boundary lookarounds (word = [A-Za-z0-9_]). Returns null for
+// an empty query (or the rare invalid pattern after escaping).
+function buildFindRegex(q: string, opts: FindOpts): RegExp | null {
+  if (!q) return null;
+  let pat = escapeRegExp(q);
+  if (opts.wholeWord) pat = `(?<![A-Za-z0-9_])${pat}(?![A-Za-z0-9_])`;
+  try { return new RegExp(pat, opts.caseSensitive ? "g" : "gi"); } catch { return null; }
+}
+// Non-overlapping occurrences of a compiled regex in `text`.
+function occurrencesOf(re: RegExp, text: string): { col: number; len: number }[] {
+  re.lastIndex = 0;
   const out: { col: number; len: number }[] = [];
-  for (let i = hay.indexOf(needle); i !== -1; i = hay.indexOf(needle, i + needle.length)) out.push({ col: i, len: q.length });
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    out.push({ col: m.index, len: m[0].length });
+    if (re.lastIndex === m.index) re.lastIndex++; // guard against a zero-length match
+  }
   return out;
 }
 
@@ -129,6 +145,14 @@ function Code({ html, range, changeBg, marks }: { html: string; range: ChangeRan
 const gutterCls = "w-12 shrink-0 select-none border-r border-border/40 px-1 text-right text-[11px] text-muted-foreground/60 tabular-nums cursor-ns-resize";
 const addBtnCls = "absolute z-10 hidden size-5 -translate-y-1/2 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm group-hover:flex hover:brightness-110";
 
+// A changed/empty row's tint is a translucent color. On the body it sits over
+// bg-code; but the sticky gutter rail must stay OPAQUE (it masks code scrolling
+// under it on horizontal scroll). So on the rail we composite the same tint over
+// an opaque var(--code) — making the green/red/blue/void fill reach the card's
+// very left edge (the gutter) while the rail still masks. (#2/#3)
+const railBg = (tint: string | null) => (tint ? `linear-gradient(${tint}, ${tint}), var(--code)` : undefined);
+const mix = (color: string, pct: number) => `color-mix(in oklch, ${color} ${pct}%, transparent)`;
+
 // Unified row: old# · new# · marker · code, hover `+` to comment, gutters drag-select.
 function Row({ model, index, top, selected, highlighted, onComment, marks }: { model: Model; index: number; top: number; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
   const line = model.getUnifiedLine(index);
@@ -136,25 +160,32 @@ function Row({ model, index, top, selected, highlighted, onComment, marks }: { m
   const kind = hasOld && hasNew ? "ctx" : hasNew ? "add" : hasOld ? "del" : "hunk";
   const side: Side = hasNew ? "new" : "old";
   const html = kind === "hunk" ? escapeHtml(line.value ?? "") : syntaxHtml(model, side, (hasNew ? line.newLineNumber : line.oldLineNumber)!, line.value);
-  const bg = kind === "add" ? "bg-emerald-500/15" : kind === "del" ? "bg-rose-500/15" : kind === "hunk" ? "bg-muted/40" : "";
   const range = kind === "add" || kind === "del" ? changeRangeOf(line.diff) : undefined;
   const marker = kind === "add" ? "+" : kind === "del" ? "−" : "";
   const markerColor = kind === "add" ? "text-emerald-500" : kind === "del" ? "text-rose-500" : "text-transparent";
+  // Row tint, as a translucent color so it can fill the body AND composite over
+  // the opaque gutter rail — so the fill spans gutter→edge, not just the code. (#3)
+  const tint = selected ? mix("var(--primary)", 20)
+    : kind === "add" ? mix("var(--color-emerald-500)", 15)
+    : kind === "del" ? mix("var(--color-rose-500)", 15)
+    : kind === "hunk" ? mix("var(--muted)", 40)
+    : highlighted ? mix("var(--primary)", 6)
+    : null;
   // Left accent: a commented range wins (primary), else changed lines get a
   // green/red edge mirroring the comment accent. (#border)
   const accent = highlighted ? "var(--primary)" : kind === "add" ? ADD_ACCENT : kind === "del" ? DEL_ACCENT : undefined;
   return (
-    <div data-row-index={index} className={`group absolute left-0 flex items-stretch font-mono text-[13px] leading-[22px] ${bg} ${highlighted && kind === "ctx" ? "bg-primary/[0.06]" : ""} ${selected ? "!bg-primary/20" : ""}`} style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%" }}>
+    <div data-row-index={index} className="group absolute left-0 flex items-stretch font-mono text-[13px] leading-[22px]" style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%", background: tint ?? undefined }}>
       {kind !== "hunk" && (
         <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 z-20 ${addBtnCls}`}>
           <Plus className="size-3.5" strokeWidth={2.5} />
         </button>
       )}
       {/* Sticky rail: pins the line-number gutters + marker to the left on
-          horizontal scroll and masks the code scrolling under it (opaque bg-code).
-          The changed/commented accent rides the rail so it stays at the visible
-          left edge. (#2) */}
-      <div className="sticky left-0 z-[1] flex items-stretch bg-code" style={{ boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
+          horizontal scroll and masks the code scrolling under it. Opaque bg-code,
+          or the row tint composited over it so the fill reaches the left edge.
+          The changed/commented accent rides the rail. (#2/#3) */}
+      <div className="sticky left-0 z-[1] flex items-stretch bg-code" style={{ background: railBg(tint), boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
         <span data-gutter="old" className={gutterCls}>{hasOld ? line.oldLineNumber : ""}</span>
         <span data-gutter="new" className={gutterCls}>{hasNew ? line.newLineNumber : ""}</span>
         <span className={`w-4 shrink-0 select-none text-center ${markerColor}`}>{marker}</span>
@@ -173,17 +204,25 @@ function SplitColCell({ model, side, index, top, changed, highlighted, selected,
   const has = line.lineNumber != null;
   const ln = line.lineNumber!;
   const html = has ? syntaxHtml(model, side, ln, line.value) : "";
-  const bg = selected ? "!bg-primary/15" : changed ? (side === "old" ? "bg-rose-500/15" : "bg-emerald-500/15") : highlighted ? "bg-primary/[0.06]" : "";
+  // No line here → the change is on the other side; tint the whole empty row
+  // (gutter included) a neutral "void" so it reads as absent, not context. (#2)
+  // Otherwise: selected / changed (red old, green new) / commented, as a
+  // translucent tint that also fills the gutter rail (#3).
+  const tint = !has ? mix("var(--muted-foreground)", 7)
+    : selected ? mix("var(--primary)", 15)
+    : changed ? (side === "old" ? mix("var(--color-rose-500)", 15) : mix("var(--color-emerald-500)", 15))
+    : highlighted ? mix("var(--primary)", 6)
+    : null;
   const range = changed ? changeRangeOf(line.diff) : undefined;
   const accent = changed ? (side === "old" ? DEL_ACCENT : ADD_ACCENT) : highlighted ? "var(--primary)" : undefined;
   return (
-    <div data-row-index={index} className={`group absolute left-0 flex w-full items-stretch font-mono text-[13px] leading-[22px] ${bg}`} style={{ top, height: ROW_H }}>
+    <div data-row-index={index} className="group absolute left-0 flex w-full items-stretch font-mono text-[13px] leading-[22px]" style={{ top, height: ROW_H, background: tint ?? undefined }}>
       {has && (
         <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-12 top-1/2 z-20 ${addBtnCls}`}>
           <Plus className="size-3.5" strokeWidth={2.5} />
         </button>
       )}
-      <div className="sticky left-0 z-[1] flex items-stretch bg-code" style={{ boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
+      <div className="sticky left-0 z-[1] flex items-stretch bg-code" style={{ background: railBg(tint), boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
         <span data-gutter={side} className={gutterCls}>{has ? ln : ""}</span>
       </div>
       {has ? <Code html={html} range={range} changeBg={side === "old" ? "bg-rose-400/25" : "bg-emerald-400/25"} marks={marks} /> : <span className="flex-1" />}
@@ -212,19 +251,19 @@ function FoldRow({ top, count, showDown, showUp, onDown, onUp, onAll }: { top: n
       className="absolute left-0 flex items-stretch bg-primary/10 font-mono text-[12px] font-medium leading-[22px] text-muted-foreground"
       style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%" }}
     >
-      <div className="sticky left-0 flex h-full w-[6.5rem] shrink-0 border-r border-border/40">
+      <div className="sticky left-0 flex h-full w-24 shrink-0 border-r border-border/40">
         {showDown && (
-          <button type="button" onClick={onDown} title={`Show ${step} more line${step === 1 ? "" : "s"} (down)`} className="flex flex-1 items-center justify-center gap-px tabular-nums transition-colors hover:bg-primary/20 hover:text-foreground">
-            <ChevronDown className="size-3.5" />{step}
+          <button type="button" onClick={onDown} title={`Show ${step} more line${step === 1 ? "" : "s"} (down)`} className="flex flex-1 items-center justify-center transition-colors hover:bg-primary/20 hover:text-foreground">
+            <ChevronDown className="size-[18px]" />
           </button>
         )}
         {showUp && (
-          <button type="button" onClick={onUp} title={`Show ${step} more line${step === 1 ? "" : "s"} (up)`} className={`flex flex-1 items-center justify-center gap-px tabular-nums transition-colors hover:bg-primary/20 hover:text-foreground ${showDown ? "border-l border-border/40" : ""}`}>
-            <ChevronUp className="size-3.5" />{step}
+          <button type="button" onClick={onUp} title={`Show ${step} more line${step === 1 ? "" : "s"} (up)`} className={`flex flex-1 items-center justify-center transition-colors hover:bg-primary/20 hover:text-foreground ${showDown ? "border-l border-border/40" : ""}`}>
+            <ChevronUp className="size-[18px]" />
           </button>
         )}
       </div>
-      <button type="button" onClick={onAll} title="Expand all hidden lines" className="sticky left-[6.5rem] flex flex-1 items-center px-3 text-left tabular-nums transition-colors hover:text-foreground">
+      <button type="button" onClick={onAll} title="Expand all hidden lines" className="sticky left-24 flex flex-1 items-center px-3 text-left tabular-nums transition-colors hover:text-foreground">
         {count} hidden line{count === 1 ? "" : "s"}
       </button>
     </div>
@@ -255,17 +294,19 @@ function CommentBlock({ id, top, comments, onEdit, onDelete, onHeight }: { id: s
 interface Block { id: string; index: number; comments: Comment[] }
 
 const VFileSection = memo(function VFileSection({
-  entry, theme, layout, cache, collapsed, viewed, repoPath, onToggleCollapse, onToggleViewed, view, paneW, query, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, reportBodyHeight, registerRef,
+  entry, theme, layout, cache, collapsed, viewed, headerSolo, repoPath, onToggleCollapse, onToggleViewed, view, paneW, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, reportBodyHeight, registerRef,
 }: {
   entry: FileEntry; theme: "light" | "dark"; layout: DiffLayout;
   cache: ReturnType<typeof useFileDiffCache>;
   collapsed: boolean; viewed: boolean;
+  headerSolo: boolean; // body fully scrolled under the stuck header → round its bottom corners (#6)
   repoPath: string; // absolute repo/worktree root — joined with entry.path to open in an editor (#editor)
   onToggleCollapse: (path: string) => void;
   onToggleViewed: (path: string) => void;
   view: [number, number] | null; // body-relative visible window [top, bottom] px, or null off-screen
   paneW: number; // diff pane client width — decides if a file overflows → horizontal scroll (#hscroll)
   query: string; // in-code find query ("" when find is closed) (#find)
+  caseSensitive: boolean; wholeWord: boolean; // find options (#find)
   activeMatch: { modelIndex: number; side: Side; col: number } | null; // the active match, if it lives in THIS file
   onMatches: (path: string, matches: FindMatch[]) => void; // report this file's matches up for the global list
   forceModel: boolean; // find active → build the model even off-screen/collapsed so this file is searchable (#find)
@@ -447,9 +488,10 @@ const VFileSection = memo(function VFileSection({
   const { fileMatches, marksByRow } = useMemo(() => {
     const fm: FindMatch[] = [];
     const mbr = new Map<number, RowMark[]>();
-    if (!model || !q) return { fileMatches: fm, marksByRow: mbr };
+    const re = buildFindRegex(q, { caseSensitive, wholeWord });
+    if (!model || !re) return { fileMatches: fm, marksByRow: mbr };
     const add = (i: number, side: Side, text: string) => {
-      const occ = findOccurrences(text, q);
+      const occ = occurrencesOf(re, text);
       if (!occ.length) return;
       const vr = modelToVisual.get(i);
       if (vr == null) return; // line folded away — not visible, skip
@@ -476,7 +518,7 @@ const VFileSection = memo(function VFileSection({
       }
     }
     return { fileMatches: fm, marksByRow: mbr };
-  }, [model, q, layout, rowCount, modelToVisual, entry.path]);
+  }, [model, q, caseSensitive, wholeWord, layout, rowCount, modelToVisual, entry.path]);
   useEffect(() => { onMatches(entry.path, fileMatches); }, [entry.path, fileMatches, onMatches]);
   // The active match's row gets its matching mark flagged active (cheap, at render).
   const rowMarks = (mi: number): RowMark[] | undefined => {
@@ -591,7 +633,7 @@ const VFileSection = memo(function VFileSection({
     // Borders live on the header + body, not this wrapper, so a stuck header can
     // float with a canvas GAP above it (the wrapper is transparent there). (#7)
     <div ref={ref} data-file={entry.path} className="rounded-lg shadow-xs dark:shadow-none">
-      <div className={`group/h sticky z-20 flex items-center gap-2 border-x border-t border-border bg-code px-3 ${collapsed ? "rounded-lg border-b" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H, top: GAP }}>
+      <div className={`group/h sticky z-20 flex items-center gap-2 border-x border-t border-border bg-code px-3 transition-[border-radius] duration-150 ${collapsed || headerSolo ? "rounded-lg border-b" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H, top: GAP }}>
         {/* Full-box collapse target. The label/counts above it are
             pointer-events-none, so hovering anywhere in the header (padding +
             gaps included) reaches this button and — via peer-hover — lights the
@@ -605,7 +647,7 @@ const VFileSection = memo(function VFileSection({
           className="peer/col absolute inset-0"
         />
         <span className="pointer-events-none relative flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors peer-hover/col:bg-foreground/[0.06] peer-hover/col:text-foreground">
-          {collapsed ? <ChevronRight className="size-4" /> : <ChevronDown className="size-4" />}
+          <ChevronRight className={`size-4 transition-transform duration-200 ${collapsed ? "" : "rotate-90"}`} />
         </span>
         <span className={`pointer-events-none relative min-w-0 flex-1 truncate text-[13px] ${viewed ? "opacity-55 group-hover/h:opacity-100" : ""}`}>
           {dir && <span className="text-muted-foreground">{dir}</span>}
@@ -782,6 +824,8 @@ export function VirtualDiffPane({
   const [findOpen, setFindOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
+  const [caseSensitive, setCaseSensitive] = useState(false);
+  const [wholeWord, setWholeWord] = useState(false);
   const findInputRef = useRef<HTMLInputElement>(null);
   const findScrollTimer = useRef(0);
   const [matchesByFile, setMatchesByFile] = useState<Map<string, FindMatch[]>>(() => new Map());
@@ -1030,8 +1074,12 @@ export function VirtualDiffPane({
           onQueryChange={setQuery}
           count={matchCount}
           activeIndex={matchCount > 0 ? Math.min(activeIdx, matchCount - 1) : -1}
+          caseSensitive={caseSensitive}
+          wholeWord={wholeWord}
           onPrev={() => stepMatch(-1)}
           onNext={() => stepMatch(1)}
+          onToggleCaseSensitive={() => setCaseSensitive((v) => !v)}
+          onToggleWholeWord={() => setWholeWord((v) => !v)}
           onClose={closeFind}
           inputRef={findInputRef}
         />
@@ -1040,21 +1088,32 @@ export function VirtualDiffPane({
       {/* diff-tailwindcss-wrapper + data-theme scope @git-diff-view's hljs token
           colors onto our rows; the gdv layer sits below `utilities`, so our layout wins. */}
       <div className="diff-tailwindcss-wrapper" data-theme={theme} style={{ position: "relative", height: total }}>
+        {/* Opaque cap over the GAP above a stuck file header: diff content
+            scrolling up would otherwise peek through the canvas gap between the
+            pane's top edge and the header (which sticks at top:GAP). Sticky at the
+            very top, above the headers (z-30 > header z-20). (#6) */}
+        <div className="sticky top-0 z-30 bg-background" style={{ height: GAP }} aria-hidden />
         {files.map((entry, i) => {
           const collapsed = collapsedFor(entry);
           const bh = collapsed ? 0 : (bodyHeights[entry.path] ?? estReserved(entry));
           const sectionTop = offsets[i], bodyTop = sectionTop + HEADER_H;
           const onScreen = viewportH > 0 && !collapsed && bodyTop + bh > top0 && bodyTop < bot0;
           const view: [number, number] | null = onScreen ? [Math.max(0, top0 - bodyTop), Math.max(0, bot0 - bodyTop)] : null;
+          // Header is "solo" when its body has fully scrolled up under the stuck
+          // header (nothing renders right below it) — round its bottom corners so
+          // it doesn't read as a cut-off tab. (#6)
+          const headerSolo = !collapsed && bh > 0 && scrollTop >= sectionTop + bh - GAP && scrollTop <= sectionTop + bh + HEADER_H;
           return (
             <div key={entry.path} style={{ position: "absolute", top: sectionTop, left: PAD, right: PAD }}>
               <VFileSection
                 entry={entry} theme={theme} layout={layout} cache={cache}
                 collapsed={collapsed} viewed={viewedFiles.has(entry.path)}
+                headerSolo={headerSolo}
                 repoPath={target.repoPath}
                 onToggleCollapse={toggleCollapse} onToggleViewed={onToggleViewed}
                 view={view} paneW={viewportW}
                 query={findActive ? query : ""}
+                caseSensitive={caseSensitive} wholeWord={wholeWord}
                 activeMatch={activeMatch && activeMatch.file === entry.path ? { modelIndex: activeMatch.modelIndex, side: activeMatch.side, col: activeMatch.col } : null}
                 onMatches={onMatches}
                 forceModel={findActive}

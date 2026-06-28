@@ -55,8 +55,10 @@ export function CommentIndex({
       className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-out ${open ? "w-80" : "w-0"}`}
     >
       {visible && (
-      <div data-testid="comment-index" className="flex h-full w-80 min-h-0 flex-col border-l border-border/70 bg-muted/20">
-      <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-[12px]">
+      // Floating layout (#pad): transparent panel, no borders, PAD inset; the
+      // comment cards float on the canvas like the diff cards.
+      <div data-testid="comment-index" className="flex h-full w-80 min-h-0 flex-col">
+      <div className="flex h-9 shrink-0 items-center gap-2 px-3.5 pt-3.5 text-[12px]">
         <span className="font-medium text-foreground">Comments</span>
         <span className="text-muted-foreground/50">·</span>
         <span className="text-muted-foreground">{anchored.length}</span>
@@ -78,14 +80,14 @@ export function CommentIndex({
           <X className="size-4" />
         </Button>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto px-3.5 pb-3.5 pt-2">
         {anchored.length === 0 && (
           <p className="py-8 text-center text-[13px] text-muted-foreground">No comments yet</p>
         )}
         {anchored.map((c) => (
           <button
             key={c.id}
-            className="group flex w-full min-w-0 shrink-0 flex-col items-start gap-1 overflow-hidden rounded-lg border border-border bg-card/40 px-3 py-2.5 text-left text-[13px] hover:border-foreground/25 hover:bg-foreground/[0.04]"
+            className="group flex w-full min-w-0 shrink-0 flex-col items-start gap-1 overflow-hidden rounded-lg border border-border bg-card px-3 py-2.5 text-left text-[13px] shadow-xs hover:border-foreground/25 hover:bg-foreground/[0.04] dark:shadow-none"
             onClick={() => onJump(c)}
           >
             <span className="flex w-full min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
