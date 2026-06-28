@@ -216,6 +216,49 @@ pub fn list_registry(app: tauri::AppHandle) -> Result<Registry, String> {
     Ok(reg)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickerWorktree {
+    #[serde(flatten)]
+    pub worktree: WorktreeEntry,
+    pub repo_name: String,
+    pub repo_id: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickerData {
+    pub recents: Vec<ReviewEntry>,
+    pub worktrees: Vec<PickerWorktree>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub home: Option<String>,
+}
+
+/// Recents + the live, currently-checked-out worktrees of every known repo, with
+/// worktrees already covered by a review removed (they show under recents).
+pub fn list_picker_impl(reg_store: &dyn RegistryStore, home: Option<String>) -> Result<PickerData, String> {
+    let reg = reg_store.load()?;
+    let recents = reg.reviews.clone();
+    let mut worktrees = Vec::new();
+    for repo in &reg.repos {
+        // Best-effort: a repo whose worktrees can't be listed (moved/deleted) is skipped.
+        let wts = launch_list_worktrees(&repo.root).unwrap_or_default();
+        for w in wts {
+            if worktree_has_review(&w, &repo.name, &recents) {
+                continue;
+            }
+            worktrees.push(PickerWorktree { worktree: w, repo_name: repo.name.clone(), repo_id: repo.id.clone() });
+        }
+    }
+    Ok(PickerData { recents, worktrees, home })
+}
+
+#[tauri::command]
+pub fn list_picker(app: tauri::AppHandle) -> Result<PickerData, String> {
+    let home = std::env::var("HOME").ok();
+    list_picker_impl(&reg_store(&app)?, home)
+}
+
 #[tauri::command]
 pub fn list_worktrees(repo_path: String) -> Result<Vec<WorktreeEntry>, String> {
     launch_list_worktrees(&repo_path)
@@ -346,6 +389,36 @@ mod tests {
         assert!(!worktree_has_review(&wt("/r/demo-b", "feat/b"), "demo", &recents));
         // different repo (different path + name) → not covered, even on a same-named branch
         assert!(!worktree_has_review(&wt("/r/other", "feat/a"), "other", &recents));
+    }
+
+    #[test]
+    fn list_picker_returns_recents_and_unreviewed_worktrees() {
+        let (dir, repo) = repo_with_commit(); // main worktree on "main"
+        add_worktree(&repo, dir.path(), "demo-feat", "feat/a"); // linked worktree "feat/a"
+        let root = dir.path().to_str().unwrap().to_string();
+
+        let store_dir = tempfile::TempDir::new().unwrap();
+        let (_storage, reg_store) = stores(store_dir.path());
+        let entry = repo_entry(&root).unwrap();
+        let repo_name = entry.name.clone();
+        let mut reg = reg_store.load().unwrap();
+        reg.upsert_repo(entry);
+        reg.upsert_review(ReviewEntry {
+            id: "rev1".into(),
+            repo_name: repo_name.clone(),
+            target: Target { repo_path: root.clone(), worktree: Some("main".into()), mode: DiffMode::AllChanges, base: None },
+            last_opened_at: "t".into(),
+            comment_count: 0, stale_count: 0, viewed_count: 0, file_count: 1,
+        });
+        reg_store.save(&reg).unwrap();
+
+        let data = list_picker_impl(&reg_store, Some("/Users/me".into())).unwrap();
+        assert_eq!(data.recents.len(), 1);
+        // "main" is covered by a review → only "feat/a" appears under other worktrees.
+        let branches: Vec<&str> = data.worktrees.iter().map(|w| w.worktree.branch.as_str()).collect();
+        assert_eq!(branches, vec!["feat/a"]);
+        assert_eq!(data.worktrees[0].repo_name, repo_name);
+        assert_eq!(data.home.as_deref(), Some("/Users/me"));
     }
 
     #[test]

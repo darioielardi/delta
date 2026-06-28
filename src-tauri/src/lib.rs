@@ -41,6 +41,7 @@ pub fn run() {
             commands::export_review,
             commands::open_target,
             commands::list_registry,
+            commands::list_picker,
             commands::list_worktrees,
             commands::import_repo,
             commands::delete_review,
