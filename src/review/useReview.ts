@@ -88,6 +88,14 @@ export function useReview(initial: Review | null) {
     mutate((r) => ({ ...r, comments: r.comments.filter((c) => c.id !== id) }), "now");
   }, [mutate]);
 
+  const toggleResolved = useCallback((id: string) => {
+    const now = new Date().toISOString();
+    mutate(
+      (r) => ({ ...r, comments: r.comments.map((c) => (c.id === id ? { ...c, resolved: !c.resolved, updatedAt: now } : c)) }),
+      "now",
+    );
+  }, [mutate]);
+
   const toggleViewed = useCallback((file: string, diffHash: string) => {
     mutate((r) => {
       const exists = r.viewed.some((v) => v.file === file);
@@ -96,5 +104,5 @@ export function useReview(initial: Review | null) {
     }, "now");
   }, [mutate]);
 
-  return { review, setReview, addComment, updateCommentBody, deleteComment, toggleViewed };
+  return { review, setReview, addComment, updateCommentBody, deleteComment, toggleResolved, toggleViewed };
 }
