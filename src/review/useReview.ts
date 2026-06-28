@@ -66,6 +66,7 @@ export function useReview(initial: Review | null) {
       anchor: anchor ?? null,
       body,
       stale: false,
+      resolved: false,
       createdAt: now,
       updatedAt: now,
     };

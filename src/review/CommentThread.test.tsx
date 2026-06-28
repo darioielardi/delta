@@ -4,7 +4,7 @@ import { CommentThread } from "./CommentThread";
 import type { Comment } from "../types";
 
 const comments: Comment[] = [
-  { id: "c1", scope: "line", anchor: null, body: "**bold** note", stale: true, createdAt: "t", updatedAt: "t" },
+  { id: "c1", scope: "line", anchor: null, body: "**bold** note", stale: true, resolved: false, createdAt: "t", updatedAt: "t" },
 ];
 
 describe("CommentThread", () => {
@@ -19,7 +19,7 @@ describe("CommentThread", () => {
 
   it("removes a just-created empty comment when its editor is cancelled", () => {
     const onDelete = vi.fn();
-    const draft: Comment = { id: "n1", scope: "line", anchor: null, body: "", stale: false, createdAt: "t", updatedAt: "t" };
+    const draft: Comment = { id: "n1", scope: "line", anchor: null, body: "", stale: false, resolved: false, createdAt: "t", updatedAt: "t" };
     render(<CommentThread comments={[draft]} onEdit={() => {}} onDelete={onDelete} />);
     // The empty draft auto-opens its editor; cancelling a never-saved blank
     // comment should remove it entirely rather than leave an empty note.

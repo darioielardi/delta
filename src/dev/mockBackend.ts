@@ -141,6 +141,7 @@ const REVIEW: Review = {
       anchor: { file: "src/auth/session.ts", side: "new", startLine: 3, endLine: null, snippet: "  return store.read(user.id)" },
       body: "Use the store, not the cache.",
       stale: false,
+      resolved: false,
       createdAt: "2026-06-25T18:50:00Z",
       updatedAt: "2026-06-25T18:50:00Z",
     },
@@ -150,6 +151,7 @@ const REVIEW: Review = {
       anchor: null,
       body: "Standardize error handling across `auth/`.",
       stale: false,
+      resolved: false,
       createdAt: "2026-06-25T18:51:00Z",
       updatedAt: "2026-06-25T18:51:00Z",
     },
@@ -160,6 +162,7 @@ const REVIEW: Review = {
       anchor: { file: "src/config/limits.ts", side: "new", startLine: 3, endLine: 5, snippet: "export const RETRY_BACKOFF_MS = 250\nexport const REQUEST_TIMEOUT_MS = 5000\nexport const MAX_PAYLOAD_BYTES = 1_048_576" },
       body: "These three belong in env config, not hardcoded.",
       stale: false,
+      resolved: true,
       createdAt: "2026-06-25T18:52:00Z",
       updatedAt: "2026-06-25T18:52:00Z",
     },
@@ -192,6 +195,7 @@ const REGISTRY: Registry = {
       lastOpenedAt: "2026-06-26T10:00:00Z",
       commentCount: 3,
       staleCount: 1,
+      resolvedCount: 1,
       viewedCount: 2,
       fileCount: 7,
     },
@@ -202,6 +206,7 @@ const REGISTRY: Registry = {
       lastOpenedAt: "2026-06-25T09:00:00Z",
       commentCount: 0,
       staleCount: 0,
+      resolvedCount: 0,
       viewedCount: 0,
       fileCount: 2,
     },
@@ -268,10 +273,10 @@ function genLarge(fileCount: number): { summary: DiffSummary; files: Record<stri
       oldContent: genFile(path, n, 0, churn, ext), newContent: genFile(path, n, 1, churn, ext),
     };
     if (i % 4 === 0) {
-      comments.push({ id: `gc${i}`, scope: "line", anchor: { file: path, side: "new", startLine: 4, endLine: null, snippet: "  const v3 = compute(3, ...)" }, body: `Review note on ${path}: verify this path.`, stale: i % 7 === 0, createdAt: "2026-06-25T18:50:00Z", updatedAt: "2026-06-25T18:50:00Z" });
+      comments.push({ id: `gc${i}`, scope: "line", anchor: { file: path, side: "new", startLine: 4, endLine: null, snippet: "  const v3 = compute(3, ...)" }, body: `Review note on ${path}: verify this path.`, stale: i % 7 === 0, resolved: i % 5 === 0, createdAt: "2026-06-25T18:50:00Z", updatedAt: "2026-06-25T18:50:00Z" });
     }
     if (i % 9 === 3) {
-      comments.push({ id: `gr${i}`, scope: "range", anchor: { file: path, side: "new", startLine: 6, endLine: 9, snippet: "range" }, body: `Range comment on ${path}.`, stale: false, createdAt: "2026-06-25T18:50:00Z", updatedAt: "2026-06-25T18:50:00Z" });
+      comments.push({ id: `gr${i}`, scope: "range", anchor: { file: path, side: "new", startLine: 6, endLine: 9, snippet: "range" }, body: `Range comment on ${path}.`, stale: false, resolved: false, createdAt: "2026-06-25T18:50:00Z", updatedAt: "2026-06-25T18:50:00Z" });
     }
   }
   return {
@@ -299,8 +304,14 @@ export function installMockBackend(): void {
       }
       case "save_review":
         return undefined as T;
-      case "export_review":
-        return "# Review — demo · feat/auth · All changes\n\n## General\n- Standardize error handling.\n" as T;
+      case "export_review": {
+        const open = ds.review.comments.filter((c) => !c.resolved);
+        const lines = open.map((c) => {
+          const loc = c.anchor ? `${c.anchor.file}${c.anchor.startLine ? `:${c.anchor.startLine}` : ""}` : "general";
+          return `- [${loc}] ${c.body}`;
+        });
+        return `# Review — demo · feat/auth · All changes\n\n${lines.join("\n")}\n` as T;
+      }
       case "list_worktrees":
         // Varied timestamps + dirty flags exercise the recency sort and the
         // enriched worktree picker (#1/#6).

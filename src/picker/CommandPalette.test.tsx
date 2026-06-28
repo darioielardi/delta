@@ -10,8 +10,8 @@ const REG: Registry = {
     { id: "r1", root: "/r/demo", name: "demo", defaultBranch: "main", worktrees: [{ path: "/r/demo", branch: "main", isMain: true }] },
   ],
   reviews: [
-    { id: "abc", repoName: "demo", target: { repoPath: "/r/demo", worktree: "feat/auth", mode: "all-changes" }, lastOpenedAt: "2026-06-26T10:00:00Z", commentCount: 3, staleCount: 1, viewedCount: 0, fileCount: 7 },
-    { id: "def", repoName: "demo", target: { repoPath: "/r/demo", worktree: "main", mode: "uncommitted" }, lastOpenedAt: "2026-06-25T09:00:00Z", commentCount: 0, staleCount: 0, viewedCount: 0, fileCount: 2 },
+    { id: "abc", repoName: "demo", target: { repoPath: "/r/demo", worktree: "feat/auth", mode: "all-changes" }, lastOpenedAt: "2026-06-26T10:00:00Z", commentCount: 3, staleCount: 1, resolvedCount: 1, viewedCount: 0, fileCount: 7 },
+    { id: "def", repoName: "demo", target: { repoPath: "/r/demo", worktree: "main", mode: "uncommitted" }, lastOpenedAt: "2026-06-25T09:00:00Z", commentCount: 0, staleCount: 0, resolvedCount: 0, viewedCount: 0, fileCount: 2 },
   ],
 };
 
