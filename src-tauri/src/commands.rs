@@ -73,6 +73,16 @@ fn reg_store(app: &tauri::AppHandle) -> Result<JsonRegistryStore, String> {
     Ok(JsonRegistryStore::new(registry_path(app)?, reviews_dir(app)?))
 }
 
+/// True when a recent review already covers this worktree (so the picker lists it
+/// under "recent", not "other worktrees"). Matches by worktree path, or by repo
+/// name + branch (a linked worktree resolves to a different path than the review's).
+pub fn worktree_has_review(w: &WorktreeEntry, repo_name: &str, recents: &[ReviewEntry]) -> bool {
+    recents.iter().any(|r| {
+        r.target.repo_path == w.path
+            || (r.repo_name == repo_name && r.target.worktree.as_deref() == Some(w.branch.as_str()))
+    })
+}
+
 /// Upsert repo + review entry with a fresh file_count (open/refresh path). Non-fatal.
 fn sync_registry_after_open(reg_store: &dyn RegistryStore, review: &Review, file_count: u32) {
     let result = (|| -> Result<(), String> {
@@ -316,6 +326,26 @@ mod tests {
     fn stores(dir: &std::path::Path) -> (JsonStorage, JsonRegistryStore) {
         let reviews = dir.join("reviews");
         (JsonStorage::new(reviews.clone()), JsonRegistryStore::new(dir.join("registry.json"), reviews))
+    }
+
+    #[test]
+    fn worktree_has_review_matches_by_path_or_repo_and_branch() {
+        let recents = vec![ReviewEntry {
+            id: "x".into(),
+            repo_name: "demo".into(),
+            target: Target { repo_path: "/r/demo".into(), worktree: Some("feat/a".into()), mode: DiffMode::AllChanges, base: None },
+            last_opened_at: "t".into(),
+            comment_count: 0, stale_count: 0, viewed_count: 0, file_count: 1,
+        }];
+        let wt = |path: &str, branch: &str| WorktreeEntry { path: path.into(), branch: branch.into(), is_main: false, last_commit_at: None, dirty: false };
+        // same path → covered
+        assert!(worktree_has_review(&wt("/r/demo", "feat/a"), "demo", &recents));
+        // same repo + branch, different path (linked worktree) → covered
+        assert!(worktree_has_review(&wt("/r/demo-a", "feat/a"), "demo", &recents));
+        // different branch → not covered
+        assert!(!worktree_has_review(&wt("/r/demo-b", "feat/b"), "demo", &recents));
+        // different repo (different path + name) → not covered, even on a same-named branch
+        assert!(!worktree_has_review(&wt("/r/other", "feat/a"), "other", &recents));
     }
 
     #[test]
