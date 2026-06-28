@@ -72,7 +72,7 @@
        floating surfaces above it. `card` stays pure white. The cards carry their
        own border + subtle shadow, so the canvas can sit close to white and still
        read as distinct — kept just below the cards for a light, airy base. (#7) */
-    --background: oklch(0.978 0 0);
+    --background: oklch(0.986 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.145 0 0);

@@ -11,7 +11,7 @@ import { CommentIndex } from "../review/CommentIndex";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
-import { ArrowRight, Check, ChevronDown, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
+import { ArrowRight, Check, ChevronDown, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings, Sparkles } from "lucide-react";
 import { getEditorPref } from "../editor";
 import type { Anchor, Comment, DiffMode, DiffSummary, Review, ReviewSession, Target } from "../types";
 
@@ -235,6 +235,15 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     if (c.anchor?.file) setJump({ file: c.anchor.file, commentId: c.id, n: Date.now() });
   }, []);
 
+  // Dev-only: open the AI-guidance ("Guide") experience on fixtures. The backend
+  // opens a `guide-mock` window at the guide route with `?mock=1`, which makes
+  // that window self-install the mock IPC (see main.tsx) so the whole guided UX
+  // renders on demo data even inside the real `tauri dev` shell — before the
+  // backend `generate_walkthrough` command exists. (#guide-dev)
+  const openWalkthrough = useCallback(() => {
+    void api.openGuide().catch((e) => setError(String(e)));
+  }, []);
+
   // Stable across renders unless `viewed` actually changes — so toggling the
   // comments pane (or any unrelated Workspace state) doesn't hand DiffPane a new
   // Set and force the whole diff to re-render. (A new Set() here was making every
@@ -318,6 +327,16 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               {summary.headLabel}
             </span>
             <div className="ml-auto flex items-center gap-3">
+              {import.meta.env.DEV && (
+                <button
+                  type="button"
+                  onClick={openWalkthrough}
+                  title="Open the AI Guidance walkthrough (dev only — mocked data)"
+                  className="group inline-flex h-7 items-center gap-1.5 rounded-md bg-gradient-to-br from-primary to-primary/70 px-2.5 text-[13px] font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:brightness-110 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <Sparkles className="size-3.5 transition-transform group-hover:rotate-12" /> Walkthrough
+                </button>
+              )}
               {pendingRefresh && (
                 <Button
                   size="sm"

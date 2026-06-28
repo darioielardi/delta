@@ -40,6 +40,7 @@ pub fn run() {
             commands::save_review,
             commands::export_review,
             commands::open_target,
+            commands::open_guide,
             commands::list_registry,
             commands::list_worktrees,
             commands::import_repo,

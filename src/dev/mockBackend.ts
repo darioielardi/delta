@@ -5,7 +5,7 @@
 // Keep fixtures realistic but small. As Plan 2 adds commands (open_review,
 // refresh_review, save_review, export_review) extend the switch + fixtures here.
 import { __setInvokeForDev } from "../api";
-import type { DiffSummary, FileDiff, Registry, Review, ReviewSession } from "../types";
+import type { DiffSummary, FileDiff, Registry, Review, ReviewSession, Walkthrough } from "../types";
 
 const SUMMARY: DiffSummary = {
   baseLabel: "main",
@@ -169,6 +169,119 @@ const REVIEW: Review = {
   lastOpenedAt: "2026-06-25T18:54:00Z",
 };
 
+// Canned AI-guidance walkthrough for the small fixture — a realistic "feat/auth"
+// narrative spanning core/supporting/skim groups, both risk severities, and an
+// ignored (noise) bucket. Mirrors the files in SUMMARY.
+const WALKTHROUGH: Walkthrough = {
+  version: 1,
+  title: "Auth session store migration",
+  summary:
+    "Moves auth session reads to the persistent store and widens token tolerance. The src/auth store migration is the core; config and docs are mechanical.",
+  groups: [
+    {
+      id: "session-store-migration",
+      title: "Session store migration",
+      summary: "Session reads move from the in-memory cache to the persistent store; TTL doubles to 7200.",
+      order: 1,
+      importance: "core",
+      files: [
+        { path: "src/auth/session.ts", note: "cache → store; TTL 3600→7200", collapsed: false },
+        { path: "src/legacy/cache.ts", note: "old cache, now deleted", collapsed: true },
+      ],
+      risks: [
+        { path: "src/auth/session.ts", line: 3, severity: "caution", note: "TTL doubles and reads now hit the store — confirm it has the cache’s eviction semantics." },
+      ],
+    },
+    {
+      id: "token-tolerance",
+      title: "Token validation tolerance",
+      summary: "verify() now accepts tokens up to 5s outside their window.",
+      order: 2,
+      importance: "supporting",
+      files: [
+        { path: "src/auth/login.ts", note: "adds clockTolerance: 5", collapsed: false },
+      ],
+      risks: [
+        { path: "src/auth/login.ts", line: 3, severity: "watch", note: "Widening the JWT acceptance window is a security-relevant tradeoff — intended?" },
+      ],
+    },
+    {
+      id: "session-api",
+      title: "Session API surface",
+      summary: "Adds includeRevoked and geoHint query params to the session routes.",
+      order: 3,
+      importance: "supporting",
+      files: [
+        { path: "src/api/routes.ts", note: "new query params", collapsed: false },
+      ],
+      risks: [],
+    },
+    {
+      id: "config-tunables",
+      title: "Config tunables",
+      summary: "Bumps MAX_RETRIES and KEEPALIVE_MS; the rest of the file is unchanged.",
+      order: 4,
+      importance: "skim",
+      files: [
+        { path: "src/config/limits.ts", note: "two constant bumps", collapsed: true },
+      ],
+      risks: [],
+    },
+    {
+      id: "docs",
+      title: "Docs",
+      summary: "New README blurb. No functional impact.",
+      order: 5,
+      importance: "skim",
+      files: [
+        { path: "README.md", note: "new file", collapsed: true },
+      ],
+      risks: [],
+    },
+  ],
+  ignored: [
+    { path: "assets/logo.png", reason: "binary asset" },
+  ],
+};
+
+// Build a plausible walkthrough for the `?large=N` fixture so the panel isn't
+// empty there: bucket files by kind, push the giant auto-collapse files to the
+// ignored bin, and skim the css/md.
+function genLargeWalkthrough(summary: DiffSummary): Walkthrough {
+  const paths = summary.files.map((f) => f.path);
+  const giants = paths.filter((p) => /module\d+/.test(p) && /(008|025|042|059|076|093)\./.test(p));
+  const giantSet = new Set(giants);
+  const code = paths.filter((p) => /\.(ts|tsx)$/.test(p) && !giantSet.has(p));
+  const styleDocs = paths.filter((p) => /\.(css|md)$/.test(p) && !giantSet.has(p));
+  const cap = <T,>(a: T[], n: number) => a.slice(0, n);
+  return {
+    version: 1,
+    title: "Broad refactor across modules",
+    summary: `Broad change across ${summary.files.length} files. The bulk is mechanical edits to shared modules; a handful of large files and generated config are noise you can skip.`,
+    groups: [
+      {
+        id: "core-modules", title: "Core module edits", order: 1, importance: "core",
+        summary: "The substantive logic changes live in these shared modules.",
+        files: cap(code, 6).map((p, i) => ({ path: p, note: i === 0 ? "primary change" : undefined, collapsed: false })),
+        risks: code.length ? [{ path: code[0], line: 4, severity: "watch" as const, note: "Touches a shared compute() path used widely — verify call sites." }] : [],
+      },
+      {
+        id: "supporting", title: "Supporting edits", order: 2, importance: "supporting",
+        summary: "Smaller follow-on edits in the same direction.",
+        files: cap(code.slice(6), 8).map((p) => ({ path: p, collapsed: false })),
+        risks: [],
+      },
+      {
+        id: "styles-docs", title: "Styles & docs", order: 3, importance: "skim",
+        summary: "Stylesheet and markdown churn — safe to skim.",
+        files: cap(styleDocs, 8).map((p) => ({ path: p, collapsed: true })),
+        risks: [],
+      },
+    ],
+    ignored: giants.map((p) => ({ path: p, reason: "large file" })),
+  };
+}
+
 const REGISTRY: Registry = {
   version: 1,
   home: "/Users/me",
@@ -301,6 +414,11 @@ export function installMockBackend(): void {
         return undefined as T;
       case "export_review":
         return "# Review — demo · feat/auth · All changes\n\n## General\n- Standardize error handling.\n" as T;
+      case "generate_walkthrough": {
+        // Simulate `claude` CLI latency so the panel's loading state is exercised.
+        await new Promise((r) => setTimeout(r, 450));
+        return (largeParam ? genLargeWalkthrough(ds.summary) : WALKTHROUGH) as T;
+      }
       case "list_worktrees":
         // Varied timestamps + dirty flags exercise the recency sort and the
         // enriched worktree picker (#1/#6).
@@ -319,6 +437,10 @@ export function installMockBackend(): void {
         } as T;
       case "open_target":
         console.info("[delta mock] open_target", args);
+        return undefined as T;
+      case "open_guide":
+        // No Tauri windows in the browser — open the guide route in a new tab.
+        if (typeof window !== "undefined") window.open("?view=guide&mock=1", "_blank");
         return undefined as T;
       case "list_registry":
         return structuredClone(REGISTRY) as T;

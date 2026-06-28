@@ -1,33 +1,15 @@
 // src/files/FilesPanel.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, FileCode, FileJson, FileText, Check, List, ListTree, MessageSquare, Search, X } from "lucide-react";
-import type { FileEntry, FileStatus } from "../types";
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, Check, List, ListTree, MessageSquare, Search, X } from "lucide-react";
+import type { FileEntry } from "../types";
 import { buildTree, type TreeNode } from "./buildTree";
-
-const STATUS_COLOR: Record<FileStatus, string> = {
-  added: "text-emerald-500",
-  modified: "text-amber-500",
-  deleted: "text-rose-500",
-  renamed: "text-sky-500",
-};
-
-const CODE_EXT = new Set([
-  "ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "go", "py", "rb", "java", "kt", "swift",
-  "c", "cc", "cpp", "h", "hpp", "css", "scss", "html", "vue", "svelte", "sh", "toml", "yml", "yaml",
-]);
+import { FileGlyph } from "./fileGlyph";
 
 // Stable empty set so search-mode (force-open) rendering doesn't allocate per render.
 const NO_COLLAPSE: Set<string> = new Set();
 // Stable empty map fallback when no comment counts are supplied. (#1)
 const EMPTY_COUNTS: Map<string, number> = new Map();
-
-function FileGlyph({ name, status }: { name: string; status: FileStatus }) {
-  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
-  const Icon = ext === "json" ? FileJson : CODE_EXT.has(ext) ? FileCode : FileText;
-  // Icon colored by git status — one glyph carries both file type and change kind.
-  return <Icon className={`size-3.5 shrink-0 ${STATUS_COLOR[status]}`} />;
-}
 
 interface RowHandlers {
   activePath: string | null;

@@ -3,8 +3,8 @@ use crate::git::diff::{compute_diff as engine_compute, get_file_diff as engine_f
 use crate::git::model::{DiffMode, Target};
 use crate::git::{open_repo, resolve_worktree};
 use crate::launch::{
-    install_cli as launch_install_cli, list_worktrees as launch_list_worktrees, open_target_window,
-    repo_display_name, repo_entry, InstallOutcome,
+    install_cli as launch_install_cli, list_worktrees as launch_list_worktrees, open_guide_window,
+    open_target_window, repo_display_name, repo_entry, InstallOutcome,
 };
 use crate::registry::model::{Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
@@ -243,6 +243,13 @@ pub async fn import_repo(app: tauri::AppHandle) -> Result<Option<RepoEntry>, Str
 #[tauri::command]
 pub fn open_target(app: tauri::AppHandle, repo_path: String, mode: DiffMode, base: Option<String>) -> Result<(), String> {
     open_target_window(&app, &repo_path, mode, base)
+}
+
+// Dev-only affordance behind the header "Walkthrough" button: open the Guide
+// experience on mock fixtures in its own window. (#guide-dev)
+#[tauri::command]
+pub fn open_guide(app: tauri::AppHandle) -> Result<(), String> {
+    open_guide_window(&app)
 }
 
 #[tauri::command]

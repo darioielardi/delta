@@ -10,6 +10,7 @@ import type {
   RepoEntry,
   InstallOutcome,
   DiffMode,
+  Walkthrough,
 } from "./types";
 
 // Transport indirection: a dev-only fixture backend (VITE_MOCK_IPC) can replace
@@ -38,6 +39,10 @@ export const api = {
     invokeImpl("save_review", { review }),
   exportReview: (review: Review): Promise<string> =>
     invokeImpl("export_review", { review }),
+  // AI guidance: analyze the target's diff with the local `claude` CLI and return
+  // a structured walkthrough. (Backend handler is deferred — mock-served today.)
+  generateWalkthrough: (target: Target): Promise<Walkthrough> =>
+    invokeImpl("generate_walkthrough", { target }),
   listRegistry: (): Promise<Registry> => invokeImpl("list_registry"),
   listWorktrees: (repoPath: string): Promise<WorktreeEntry[]> =>
     invokeImpl("list_worktrees", { repoPath }),
@@ -45,6 +50,8 @@ export const api = {
   openTarget: (repoPath: string, mode: DiffMode, base?: string): Promise<void> =>
     invokeImpl("open_target", { repoPath, mode, base }),
   deleteReview: (id: string): Promise<void> => invokeImpl("delete_review", { id }),
+  // Dev-only: open the Guide experience on mock fixtures in its own window. (#guide-dev)
+  openGuide: (): Promise<void> => invokeImpl("open_guide"),
   installCli: (): Promise<InstallOutcome> => invokeImpl("install_cli"),
   // Open a file (or the repo root, when `file` is omitted) in the user's editor;
   // `line` jumps there where the editor's CLI supports it. (#editor)
