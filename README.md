@@ -10,9 +10,9 @@
 
 ---
 
-A native desktop app for reviewing git diffs and handing precise, line-anchored
-feedback to AI coding agents — comment on the exact lines, then copy the whole
-review as clean Markdown.
+A fast, beautiful desktop app for reviewing git diffs and handing precise,
+line-anchored feedback to AI coding agents — comment on the exact lines, then
+copy the whole review as clean Markdown.
 
 ## ✨ Features
 
