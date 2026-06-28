@@ -299,7 +299,7 @@ export function FilesPanel({
     // Top + left padding mirrors the diff pane's card inset (PAD) so the three
     // panes share one floating rhythm. (#pad)
     <div className="flex min-h-0 flex-1 flex-col pl-1.5 pt-3.5">
-      <div className="flex h-9 shrink-0 items-center gap-2 px-2 text-[12px]">
+      <div className="flex h-7 shrink-0 items-center gap-2 px-2 text-[12px]">
         <span
           className={`inline-block select-none rounded-md px-2 py-0.5 text-[13px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
           title="Files viewed"
@@ -336,8 +336,9 @@ export function FilesPanel({
         </div>
       </div>
 
-      {/* Search sits directly on top of the tree/list; ⌘F focuses it. (#3) */}
-      <div className="relative shrink-0 px-2 py-1.5">
+      {/* Search sits below the header (a little breathing room) and on top of the
+          tree/list; ⌘F focuses it. (#3) */}
+      <div className="relative mt-1.5 shrink-0 px-2 py-1.5">
         <Search className="pointer-events-none absolute left-4 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
         <input
           ref={searchRef}
@@ -374,7 +375,7 @@ export function FilesPanel({
         data-testid="files-tree"
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className="min-h-0 flex-1 overflow-auto px-1.5 py-1.5 outline-none"
+        className="min-h-0 flex-1 overflow-auto pl-2 pr-1.5 py-1.5 outline-none"
       >
         {searching && roots.length === 0 ? (
           <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">No files match “{query}”.</div>
