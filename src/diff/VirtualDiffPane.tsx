@@ -182,7 +182,7 @@ function Row({ model, index, top, selected, highlighted, onComment, marks }: { m
   return (
     <div data-row-index={index} className="group absolute left-0 flex items-stretch font-mono text-[13px] leading-[22px]" style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%", background: tint ?? undefined }}>
       {kind !== "hunk" && (
-        <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 z-20 ${addBtnCls}`}>
+        <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 ${addBtnCls}`}>
           <Plus className="size-3.5" strokeWidth={2.5} />
         </button>
       )}
@@ -223,7 +223,7 @@ function SplitColCell({ model, side, index, top, changed, highlighted, selected,
   return (
     <div data-row-index={index} className="group absolute left-0 flex w-full items-stretch font-mono text-[13px] leading-[22px]" style={{ top, height: ROW_H, background: tint ?? undefined }}>
       {has && (
-        <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-12 top-1/2 z-20 ${addBtnCls}`}>
+        <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-12 top-1/2 ${addBtnCls}`}>
           <Plus className="size-3.5" strokeWidth={2.5} />
         </button>
       )}
@@ -1102,11 +1102,13 @@ export function VirtualDiffPane({
       {/* diff-tailwindcss-wrapper + data-theme scope @git-diff-view's hljs token
           colors onto our rows; the gdv layer sits below `utilities`, so our layout wins. */}
       <div className="diff-tailwindcss-wrapper" data-theme={theme} style={{ position: "relative", height: total }}>
-        {/* Opaque cap over the GAP above a stuck file header: diff content
-            scrolling up would otherwise peek through the canvas gap between the
-            pane's top edge and the header (which sticks at top:GAP). Sticky at the
-            very top, above the headers (z-30 > header z-20). (#6) */}
-        <div className="sticky top-0 z-30 bg-background" style={{ height: PAD }} aria-hidden />
+        {/* Opaque cap over the canvas gap above a stuck file header: without it,
+            diff rows scrolling up peek through the strip between the pane's top
+            edge and the header (which sticks at top:PAD). Layered BETWEEN content
+            and headers (z-[15]: above the rows/rails, below header z-20) so a header
+            being pushed up by the next one slides cleanly over the cap to the top
+            edge, instead of vanishing under it ~PAD px early. (#6) */}
+        <div className="sticky top-0 z-[15] bg-background" style={{ height: PAD }} aria-hidden />
         {files.map((entry, i) => {
           const collapsed = collapsedFor(entry);
           const bh = collapsed ? 0 : (bodyHeights[entry.path] ?? estReserved(entry));
