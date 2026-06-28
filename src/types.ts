@@ -122,6 +122,22 @@ export interface Registry {
   home?: string | null;
 }
 
+export interface PickerWorktree {
+  path: string;
+  branch: string;
+  isMain: boolean;
+  lastCommitAt?: string | null;
+  dirty?: boolean;
+  repoName: string;
+  repoId: string;
+}
+
+export interface PickerData {
+  recents: ReviewEntry[];
+  worktrees: PickerWorktree[];
+  home?: string | null;
+}
+
 export type InstallOutcome =
   | { kind: "linked"; path: string }
   | { kind: "manualNeeded"; command: string; reason: string };

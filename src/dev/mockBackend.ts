@@ -5,7 +5,7 @@
 // Keep fixtures realistic but small. As Plan 2 adds commands (open_review,
 // refresh_review, save_review, export_review) extend the switch + fixtures here.
 import { __setInvokeForDev } from "../api";
-import type { DiffSummary, FileDiff, Registry, Review, ReviewSession } from "../types";
+import type { DiffSummary, FileDiff, PickerData, Registry, Review, ReviewSession } from "../types";
 
 const SUMMARY: DiffSummary = {
   baseLabel: "main",
@@ -188,7 +188,7 @@ const REGISTRY: Registry = {
     {
       id: "abc123",
       repoName: "demo",
-      target: { repoPath: "/Users/me/projects/demo", worktree: "feat/auth", mode: "all-changes", base: "main" },
+      target: { repoPath: "/Users/me/projects/demo/.worktrees/feat-auth-wt", worktree: "feat/auth", mode: "all-changes", base: "main" },
       lastOpenedAt: "2026-06-26T10:00:00Z",
       commentCount: 3,
       staleCount: 1,
@@ -327,6 +327,18 @@ export function installMockBackend(): void {
         return undefined as T;
       case "list_registry":
         return structuredClone(REGISTRY) as T;
+      case "list_picker": {
+        // feat/auth + main have reviews (see REGISTRY.reviews) → only the spike
+        // worktree shows under "other worktrees".
+        const data: PickerData = {
+          home: REGISTRY.home,
+          recents: REGISTRY.reviews,
+          worktrees: [
+            { path: "/Users/me/projects/demo/.worktrees/spike", branch: "spike/new-idea", isMain: false, lastCommitAt: "2026-06-26T15:45:00Z", dirty: false, repoName: "demo", repoId: "r1" },
+          ],
+        };
+        return structuredClone(data) as T;
+      }
       case "delete_review":
         console.info("[delta mock] delete_review", args);
         return undefined as T;

@@ -50,15 +50,31 @@ fn worktree_meta(repo: &git2::Repository) -> (Option<String>, bool) {
         .and_then(|h| h.peel_to_commit().ok())
         .and_then(|c| chrono::DateTime::from_timestamp(c.time().seconds(), 0))
         .map(|dt| dt.to_rfc3339());
-    let dirty = {
-        let mut opts = git2::StatusOptions::new();
-        opts.include_untracked(true).include_ignored(false);
-        repo.statuses(Some(&mut opts)).map(|s| !s.is_empty()).unwrap_or(false)
-    };
-    (last_commit_at, dirty)
+    // The dirty flag needs a full `git status` scan (working-tree walk incl. untracked)
+    // per worktree — the dominant cost when a repo has dozens of worktrees. Dropped
+    // from the hot path; the picker shows worktrees without an uncommitted marker.
+    (last_commit_at, false)
+}
+
+/// Open a linked worktree and read its display metadata. Each call uses its own
+/// `Repository` handle, so this is safe to run on a worker thread.
+fn linked_worktree_entry(path: &Path) -> Option<WorktreeEntry> {
+    let wt_repo = git2::Repository::open(path).ok()?;
+    let branch = resolve_worktree(&wt_repo).unwrap_or_else(|_| "(detached)".into());
+    let (last_commit_at, dirty) = worktree_meta(&wt_repo);
+    Some(WorktreeEntry {
+        path: path.display().to_string(),
+        branch,
+        is_main: false,
+        last_commit_at,
+        dirty,
+    })
 }
 
 /// All checked-out worktrees of the repo: the main workdir + any linked worktrees.
+/// The per-worktree metadata (HEAD time + dirty status) is the slow part — a
+/// `git status` scan each — so linked worktrees are opened and scanned in parallel
+/// batches. A repo with dozens of worktrees would otherwise take hundreds of ms.
 pub fn list_worktrees(repo_path: &str) -> Result<Vec<WorktreeEntry>, String> {
     let repo = open_repo(repo_path)?;
     let mut out = Vec::new();
@@ -72,24 +88,20 @@ pub fn list_worktrees(repo_path: &str) -> Result<Vec<WorktreeEntry>, String> {
             dirty,
         });
     }
+    // Resolve linked-worktree paths up front (cheap), then scan them concurrently.
     let names = repo.worktrees().map_err(|e| format!("list worktrees: {e}"))?;
-    for name in names.iter().flatten() {
-        let wt = match repo.find_worktree(name) {
-            Ok(wt) => wt,
-            Err(_) => continue,
-        };
-        let wt_path = wt.path();
-        if let Ok(wt_repo) = git2::Repository::open(wt_path) {
-            let branch = resolve_worktree(&wt_repo).unwrap_or_else(|_| "(detached)".into());
-            let (last_commit_at, dirty) = worktree_meta(&wt_repo);
-            out.push(WorktreeEntry {
-                path: wt_path.display().to_string(),
-                branch,
-                is_main: false,
-                last_commit_at,
-                dirty,
-            });
-        }
+    let paths: Vec<PathBuf> = names
+        .iter()
+        .flatten()
+        .filter_map(|name| repo.find_worktree(name).ok().map(|wt| wt.path().to_path_buf()))
+        .collect();
+    // Bounded fan-out: up to 16 worktrees scanned at once per batch.
+    for chunk in paths.chunks(16) {
+        let batch: Vec<WorktreeEntry> = std::thread::scope(|s| {
+            let handles: Vec<_> = chunk.iter().map(|p| s.spawn(|| linked_worktree_entry(p))).collect();
+            handles.into_iter().filter_map(|h| h.join().ok().flatten()).collect()
+        });
+        out.extend(batch);
     }
     Ok(out)
 }

@@ -8,11 +8,13 @@ import { FilesPanel } from "../files/FilesPanel";
 import { flattenTreeFiles } from "../files/buildTree";
 import { VirtualDiffPane } from "../diff/VirtualDiffPane";
 import { CommentIndex } from "../review/CommentIndex";
+import { prefetchPicker } from "../picker/pickerData";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
-import { ArrowRight, Check, ChevronDown, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, GitCompareArrows, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, GitCompareArrows, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
 import { getEditorPref } from "../editor";
+import { worktreeName } from "../lib/utils";
 import type { Anchor, Comment, DiffMode, DiffSummary, Review, ReviewSession, Target } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
@@ -87,6 +89,12 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     reviewRef.current = review;
     summaryRef.current = summary;
   }, [review, summary]);
+
+  // Warm the ⌘K picker cache once the review window is up, so the first open is
+  // instant (the picker's live worktree enumeration is the slow part).
+  useEffect(() => {
+    prefetchPicker();
+  }, []);
 
   async function open() {
     try {
@@ -287,12 +295,21 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
           title="Open command palette (⌘P)"
           className="inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-muted/40 px-2.5 text-[13px] font-medium text-foreground transition-colors hover:bg-muted focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
-          <Search className="size-3.5 text-muted-foreground" />
-          {repoName || target.repoPath.split("/").filter(Boolean).pop()}
+          <Search className="size-3.5 shrink-0 text-muted-foreground" />
+          {(() => {
+            const wt = worktreeName(target.repoPath);
+            const isMain = !!repoName && wt === repoName;
+            return (
+              <span className="flex min-w-0 items-center">
+                {repoName && !isMain && <span className="shrink-0 font-normal text-muted-foreground">{repoName}&nbsp;/&nbsp;</span>}
+                <span className="truncate">{isMain ? repoName : wt}</span>
+              </span>
+            );
+          })()}
           {review?.target.worktree ? (
-            <span className="ml-0.5 flex items-center gap-1 font-normal text-muted-foreground">
-              <GitBranch className="size-3" />
-              {review.target.worktree}
+            <span className="ml-1 flex min-w-0 items-center gap-1 border-l border-border/70 pl-2 font-normal text-muted-foreground">
+              <GitBranch className="size-3 shrink-0" />
+              <span className="truncate">{review.target.worktree}</span>
             </span>
           ) : null}
           <kbd className="ml-1 rounded border border-border/70 bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">⌘P</kbd>
@@ -312,11 +329,6 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               </select>
               <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             </div>
-            <span className="flex items-center gap-1 rounded-lg squircle bg-muted px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
-              {summary.baseLabel}
-              <ArrowRight className="size-3 opacity-50" />
-              {summary.headLabel}
-            </span>
             <div className="ml-auto flex items-center gap-3">
               {pendingRefresh && (
                 <Button
