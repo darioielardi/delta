@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { fuzzyMatch, rankReviews } from "./fuzzy";
-import type { ReviewEntry } from "../types";
+import { fuzzyMatch, rankReviews, rankWorktrees } from "./fuzzy";
+import type { PickerWorktree, ReviewEntry } from "../types";
 
 function entry(id: string, branch: string, repoName: string, lastOpenedAt: string): ReviewEntry {
   return {
@@ -40,5 +40,26 @@ describe("rankReviews", () => {
     const a = entry("a", "main", "demo", "t");
     const b = entry("b", "feat/auth", "demo", "t");
     expect(rankReviews([a, b], "auth").map((r) => r.id)).toEqual(["b"]);
+  });
+});
+
+describe("rankWorktrees", () => {
+  const wt = (branch: string, repoName: string, lastCommitAt?: string): PickerWorktree => ({
+    path: `/r/${branch}`,
+    branch,
+    isMain: false,
+    lastCommitAt,
+    dirty: false,
+    repoName,
+    repoId: "r1",
+  });
+
+  it("empty query sorts by lastCommitAt desc", () => {
+    const list = [wt("feat/a", "demo", "2026-06-20T00:00:00Z"), wt("feat/b", "demo", "2026-06-26T00:00:00Z")];
+    expect(rankWorktrees(list, "").map((w) => w.branch)).toEqual(["feat/b", "feat/a"]);
+  });
+  it("filters by branch/repo query", () => {
+    const list = [wt("feat/a", "demo"), wt("feat/b", "demo")];
+    expect(rankWorktrees(list, "feat/a").map((w) => w.branch)).toEqual(["feat/a"]);
   });
 });

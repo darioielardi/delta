@@ -1,4 +1,4 @@
-import type { ReviewEntry } from "../types";
+import type { PickerWorktree, ReviewEntry } from "../types";
 
 /** Subsequence fuzzy match. Returns a score (higher is better), or null if no match. */
 export function fuzzyMatch(query: string, text: string): number | null {
@@ -30,4 +30,15 @@ export function rankReviews(reviews: ReviewEntry[], query: string): ReviewEntry[
   }
   scored.sort((a, b) => b.score - a.score || b.r.lastOpenedAt.localeCompare(a.r.lastOpenedAt));
   return scored.map((x) => x.r);
+}
+
+/** Filter + rank worktrees against a query (branch + repo name haystack). */
+export function rankWorktrees(worktrees: PickerWorktree[], query: string): PickerWorktree[] {
+  const scored: { w: PickerWorktree; score: number }[] = [];
+  for (const w of worktrees) {
+    const score = fuzzyMatch(query, `${w.branch} ${w.repoName}`);
+    if (score !== null) scored.push({ w, score });
+  }
+  scored.sort((a, b) => b.score - a.score || (b.w.lastCommitAt ?? "").localeCompare(a.w.lastCommitAt ?? ""));
+  return scored.map((x) => x.w);
 }
