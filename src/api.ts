@@ -6,6 +6,7 @@ import type {
   Review,
   ReviewSession,
   Registry,
+  PickerData,
   WorktreeEntry,
   RepoEntry,
   InstallOutcome,
@@ -39,6 +40,7 @@ export const api = {
   exportReview: (review: Review): Promise<string> =>
     invokeImpl("export_review", { review }),
   listRegistry: (): Promise<Registry> => invokeImpl("list_registry"),
+  listPicker: (): Promise<PickerData> => invokeImpl("list_picker"),
   listWorktrees: (repoPath: string): Promise<WorktreeEntry[]> =>
     invokeImpl("list_worktrees", { repoPath }),
   importRepo: (): Promise<RepoEntry | null> => invokeImpl("import_repo"),
