@@ -188,7 +188,7 @@ const REGISTRY: Registry = {
     {
       id: "abc123",
       repoName: "demo",
-      target: { repoPath: "/Users/me/projects/demo", worktree: "feat/auth", mode: "all-changes", base: "main" },
+      target: { repoPath: "/Users/me/projects/demo/.worktrees/feat-auth-wt", worktree: "feat/auth", mode: "all-changes", base: "main" },
       lastOpenedAt: "2026-06-26T10:00:00Z",
       commentCount: 3,
       staleCount: 1,
@@ -329,7 +329,7 @@ export function installMockBackend(): void {
           home: REGISTRY.home,
           recents: REGISTRY.reviews,
           worktrees: [
-            { path: "/Users/me/projects/demo-spike", branch: "spike/new-idea", isMain: false, lastCommitAt: "2026-06-26T15:45:00Z", dirty: false, repoName: "demo", repoId: "r1" },
+            { path: "/Users/me/projects/demo/.worktrees/spike", branch: "spike/new-idea", isMain: false, lastCommitAt: "2026-06-26T15:45:00Z", dirty: false, repoName: "demo", repoId: "r1" },
           ],
         };
         return structuredClone(data) as T;

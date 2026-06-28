@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { rankReviews, rankWorktrees } from "./fuzzy";
 import { loadPicker, peekPickerCache } from "./pickerData";
 import { GitBranch, MessageSquare, TriangleAlert, FolderPlus, Folder } from "lucide-react";
+import { worktreeName } from "../lib/utils";
 import type { PickerData, PickerWorktree, ReviewEntry, Target } from "../types";
 
 function relTime(iso: string): string {
@@ -19,13 +20,26 @@ function relTime(iso: string): string {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
-/** A repo chip so each row clearly shows which repository the worktree belongs to. */
-function repoBadge(repoName: string): ReactNode {
+/** Leading icon + a hierarchical "repo / worktree" line over the branch — the identity
+ *  shown for every row. The worktree name (what you usually know) is emphasized; the repo
+ *  is a muted breadcrumb prefix, dropped when it equals the worktree (the main worktree). */
+function worktreeIdentity(repoName: string, path: string, branch: string): ReactNode {
+  const wt = worktreeName(path);
+  const isMain = wt === repoName;
   return (
-    <span className="inline-flex max-w-[40%] shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-      <Folder className="size-3 shrink-0 opacity-80" />
-      <span className="truncate">{repoName}</span>
-    </span>
+    <>
+      <Folder className="size-4 shrink-0 self-center text-muted-foreground" />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex min-w-0 items-baseline text-[13px] leading-tight">
+          {!isMain && <span className="shrink-0 text-muted-foreground">{repoName}&nbsp;/&nbsp;</span>}
+          <span className="truncate font-medium">{isMain ? repoName : wt}</span>
+        </div>
+        <div className="flex min-w-0 items-center gap-1 text-[11px] leading-tight text-muted-foreground">
+          <GitBranch className="size-3 shrink-0" />
+          <span className="truncate">{branch}</span>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -48,7 +62,7 @@ function groupLabel(g: Group): string {
 
 // Virtualized list metrics (px). A repo can have dozens of worktrees, so mounting
 // every row is the picker's open cost — we render only the rows in the viewport.
-const ROW_H = 42;
+const ROW_H = 50;
 const LABEL_H = 24;
 const PAD = 6;
 const OVERSCAN = 220;
@@ -62,12 +76,8 @@ type Cell = { top: number; height: number; key: string } & (
 function recentNode(r: ReviewEntry): ReactNode {
   return (
     <>
-      <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="truncate font-medium">{r.target.worktree ?? "(detached)"}</span>
-        {repoBadge(r.repoName)}
-      </div>
-      <span className="ml-auto flex shrink-0 items-center gap-2.5 whitespace-nowrap text-[11px] text-muted-foreground">
+      {worktreeIdentity(r.repoName, r.target.repoPath, r.target.worktree ?? "(detached)")}
+      <span className="ml-auto flex shrink-0 items-center gap-2.5 self-center whitespace-nowrap text-[11px] text-muted-foreground">
         {r.commentCount > 0 && (
           <span className="inline-flex items-center gap-1 tabular-nums"><MessageSquare className="size-3.5" />{r.commentCount}</span>
         )}
@@ -83,12 +93,8 @@ function recentNode(r: ReviewEntry): ReactNode {
 function worktreeNode(w: PickerWorktree): ReactNode {
   return (
     <>
-      <GitBranch className="size-4 shrink-0 text-muted-foreground" />
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="truncate font-medium">{w.branch}</span>
-        {repoBadge(w.repoName)}
-      </div>
-      <span className="ml-auto flex shrink-0 items-center gap-2.5 whitespace-nowrap text-[11px] text-muted-foreground">
+      {worktreeIdentity(w.repoName, w.path, w.branch)}
+      <span className="ml-auto flex shrink-0 items-center gap-2.5 self-center whitespace-nowrap text-[11px] text-muted-foreground">
         {w.dirty && (
           <span className="inline-flex items-center gap-1 text-amber-500" title="Uncommitted changes">
             <span className="size-1.5 rounded-full bg-amber-500" /> uncommitted

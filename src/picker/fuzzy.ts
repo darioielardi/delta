@@ -1,3 +1,4 @@
+import { worktreeName } from "../lib/utils";
 import type { PickerWorktree, ReviewEntry } from "../types";
 
 /** Subsequence fuzzy match. Returns a score (higher is better), or null if no match. */
@@ -24,7 +25,7 @@ export function fuzzyMatch(query: string, text: string): number | null {
 export function rankReviews(reviews: ReviewEntry[], query: string): ReviewEntry[] {
   const scored: { r: ReviewEntry; score: number }[] = [];
   for (const r of reviews) {
-    const hay = `${r.target.worktree ?? ""} ${r.repoName}`;
+    const hay = `${worktreeName(r.target.repoPath)} ${r.target.worktree ?? ""} ${r.repoName}`;
     const score = fuzzyMatch(query, hay);
     if (score !== null) scored.push({ r, score });
   }
@@ -36,7 +37,7 @@ export function rankReviews(reviews: ReviewEntry[], query: string): ReviewEntry[
 export function rankWorktrees(worktrees: PickerWorktree[], query: string): PickerWorktree[] {
   const scored: { w: PickerWorktree; score: number }[] = [];
   for (const w of worktrees) {
-    const score = fuzzyMatch(query, `${w.branch} ${w.repoName}`);
+    const score = fuzzyMatch(query, `${worktreeName(w.path)} ${w.branch} ${w.repoName}`);
     if (score !== null) scored.push({ w, score });
   }
   scored.sort((a, b) => b.score - a.score || (b.w.lastCommitAt ?? "").localeCompare(a.w.lastCommitAt ?? ""));
