@@ -170,9 +170,10 @@ export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo,
           onClick={onAddRepo}
           title="Add a repo…"
           aria-label="Add a repo…"
-          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-input bg-muted/40 px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-input bg-muted/40 pl-2.5 pr-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <FolderPlus className="size-3.5" /> Add repo
+          <kbd className="rounded border border-border/70 bg-background/60 px-1 py-0.5 text-[10px] font-medium leading-none">⌘O</kbd>
         </button>
       </div>
       <div ref={listRef} className="min-h-0 flex-1 overflow-auto p-1.5">

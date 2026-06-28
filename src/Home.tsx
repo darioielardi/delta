@@ -5,19 +5,12 @@
 // drag region (no header chrome, no border). (#8)
 import { api } from "./api";
 import { ReviewPicker } from "./picker/ReviewPicker";
+import { addRepo } from "./picker/pickerActions";
 import { Settings } from "lucide-react";
 import type { PickerWorktree, ReviewEntry } from "./types";
 
 const openReview = (r: ReviewEntry) => void api.openTarget(r.target.repoPath, r.target.mode, r.target.base ?? undefined);
 const openWorktree = (w: PickerWorktree) => void api.openTarget(w.path, "all-changes");
-
-async function addRepo() {
-  const repo = await api.importRepo();
-  if (!repo) return;
-  const wts = await api.listWorktrees(repo.root);
-  const main = wts.find((w) => w.isMain) ?? wts[0];
-  if (main) void api.openTarget(main.path, "all-changes");
-}
 
 async function deleteReview(r: ReviewEntry) {
   if (confirm(`Delete this review of ${r.repoName} · ${r.target.worktree ?? ""}?`)) {

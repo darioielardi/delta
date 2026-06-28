@@ -3,6 +3,7 @@
 // leaving the current one. Mounted only while open (App conditionally renders it),
 // so every open gets a fresh ReviewPicker fetch.
 import { ReviewPicker } from "./ReviewPicker";
+import { addRepo } from "./pickerActions";
 import { api } from "../api";
 import type { PickerWorktree, ReviewEntry, Target } from "../types";
 
@@ -21,14 +22,9 @@ export function CommandPalette({ onClose, current }: { onClose: () => void; curr
     void api.openTarget(w.path, "all-changes");
     onClose();
   };
-  const addRepo = async () => {
-    const repo = await api.importRepo();
-    if (repo) {
-      const wts = await api.listWorktrees(repo.root);
-      const main = wts.find((w) => w.isMain) ?? wts[0];
-      if (main) void api.openTarget(main.path, "all-changes");
-    }
+  const onAddRepo = () => {
     onClose();
+    void addRepo();
   };
 
   return (
@@ -54,7 +50,7 @@ export function CommandPalette({ onClose, current }: { onClose: () => void; curr
           current={current}
           onOpenReview={openReview}
           onOpenWorktree={openWorktree}
-          onAddRepo={addRepo}
+          onAddRepo={onAddRepo}
           onDeleteReview={deleteReview}
         />
       </div>
