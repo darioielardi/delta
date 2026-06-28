@@ -8,10 +8,12 @@ export function CommentThread({
   comments,
   onEdit,
   onDelete,
+  onToggleResolved,
 }: {
   comments: Comment[];
   onEdit: (id: string, body: string) => void;
   onDelete: (id: string) => void;
+  onToggleResolved: (id: string) => void;
 }) {
   // The open editor, plus whether its comment was blank when it opened.
   // Cancelling a comment that opened blank and is still blank discards it — a
@@ -56,9 +58,12 @@ export function CommentThread({
             />
           </div>
         ) : (
-          <div key={c.id} data-comment-id={c.id} className="group flex flex-col gap-1.5 px-3.5 py-3">
+          <div key={c.id} data-comment-id={c.id} className={`group flex flex-col gap-1.5 px-3.5 py-3${c.resolved ? " opacity-55" : ""}`}>
             {c.stale && (
               <span className="flex w-fit items-center gap-1 rounded-md squircle bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">⚠ stale</span>
+            )}
+            {c.resolved && (
+              <span className="flex w-fit items-center gap-1 rounded-md squircle bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">✓ Resolved</span>
             )}
             {c.body.trim() === "" ? (
               <button
@@ -73,6 +78,7 @@ export function CommentThread({
               </div>
             )}
             <div className="mt-2 flex gap-1.5">
+              <Button size="sm" variant="ghost" className="h-7 px-2.5 text-[12px] text-muted-foreground hover:text-foreground" onClick={() => onToggleResolved(c.id)}>{c.resolved ? "Reopen" : "Resolve"}</Button>
               <Button size="sm" variant="ghost" className="h-7 px-2.5 text-[12px] text-muted-foreground hover:text-foreground" onClick={() => open(c)}>Edit</Button>
               <Button size="sm" variant="ghost" className="h-7 px-2.5 text-[12px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => onDelete(c.id)}>Delete</Button>
             </div>
