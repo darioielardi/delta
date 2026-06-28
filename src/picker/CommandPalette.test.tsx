@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { CommandPalette } from "./CommandPalette";
+import { __resetPickerCacheForTest } from "./pickerData";
 import { __setInvokeForDev } from "../api";
 import type { PickerData } from "../types";
 
@@ -17,6 +18,7 @@ const DATA: PickerData = {
 describe("CommandPalette", () => {
   let calls: { cmd: string; args?: Record<string, unknown> }[];
   beforeEach(() => {
+    __resetPickerCacheForTest();
     calls = [];
     __setInvokeForDev(async (cmd, args) => {
       calls.push({ cmd, args });

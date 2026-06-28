@@ -8,6 +8,7 @@ import { FilesPanel } from "../files/FilesPanel";
 import { flattenTreeFiles } from "../files/buildTree";
 import { VirtualDiffPane } from "../diff/VirtualDiffPane";
 import { CommentIndex } from "../review/CommentIndex";
+import { prefetchPicker } from "../picker/pickerData";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
@@ -87,6 +88,12 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     reviewRef.current = review;
     summaryRef.current = summary;
   }, [review, summary]);
+
+  // Warm the ⌘K picker cache once the review window is up, so the first open is
+  // instant (the picker's live worktree enumeration is the slow part).
+  useEffect(() => {
+    prefetchPicker();
+  }, []);
 
   async function open() {
     try {

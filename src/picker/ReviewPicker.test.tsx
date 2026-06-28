@@ -1,6 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ReviewPicker } from "./ReviewPicker";
+import { __resetPickerCacheForTest } from "./pickerData";
 import { __setInvokeForDev } from "../api";
 import type { PickerData, PickerWorktree } from "../types";
 
@@ -22,6 +23,8 @@ function mock(data: PickerData) {
 }
 
 describe("ReviewPicker", () => {
+  beforeEach(() => __resetPickerCacheForTest());
+
   it("lists recents and other worktrees, opens a worktree on click", async () => {
     mock(DATA);
     const opened: PickerWorktree[] = [];
@@ -46,7 +49,7 @@ describe("ReviewPicker", () => {
   it("shows an add-repo affordance and a hint when there are no known repos", async () => {
     mock({ recents: [], worktrees: [] });
     render(<ReviewPicker onOpenReview={() => {}} onOpenWorktree={() => {}} onAddRepo={() => {}} onDeleteReview={() => {}} />);
-    await waitFor(() => expect(screen.getByText("Add a repo…")).toBeInTheDocument());
-    expect(screen.getByText(/no repos yet/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/no repos yet/i)).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /add a repo/i })).toBeInTheDocument();
   });
 });

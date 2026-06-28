@@ -57,7 +57,7 @@ export function Home({ onOpenSettings }: { onOpenSettings?: () => void }) {
           <p className="mt-1 text-center text-[13px] text-muted-foreground">Review diffs. Leave structured comments for agents.</p>
 
           {/* The picker: recents + known-repo worktrees + add-repo. */}
-          <div className="mt-6 flex max-h-[58vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-card/40 text-[13px] shadow-sm">
+          <div className="mt-6 flex max-h-[58vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-card text-[13px] shadow-sm">
             <ReviewPicker onOpenReview={openReview} onOpenWorktree={openWorktree} onAddRepo={addRepo} onDeleteReview={deleteReview} />
           </div>
         </div>

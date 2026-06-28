@@ -1,10 +1,11 @@
 // The shared "open a review" picker: one flat, searchable list of recent reviews +
-// the current worktrees of known repos + an "Add a repo…" action. Mounted in two
-// frames — the Home window and the ⌘K overlay — which supply their own chrome.
+// the current worktrees of known repos, with an "Add a repo…" action at the right
+// of the search box. Mounted in two frames — the Home window and the ⌘K overlay —
+// which supply their own chrome.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { api } from "../api";
 import { rankReviews, rankWorktrees } from "./fuzzy";
-import { GitBranch, MessageSquare, TriangleAlert, FolderPlus } from "lucide-react";
+import { loadPicker, peekPickerCache } from "./pickerData";
+import { GitBranch, MessageSquare, TriangleAlert, FolderPlus, Folder } from "lucide-react";
 import type { PickerData, PickerWorktree, ReviewEntry, Target } from "../types";
 
 function relTime(iso: string): string {
@@ -18,6 +19,16 @@ function relTime(iso: string): string {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
+/** A repo chip so each row clearly shows which repository the worktree belongs to. */
+function repoBadge(repoName: string): ReactNode {
+  return (
+    <span className="inline-flex max-w-[40%] shrink-0 items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+      <Folder className="size-3 shrink-0 opacity-80" />
+      <span className="truncate">{repoName}</span>
+    </span>
+  );
+}
+
 export interface ReviewPickerProps {
   /** Current review's target, excluded from the recents (⌘K frame). Omit on Home. */
   current?: Target;
@@ -27,12 +38,12 @@ export interface ReviewPickerProps {
   onDeleteReview: (r: ReviewEntry) => void;
 }
 
-type Group = "recent" | "worktree" | "action";
+type Group = "recent" | "worktree";
 type Row = { key: string; group: Group; node: ReactNode; onActivate: () => void; onDelete?: () => void };
 
 /** Section label shown on the first row of each "recent"/"worktree" run. */
-function groupLabel(g: Group): string | null {
-  return g === "recent" ? "Recent" : g === "worktree" ? "Other worktrees" : null;
+function groupLabel(g: Group): string {
+  return g === "recent" ? "Recent" : "Other worktrees";
 }
 
 function recentNode(r: ReviewEntry): ReactNode {
@@ -40,8 +51,8 @@ function recentNode(r: ReviewEntry): ReactNode {
     <>
       <GitBranch className="size-4 shrink-0 text-muted-foreground" />
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="shrink-0 whitespace-nowrap font-medium">{r.target.worktree ?? "(detached)"}</span>
-        <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{r.repoName}</span>
+        <span className="truncate font-medium">{r.target.worktree ?? "(detached)"}</span>
+        {repoBadge(r.repoName)}
       </div>
       <span className="ml-auto flex shrink-0 items-center gap-2.5 whitespace-nowrap text-[11px] text-muted-foreground">
         {r.commentCount > 0 && (
@@ -61,8 +72,8 @@ function worktreeNode(w: PickerWorktree): ReactNode {
     <>
       <GitBranch className="size-4 shrink-0 text-muted-foreground" />
       <div className="flex min-w-0 flex-1 items-center gap-2">
-        <span className="shrink-0 whitespace-nowrap font-medium">{w.branch}</span>
-        <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{w.repoName}</span>
+        <span className="truncate font-medium">{w.branch}</span>
+        {repoBadge(w.repoName)}
       </div>
       <span className="ml-auto flex shrink-0 items-center gap-2.5 whitespace-nowrap text-[11px] text-muted-foreground">
         {w.dirty && (
@@ -77,7 +88,8 @@ function worktreeNode(w: PickerWorktree): ReactNode {
 }
 
 export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo, onDeleteReview }: ReviewPickerProps) {
-  const [data, setData] = useState<PickerData | null>(null);
+  // Seed from the module cache so a reopen paints instantly; the effect revalidates.
+  const [data, setData] = useState<PickerData | null>(() => peekPickerCache());
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -87,15 +99,9 @@ export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo,
   const lastPointer = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    // Async fetch — setState runs after await, a normal data-fetch effect.
+    // Stale-while-revalidate: cached data (if any) already rendered; refetch to update.
     // react-doctor-disable-next-line react-hooks-js/set-state-in-effect
-    void (async () => {
-      try {
-        setData(await api.listPicker());
-      } catch {
-        setData({ recents: [], worktrees: [] });
-      }
-    })();
+    void loadPicker().then(setData).catch(() => setData((d) => d ?? { recents: [], worktrees: [] }));
   }, []);
   useEffect(() => {
     inputRef.current?.focus();
@@ -113,20 +119,7 @@ export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo,
   const rows: Row[] = [
     ...recents.map((r): Row => ({ key: `rev-${r.id}`, group: "recent", node: recentNode(r), onActivate: () => onOpenReview(r), onDelete: () => onDeleteReview(r) })),
     ...worktrees.map((w): Row => ({ key: `wt-${w.path}`, group: "worktree", node: worktreeNode(w), onActivate: () => onOpenWorktree(w) })),
-    {
-      key: "__add",
-      group: "action",
-      node: (
-        <>
-          <FolderPlus className="size-4 shrink-0 text-muted-foreground" />
-          <span className="font-medium">Add a repo…</span>
-        </>
-      ),
-      onActivate: onAddRepo,
-    },
   ];
-
-  // Section label on the first row of each "recent" / "worktree" run.
   const labels = rows.map((row, i) => (i === 0 || rows[i - 1].group !== row.group ? groupLabel(row.group) : null));
 
   const clampedSel = rows.length === 0 ? 0 : Math.min(sel, rows.length - 1);
@@ -157,15 +150,15 @@ export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo,
     setSel(i);
   }
 
-  const emptyKnown = data != null && recents.length === 0 && worktrees.length === 0;
+  const noRepos = data != null && data.recents.length === 0 && data.worktrees.length === 0;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKey}>
-      <div className="relative shrink-0 border-b border-border/70">
+      <div className="flex shrink-0 items-center gap-1 border-b border-border/70 pr-1.5">
         <input
           ref={inputRef}
           autoFocus
-          className="h-11 w-full bg-transparent px-4 text-[14px] outline-none placeholder:text-muted-foreground/70"
+          className="h-11 min-w-0 flex-1 bg-transparent px-4 text-[14px] outline-none placeholder:text-muted-foreground/70"
           placeholder="Search reviews & worktrees…"
           value={query}
           onChange={(e) => {
@@ -173,10 +166,27 @@ export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo,
             setSel(0);
           }}
         />
+        <button
+          type="button"
+          onClick={onAddRepo}
+          title="Add a repo…"
+          aria-label="Add a repo…"
+          className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-input bg-muted/40 px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        >
+          <FolderPlus className="size-3.5" /> Add repo
+        </button>
       </div>
       <div ref={listRef} className="min-h-0 flex-1 overflow-auto p-1.5">
         {data == null ? (
           <div className="px-3 py-8 text-center text-muted-foreground">Loading…</div>
+        ) : rows.length === 0 ? (
+          <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">
+            {noRepos ? (
+              <>No repos yet — add one above, or run <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">delta</code> in a repo.</>
+            ) : (
+              "No matches"
+            )}
+          </div>
         ) : (
           rows.map((row, i) => (
             <div key={row.key}>
@@ -193,11 +203,6 @@ export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo,
               </button>
             </div>
           ))
-        )}
-        {emptyKnown && (
-          <div className="px-3 pb-3 pt-1 text-center text-[12px] text-muted-foreground">
-            No repos yet — add one above, or run <code className="rounded bg-muted px-1 py-0.5 font-mono text-[11px]">delta</code> in a repo.
-          </div>
         )}
       </div>
       <div className="flex shrink-0 items-center gap-4 border-t border-border/70 px-4 py-1.5 text-[11px] text-muted-foreground">
