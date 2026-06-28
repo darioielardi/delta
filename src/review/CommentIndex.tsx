@@ -57,8 +57,8 @@ export function CommentIndex({
       {visible && (
       // Floating layout (#pad): transparent panel, no borders, PAD inset; the
       // comment cards float on the canvas like the diff cards.
-      <div data-testid="comment-index" className="flex h-full w-80 min-h-0 flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-2 px-3.5 pt-3.5 text-[12px]">
+      <div data-testid="comment-index" className="flex h-full w-80 min-h-0 flex-col pt-3.5">
+      <div className="flex h-7 shrink-0 items-center gap-2 pl-0 pr-3.5 text-[12px]">
         <span className="font-medium text-foreground">Comments</span>
         <span className="text-muted-foreground/50">·</span>
         <span className="text-muted-foreground">{anchored.length}</span>
@@ -73,14 +73,14 @@ export function CommentIndex({
         <Button
           size="icon-sm"
           variant="ghost"
-          className={`${staleCount > 0 ? "" : "ml-auto "}size-6 text-muted-foreground hover:text-foreground`}
+          className={`${staleCount > 0 ? "" : "ml-auto "}size-6 rounded-md bg-foreground/[0.04] text-muted-foreground/70 hover:bg-foreground/10 hover:text-foreground`}
           aria-label="Close comments"
           onClick={() => onOpenChange(false)}
         >
-          <X className="size-4" />
+          <X className="size-3.5" />
         </Button>
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto px-3.5 pb-3.5 pt-2">
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto pl-0 pr-3.5 pb-3.5 pt-2">
         {anchored.length === 0 && (
           <p className="py-8 text-center text-[13px] text-muted-foreground">No comments yet</p>
         )}

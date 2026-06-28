@@ -31,7 +31,7 @@ import type { DiffLayout } from "./useDiffLayout";
 import { useFileDiffCache } from "./useFileDiffCache";
 
 const ROW_H = 22;
-const HEADER_H = 37; // sticky file header (border-box)
+const HEADER_H = 36; // sticky file header (border-box). Taller bar, but its content is held near the top edge via pb-2 (extra height sits below the content), so the title stays high. (#card)
 const SCROLLBAR_H = 10; // horizontal scrollbar height (matches *::-webkit-scrollbar) — reserved at a wide file's body bottom so it never overlaps the last line (#hscroll)
 const CH_PX = 7.85; // ≈ width of one mono char at 13px (SF Mono/Menlo) — only used to decide whether a file overflows the pane (so we reserve scrollbar space); layout itself uses exact `ch` units (#hscroll)
 // Left-accent colors for changed lines, mirroring the comment-range accent. (#border)
@@ -45,7 +45,9 @@ const CONTEXT = 3; // unchanged lines kept around each change before folding (#1
 const EXPAND_STEP = 25; // lines revealed per fold expand click (#2)
 // Card layout: each file's diff is a rounded card inset from the pane edges by
 // PAD, with GAP of empty space between cards. These fold into the offset math
-// below so row-windowing stays exact. (#card)
+// below so row-windowing stays exact. PAD is also the reference gutter: the first
+// card's top inset, and where a sticky header pins (so a stuck header keeps the
+// same space above it as the resting first card). (#card)
 const PAD = 14;
 const GAP = 10;
 
@@ -633,7 +635,16 @@ const VFileSection = memo(function VFileSection({
     // Borders live on the header + body, not this wrapper, so a stuck header can
     // float with a canvas GAP above it (the wrapper is transparent there). (#7)
     <div ref={ref} data-file={entry.path} className="rounded-lg shadow-xs dark:shadow-none">
-      <div className={`group/h sticky z-20 flex items-center gap-2 border-x border-t border-border bg-code px-3 transition-[border-radius] duration-150 ${collapsed || headerSolo ? "rounded-lg border-b" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H, top: GAP }}>
+      {/* Canvas backdrop pinned exactly behind the sticky header (z below it).
+          The header's rounded top corners are transparent at the notch; without
+          this, code rows scrolling under the header peek through those corners.
+          The backdrop fills the corner notches with the canvas color instead, so
+          the header reads as a clean floating card edge. Zero-height sticky shell
+          adds no flow space; its absolute child spans the header box. (#6) */}
+      <div aria-hidden className="pointer-events-none sticky z-10 h-0" style={{ top: PAD }}>
+        <div className="absolute inset-x-0 top-0 bg-background" style={{ height: HEADER_H }} />
+      </div>
+      <div className={`group/h sticky z-20 flex items-center gap-2 border-x border-t border-border bg-code px-3 pb-2 transition-[border-radius] duration-150 ${collapsed || headerSolo ? "rounded-lg border-b" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H, top: PAD }}>
         {/* Full-box collapse target. The label/counts above it are
             pointer-events-none, so hovering anywhere in the header (padding +
             gaps included) reaches this button and — via peer-hover — lights the
@@ -663,7 +674,7 @@ const VFileSection = memo(function VFileSection({
           onClick={() => { void api.openInEditor(getEditorPref(), repoPath, entry.path).catch((e) => console.error("open in editor:", e)); }}
           aria-label={`open ${entry.path} in editor`}
           title="Open in editor"
-          className="relative h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
+          className="relative h-6 shrink-0 px-2 text-muted-foreground hover:text-foreground"
         >
           <ExternalLink className="size-4" />
         </Button>
@@ -673,7 +684,7 @@ const VFileSection = memo(function VFileSection({
           onClick={() => onAddFileComment(entry.path, "")}
           aria-label={`comment on ${entry.path}`}
           title="Comment on file"
-          className="relative h-7 shrink-0 px-2 text-muted-foreground hover:text-foreground"
+          className="relative h-6 shrink-0 px-2 text-muted-foreground hover:text-foreground"
         >
           <MessageSquarePlus className="size-4" />
         </Button>
@@ -684,7 +695,7 @@ const VFileSection = memo(function VFileSection({
           aria-pressed={viewed}
           aria-label={`viewed ${entry.path}`}
           title="Mark viewed"
-          className={`delta-ui-font relative h-7 shrink-0 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+          className={`delta-ui-font relative h-6 shrink-0 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
         >
           <span className={`flex size-4 items-center justify-center rounded-[5px] border transition-colors ${viewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80"}`}>
             {viewed && <Check className="size-3" strokeWidth={3} />}
@@ -1092,7 +1103,7 @@ export function VirtualDiffPane({
             scrolling up would otherwise peek through the canvas gap between the
             pane's top edge and the header (which sticks at top:GAP). Sticky at the
             very top, above the headers (z-30 > header z-20). (#6) */}
-        <div className="sticky top-0 z-30 bg-background" style={{ height: GAP }} aria-hidden />
+        <div className="sticky top-0 z-30 bg-background" style={{ height: PAD }} aria-hidden />
         {files.map((entry, i) => {
           const collapsed = collapsedFor(entry);
           const bh = collapsed ? 0 : (bodyHeights[entry.path] ?? estReserved(entry));
@@ -1102,7 +1113,7 @@ export function VirtualDiffPane({
           // Header is "solo" when its body has fully scrolled up under the stuck
           // header (nothing renders right below it) — round its bottom corners so
           // it doesn't read as a cut-off tab. (#6)
-          const headerSolo = !collapsed && bh > 0 && scrollTop >= sectionTop + bh - GAP && scrollTop <= sectionTop + bh + HEADER_H;
+          const headerSolo = !collapsed && bh > 0 && scrollTop >= sectionTop + bh - PAD && scrollTop <= sectionTop + bh + HEADER_H;
           return (
             <div key={entry.path} style={{ position: "absolute", top: sectionTop, left: PAD, right: PAD }}>
               <VFileSection
