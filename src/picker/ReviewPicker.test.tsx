@@ -42,4 +42,11 @@ describe("ReviewPicker", () => {
     await waitFor(() => expect(screen.queryByText("feat/auth")).not.toBeInTheDocument());
     expect(screen.getByText("spike/idea")).toBeInTheDocument();
   });
+
+  it("shows an add-repo affordance and a hint when there are no known repos", async () => {
+    mock({ recents: [], worktrees: [] });
+    render(<ReviewPicker onOpenReview={() => {}} onOpenWorktree={() => {}} onAddRepo={() => {}} onDeleteReview={() => {}} />);
+    await waitFor(() => expect(screen.getByText("Add a repo…")).toBeInTheDocument());
+    expect(screen.getByText(/no repos yet/i)).toBeInTheDocument();
+  });
 });
