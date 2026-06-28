@@ -1,5 +1,5 @@
 // src/diff/useFileDiffCache.ts
-import { useEffect, useRef } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../api";
 import type { FileDiff, Target } from "../types";
 
@@ -97,10 +97,9 @@ function createStore(): InternalStore {
 
 export function useFileDiffCache(target: Target | null): FileDiffStore {
   // The store lives for the lifetime of the pane; its identity is stable across
-  // renders so it never invalidates a child's subscription.
-  const storeRef = useRef<InternalStore | null>(null);
-  if (storeRef.current === null) storeRef.current = createStore();
-  const store = storeRef.current;
+  // renders (the useState initializer runs once) so it never invalidates a
+  // child's subscription. Lazy init avoids a ref read during render.
+  const [store] = useState<InternalStore>(createStore);
 
   // Re-point + clear when the target changes (new review / mode). Mirrors the
   // old clear-on-change, but notifies subscribers per-path instead of forcing a

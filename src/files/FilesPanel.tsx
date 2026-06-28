@@ -315,7 +315,7 @@ export function FilesPanel({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-2 px-3 text-[12px]">
+      <div className="flex h-9 shrink-0 items-center gap-2 px-2 text-[12px]">
         <span
           className={`inline-block select-none rounded-md px-1.5 py-0.5 text-[11px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
           title="Files viewed"

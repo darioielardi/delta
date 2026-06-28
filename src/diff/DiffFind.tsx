@@ -24,7 +24,7 @@ export function DiffFind({
     "flex size-6 items-center justify-center rounded-[5px] text-muted-foreground transition-colors enabled:hover:bg-foreground/[0.06] enabled:hover:text-foreground disabled:opacity-40";
 
   return (
-    <div className="absolute right-4 top-3 z-30 flex items-center gap-1.5 rounded-lg border border-border bg-popover/95 py-1 pl-2.5 pr-1.5 text-popover-foreground shadow-lg ring-1 ring-foreground/5 backdrop-blur dark:ring-foreground/10">
+    <div className="absolute right-6 top-5 z-30 flex items-center gap-1.5 rounded-lg border border-border bg-popover/95 py-1 pl-2.5 pr-1.5 text-popover-foreground shadow-lg ring-1 ring-foreground/5 backdrop-blur dark:ring-foreground/10">
       <input
         ref={inputRef}
         type="text"

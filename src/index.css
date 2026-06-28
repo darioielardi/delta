@@ -69,10 +69,10 @@
 
 :root {
     /* A soft neutral gray base so the white header + file-diff cards read as
-       floating surfaces above it. `card` stays pure white. Kept a touch darker
-       than the cards so the white code wells visibly separate from the canvas —
-       at 0.975 they nearly matched and the diff pane read as flat/dimmed. (#7) */
-    --background: oklch(0.955 0 0);
+       floating surfaces above it. `card` stays pure white. The cards carry their
+       own border + subtle shadow, so the canvas can sit close to white and still
+       read as distinct — kept just below the cards for a light, airy base. (#7) */
+    --background: oklch(0.978 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.145 0 0);
@@ -277,6 +277,40 @@
   font-family: var(--font-sans) !important;
   letter-spacing: normal !important;
 }
+
+/* Chrome inside the diff wrapper (e.g. the card header's "Viewed" label) is UI,
+   not code — flip it back to the sans UI font that the mono rule above forces. */
+.diff-tailwindcss-wrapper .delta-ui-font,
+.diff-tailwindcss-wrapper .delta-ui-font * {
+  font-family: var(--font-sans) !important;
+  letter-spacing: normal !important;
+}
+
+/* git-diff-view ships the muted GitHub-Light syntax palette: strings are a near-
+   black navy (#032f62) and the hues are low-saturation, so light-mode code reads
+   washed out. Override with a punchier, higher-contrast palette (strings green,
+   deeper reds/blues/purples). Unlayered, so it beats the `gdv` layer; scoped to
+   the light theme so dark mode (already vivid) is untouched. (#5) */
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-keyword,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-built_in,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-doctag { color: #cf222e; }
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-title,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-title.function_,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-title.class_ { color: #8250df; }
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-string,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-regexp,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-char { color: #0a7d33; }
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-number,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-literal,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-attr,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-variable,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-template-variable,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-section,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-selector-class { color: #0550ae; }
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-type,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-attribute { color: #953800; }
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-comment,
+.diff-tailwindcss-wrapper[data-theme="light"] .hljs-quote { color: #6e7781; }
 
 /* Rendered comment text is real content — let it be selected/copied. */
 .prose, .prose * {

@@ -21,14 +21,14 @@ export function CommentEditor({
   const [value, setValue] = useState(initialValue);
   const ref = useRef<HTMLTextAreaElement>(null);
   // Auto-grow to fit the content so the editor is exactly as tall as the text it
-  // holds. Entering edit mode then doesn't change the comment's height, and the
-  // borderless, zero-padding textarea keeps the text in the same spot as the
-  // rendered body — no visual shift between read and edit. (#5)
+  // holds. scrollHeight measures content + padding but not the border, so add the
+  // border back (the field is border-box) to avoid clipping the last line. (#11)
   const resize = () => {
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
+    const borderY = el.offsetHeight - el.clientHeight; // top + bottom border
+    el.style.height = `${el.scrollHeight + borderY}px`;
   };
   useLayoutEffect(resize, []);
   // Start the caret at the END of existing text (not the start) when editing. (#r2)
@@ -47,7 +47,7 @@ export function CommentEditor({
       <textarea
         ref={ref}
         rows={1}
-        className="w-full resize-none overflow-hidden bg-transparent p-0 text-[13px] leading-relaxed text-foreground outline-none placeholder:text-muted-foreground/70"
+        className="w-full resize-none overflow-hidden rounded-md border border-input bg-muted/40 px-2.5 py-1.5 text-[13px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-ring"
         placeholder="Leave a comment (markdown)…"
         value={value}
         onChange={(e) => {

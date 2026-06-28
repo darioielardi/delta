@@ -144,50 +144,49 @@ function Row({ model, index, top, selected, highlighted, onComment, marks }: { m
   // green/red edge mirroring the comment accent. (#border)
   const accent = highlighted ? "var(--primary)" : kind === "add" ? ADD_ACCENT : kind === "del" ? DEL_ACCENT : undefined;
   return (
-    <div data-row-index={index} className={`group absolute left-0 flex items-stretch font-mono text-[13px] leading-[22px] ${bg} ${highlighted && kind === "ctx" ? "bg-primary/[0.06]" : ""} ${selected ? "!bg-primary/20" : ""}`} style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%", boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
+    <div data-row-index={index} className={`group absolute left-0 flex items-stretch font-mono text-[13px] leading-[22px] ${bg} ${highlighted && kind === "ctx" ? "bg-primary/[0.06]" : ""} ${selected ? "!bg-primary/20" : ""}`} style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%" }}>
       {kind !== "hunk" && (
-        <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 ${addBtnCls}`}>
+        <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 z-20 ${addBtnCls}`}>
           <Plus className="size-3.5" strokeWidth={2.5} />
         </button>
       )}
-      <span data-gutter="old" className={gutterCls}>{hasOld ? line.oldLineNumber : ""}</span>
-      <span data-gutter="new" className={gutterCls}>{hasNew ? line.newLineNumber : ""}</span>
-      <span className={`w-4 shrink-0 select-none text-center ${markerColor}`}>{marker}</span>
+      {/* Sticky rail: pins the line-number gutters + marker to the left on
+          horizontal scroll and masks the code scrolling under it (opaque bg-code).
+          The changed/commented accent rides the rail so it stays at the visible
+          left edge. (#2) */}
+      <div className="sticky left-0 z-[1] flex items-stretch bg-code" style={{ boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
+        <span data-gutter="old" className={gutterCls}>{hasOld ? line.oldLineNumber : ""}</span>
+        <span data-gutter="new" className={gutterCls}>{hasNew ? line.newLineNumber : ""}</span>
+        <span className={`w-4 shrink-0 select-none text-center ${markerColor}`}>{marker}</span>
+      </div>
       <Code html={html} range={kind === "hunk" ? undefined : range} changeBg={kind === "add" ? "bg-emerald-400/25" : "bg-rose-400/25"} marks={marks} />
     </div>
   );
 }
 
-// One side of a split row.
-function SplitCell({ model, side, line, changed, selected, onComment, className, marks }: { model: Model; side: Side; line: import("@git-diff-view/file").SplitLineItem; changed: boolean; selected: boolean; onComment: (side: Side, line: number) => void; className: string; marks?: RowMark[] }) {
+// One side's cell of a split row, absolutely positioned inside its column. The
+// gutter is a sticky rail (like the unified row) so it stays pinned and masks the
+// code that scrolls under it on horizontal scroll. The two columns are separate
+// scroll containers (synced), so each side scrolls within its own half. (#2/#10)
+function SplitColCell({ model, side, index, top, changed, highlighted, selected, onComment, marks }: { model: Model; side: Side; index: number; top: number; changed: boolean; highlighted: boolean; selected: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
+  const line = side === "old" ? model.getSplitLeftLine(index) : model.getSplitRightLine(index);
   const has = line.lineNumber != null;
   const ln = line.lineNumber!;
   const html = has ? syntaxHtml(model, side, ln, line.value) : "";
-  const baseBg = changed ? (side === "old" ? "bg-rose-500/15" : "bg-emerald-500/15") : "";
+  const bg = selected ? "!bg-primary/15" : changed ? (side === "old" ? "bg-rose-500/15" : "bg-emerald-500/15") : highlighted ? "bg-primary/[0.06]" : "";
   const range = changed ? changeRangeOf(line.diff) : undefined;
+  const accent = changed ? (side === "old" ? DEL_ACCENT : ADD_ACCENT) : highlighted ? "var(--primary)" : undefined;
   return (
-    <div className={`relative flex items-stretch ${selected ? "!bg-primary/15" : baseBg} ${className}`} style={changed ? { boxShadow: `inset 3px 0 0 ${side === "old" ? DEL_ACCENT : ADD_ACCENT}` } : undefined}>
+    <div data-row-index={index} className={`group absolute left-0 flex w-full items-stretch font-mono text-[13px] leading-[22px] ${bg}`} style={{ top, height: ROW_H }}>
       {has && (
-        <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-[3rem] top-1/2 ${addBtnCls}`}>
+        <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-12 top-1/2 z-20 ${addBtnCls}`}>
           <Plus className="size-3.5" strokeWidth={2.5} />
         </button>
       )}
-      <span data-gutter={side} className={gutterCls}>{has ? ln : ""}</span>
+      <div className="sticky left-0 z-[1] flex items-stretch bg-code" style={{ boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
+        <span data-gutter={side} className={gutterCls}>{has ? ln : ""}</span>
+      </div>
       {has ? <Code html={html} range={range} changeBg={side === "old" ? "bg-rose-400/25" : "bg-emerald-400/25"} marks={marks} /> : <span className="flex-1" />}
-    </div>
-  );
-}
-
-// Split row: old | new, each a cell.
-function SplitRow({ model, index, top, selected, highlighted, onComment, marks }: { model: Model; index: number; top: number; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
-  const left = model.getSplitLeftLine(index), right = model.getSplitRightLine(index);
-  const leftHas = left.lineNumber != null, rightHas = right.lineNumber != null;
-  const leftChanged = leftHas && (!rightHas || !!changeRangeOf(left.diff));
-  const rightChanged = rightHas && (!leftHas || !!changeRangeOf(right.diff));
-  return (
-    <div data-row-index={index} className={`group absolute left-0 flex items-stretch font-mono text-[13px] leading-[22px] ${highlighted ? "bg-primary/[0.06]" : ""}`} style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%", boxShadow: highlighted ? "inset 3px 0 0 var(--primary)" : undefined }}>
-      <SplitCell model={model} side="old" line={left} changed={leftChanged} selected={selected} onComment={onComment} className="w-1/2 min-w-0 border-r border-border/60" marks={marks?.filter((m) => m.side === "old")} />
-      <SplitCell model={model} side="new" line={right} changed={rightChanged} selected={selected} onComment={onComment} className="w-1/2 min-w-0" marks={marks?.filter((m) => m.side === "new")} />
     </div>
   );
 }
@@ -196,29 +195,36 @@ function SplitRow({ model, index, top, selected, highlighted, onComment, marks }
 // hidden unchanged lines [start,end] (inclusive model indices). (#10)
 type VisualRow = { kind: "line"; index: number } | { kind: "fold"; start: number; end: number; count: number };
 
-// Stand-in for a folded run of unchanged lines. The ↓/↑ controls at the start of
-// the row reveal EXPAND_STEP lines from the top / bottom so a large gap opens
-// incrementally; clicking the label expands the whole gap. The blue tint reads as
-// "collapsed, expandable" — clearly not code. (#2/#3/#10)
-function FoldRow({ top, count, onDown, onUp, onAll }: { top: number; count: number; onDown: () => void; onUp: () => void; onAll: () => void }) {
+// Stand-in for a folded run of unchanged lines. A single reveal control shows the
+// direction that has adjacent shown code to extend from — ↓ (down) when there's
+// code above the gap, ↑ (up) when there's code below; a gap anchored to both file
+// ends shows both. Clicking the label expands the whole gap. The blue tint reads
+// as "collapsed, expandable" — clearly not code. The bg spans the full row width
+// (var(--rw)) so it never truncates on horizontal scroll, like changed rows.
+// (#3/#4)
+function FoldRow({ top, count, showDown, showUp, onDown, onUp, onAll }: { top: number; count: number; showDown: boolean; showUp: boolean; onDown: () => void; onUp: () => void; onAll: () => void }) {
   // Either direction reveals at most the remaining gap, so don't promise 25 when
-  // fewer are left. (#8)
+  // fewer are left.
   const step = Math.min(EXPAND_STEP, count);
   return (
     <div
       data-fold
-      className="absolute inset-x-0 flex items-stretch bg-primary/10 font-mono text-[12px] font-medium leading-[22px] text-muted-foreground"
-      style={{ top, height: ROW_H }}
+      className="absolute left-0 flex items-stretch bg-primary/10 font-mono text-[12px] font-medium leading-[22px] text-muted-foreground"
+      style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%" }}
     >
-      <div className="flex h-full w-[6.5rem] shrink-0 border-r border-border/40">
-        <button type="button" onClick={onDown} title={`Show ${step} more line${step === 1 ? "" : "s"} (down)`} className="flex flex-1 items-center justify-center gap-px tabular-nums transition-colors hover:bg-primary/20 hover:text-foreground">
-          <ChevronDown className="size-3.5" />{step}
-        </button>
-        <button type="button" onClick={onUp} title={`Show ${step} more line${step === 1 ? "" : "s"} (up)`} className="flex flex-1 items-center justify-center gap-px border-l border-border/40 tabular-nums transition-colors hover:bg-primary/20 hover:text-foreground">
-          <ChevronUp className="size-3.5" />{step}
-        </button>
+      <div className="sticky left-0 flex h-full w-[6.5rem] shrink-0 border-r border-border/40">
+        {showDown && (
+          <button type="button" onClick={onDown} title={`Show ${step} more line${step === 1 ? "" : "s"} (down)`} className="flex flex-1 items-center justify-center gap-px tabular-nums transition-colors hover:bg-primary/20 hover:text-foreground">
+            <ChevronDown className="size-3.5" />{step}
+          </button>
+        )}
+        {showUp && (
+          <button type="button" onClick={onUp} title={`Show ${step} more line${step === 1 ? "" : "s"} (up)`} className={`flex flex-1 items-center justify-center gap-px tabular-nums transition-colors hover:bg-primary/20 hover:text-foreground ${showDown ? "border-l border-border/40" : ""}`}>
+            <ChevronUp className="size-3.5" />{step}
+          </button>
+        )}
       </div>
-      <button type="button" onClick={onAll} title="Expand all hidden lines" className="flex flex-1 items-center px-3 text-left tabular-nums transition-colors hover:text-foreground">
+      <button type="button" onClick={onAll} title="Expand all hidden lines" className="sticky left-[6.5rem] flex flex-1 items-center px-3 text-left tabular-nums transition-colors hover:text-foreground">
         {count} hidden line{count === 1 ? "" : "s"}
       </button>
     </div>
@@ -274,6 +280,22 @@ const VFileSection = memo(function VFileSection({
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => { registerRef(entry.path, ref.current); return () => registerRef(entry.path, null); }, [entry.path]);
 
+  // Split view renders the two sides as separate horizontal-scroll columns;
+  // mirror one's scrollLeft onto the other so the old/new sides stay aligned. The
+  // guard flag avoids the feedback loop between the two onScroll handlers. (#10)
+  const oldColRef = useRef<HTMLDivElement>(null);
+  const newColRef = useRef<HTMLDivElement>(null);
+  const colSyncing = useRef(false);
+  const syncCols = useCallback((from: "old" | "new") => {
+    if (colSyncing.current) return;
+    const src = (from === "old" ? oldColRef : newColRef).current;
+    const dst = (from === "old" ? newColRef : oldColRef).current;
+    if (!src || !dst || dst.scrollLeft === src.scrollLeft) return;
+    colSyncing.current = true;
+    dst.scrollLeft = src.scrollLeft;
+    requestAnimationFrame(() => { colSyncing.current = false; });
+  }, []);
+
   // Binary files have no textual diff; deleted files hide their (removed) content
   // behind a reveal so the pane isn't dominated by deletions. Both render a fixed-
   // height placeholder instead of a diff model — restoring the classic pane's
@@ -305,6 +327,7 @@ const VFileSection = memo(function VFileSection({
     return m;
   }, [fd]);
   const rowWidthCss = layout === "split" ? `calc(120px + ${2 * maxCols}ch)` : `calc(124px + ${maxCols}ch)`;
+  const colWidthCss = `calc(60px + ${maxCols}ch)`; // one split column's content width (gutter + code) (#10)
   const rowPx = (layout === "split" ? 120 : 124) + maxCols * CH_PX * (layout === "split" ? 2 : 1);
   const wide = paneW > 0 && rowPx > paneW - 2 * PAD - 2; // card is inset by PAD each side, minus its 1px borders
 
@@ -538,9 +561,37 @@ const VFileSection = memo(function VFileSection({
     for (let v = first; v < last; v++) renderVisual.push(v);
   }
 
+  // One split column's inner content: only the code cells for `side` (folds +
+  // comments are full-width and rendered once over both columns). Rendered for
+  // each column with its own static scroll ref so the two stay independently
+  // scrollable + synced. (#10)
+  const splitColumnInner = (side: Side) => (
+    <div className="relative h-full" style={{ width: colWidthCss, minWidth: "100%" }}>
+      {model && renderVisual.map((v) => {
+        const vr = visualRows[v];
+        if (vr.kind !== "line") return null;
+        const idx = vr.index;
+        const left = model.getSplitLeftLine(idx), right = model.getSplitRightLine(idx);
+        const leftHas = left.lineNumber != null, rightHas = right.lineNumber != null;
+        const changed = side === "old"
+          ? leftHas && (!rightHas || !!changeRangeOf(left.diff))
+          : rightHas && (!leftHas || !!changeRangeOf(right.diff));
+        return (
+          <SplitColCell
+            key={idx} model={model} side={side} index={idx} top={visualRowTop(v)}
+            changed={changed} highlighted={rangeRows.has(idx)} selected={idx >= selLo && idx <= selHi}
+            onComment={commentLine} marks={rowMarks(idx)?.filter((m) => m.side === side)}
+          />
+        );
+      })}
+    </div>
+  );
+
   return (
-    <div ref={ref} data-file={entry.path} className="rounded-lg border border-border bg-code shadow-sm dark:shadow-none">
-      <div className={`group/h sticky top-0 z-20 flex items-center gap-2 bg-code px-3 ${collapsed ? "rounded-lg" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H }}>
+    // Borders live on the header + body, not this wrapper, so a stuck header can
+    // float with a canvas GAP above it (the wrapper is transparent there). (#7)
+    <div ref={ref} data-file={entry.path} className="rounded-lg shadow-xs dark:shadow-none">
+      <div className={`group/h sticky z-20 flex items-center gap-2 border-x border-t border-border bg-code px-3 ${collapsed ? "rounded-lg border-b" : "rounded-t-lg border-b border-border/70"}`} style={{ height: HEADER_H, top: GAP }}>
         {/* Full-box collapse target. The label/counts above it are
             pointer-events-none, so hovering anywhere in the header (padding +
             gaps included) reaches this button and — via peer-hover — lights the
@@ -591,7 +642,7 @@ const VFileSection = memo(function VFileSection({
           aria-pressed={viewed}
           aria-label={`viewed ${entry.path}`}
           title="Mark viewed"
-          className={`relative h-7 shrink-0 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+          className={`delta-ui-font relative h-7 shrink-0 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
         >
           <span className={`flex size-4 items-center justify-center rounded-[5px] border transition-colors ${viewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80"}`}>
             {viewed && <Check className="size-3" strokeWidth={3} />}
@@ -601,8 +652,8 @@ const VFileSection = memo(function VFileSection({
       </div>
       {!collapsed && (
         <div
-          className={`relative rounded-b-lg ${wide ? "overflow-x-auto overflow-y-hidden" : "overflow-hidden"}`}
-          style={{ height: bodyH, overscrollBehaviorY: wide ? "auto" : undefined, "--rw": rowWidthCss } as CSSProperties}
+          className={`relative rounded-b-lg border-x border-b border-border bg-code ${layout !== "split" && wide ? "overflow-x-auto overflow-y-hidden" : "overflow-hidden"}`}
+          style={{ height: bodyH, overscrollBehaviorY: layout !== "split" && wide ? "auto" : undefined, "--rw": rowWidthCss } as CSSProperties}
           onPointerDown={onGutterPointerDown}
         >
           {isBinary ? (
@@ -624,17 +675,48 @@ const VFileSection = memo(function VFileSection({
             </div>
           ) : (
             <>
+              {/* Code: unified renders one column of rows; split renders the two
+                  sides as separate synced horizontal-scroll columns. Folds +
+                  comments span both sides, so they're rendered once below (over the
+                  columns), not inside either. (#10) */}
+              {model && (layout === "split" ? (
+                <>
+                  <div
+                    ref={oldColRef}
+                    onScroll={() => syncCols("old")}
+                    className="absolute inset-y-0 left-0 w-1/2 overflow-x-auto overflow-y-hidden border-r border-border/60"
+                    style={{ overscrollBehaviorY: "auto" }}
+                  >
+                    {splitColumnInner("old")}
+                  </div>
+                  <div
+                    ref={newColRef}
+                    onScroll={() => syncCols("new")}
+                    className="absolute inset-y-0 left-1/2 w-1/2 overflow-x-auto overflow-y-hidden"
+                    style={{ overscrollBehaviorY: "auto" }}
+                  >
+                    {splitColumnInner("new")}
+                  </div>
+                </>
+              ) : (
+                renderVisual.map((v) => {
+                  const vr = visualRows[v];
+                  if (vr.kind !== "line") return null;
+                  const hl = rangeRows.has(vr.index);
+                  return <Row key={vr.index} model={model} index={vr.index} top={visualRowTop(v)} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} marks={rowMarks(vr.index)} />;
+                })
+              ))}
+              {/* Folds (full row width) — shared by both layouts; in split the body
+                  doesn't scroll, so the bg fills the visible card width. (#3/#4) */}
               {model && renderVisual.map((v) => {
                 const vr = visualRows[v];
-                const top = visualRowTop(v);
-                if (vr.kind === "fold") {
-                  const key = `${vr.start}_${vr.end}`;
-                  return <FoldRow key={`fold-${vr.start}`} top={top} count={vr.count} onDown={() => growFold(key, "top")} onUp={() => growFold(key, "bottom")} onAll={() => growFold(key, "all")} />;
-                }
-                const hl = rangeRows.has(vr.index);
-                return layout === "split"
-                  ? <SplitRow key={vr.index} model={model} index={vr.index} top={top} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} marks={rowMarks(vr.index)} />
-                  : <Row key={vr.index} model={model} index={vr.index} top={top} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} marks={rowMarks(vr.index)} />;
+                if (vr.kind !== "fold") return null;
+                const key = `${vr.start}_${vr.end}`;
+                // ↓ extends from shown code above the gap, ↑ from shown code below;
+                // a gap touching both file ends (no anchor) shows both. (#4)
+                const canDown = vr.start > 0, canUp = vr.end < rowCount - 1;
+                const both = !canDown && !canUp;
+                return <FoldRow key={`fold-${vr.start}`} top={visualRowTop(v)} count={vr.count} showDown={canDown || both} showUp={canUp || both} onDown={() => growFold(key, "top")} onUp={() => growFold(key, "bottom")} onAll={() => growFold(key, "all")} />;
               })}
               {model && blocks.map((b) => (
                 <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + ROW_H} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onHeight={onHeight} />
@@ -729,8 +811,10 @@ export function VirtualDiffPane({
     return () => window.removeEventListener("keydown", onKey);
   }, [findOpen]);
   const closeFind = useCallback(() => { setFindOpen(false); setQuery(""); }, []);
-  // Reset to the first match whenever the query changes.
-  useEffect(() => { setActiveIdx(0); }, [query]);
+  // Reset to the first match whenever the query changes — adjusted during render
+  // via a prev-value guard rather than an effect (no cascading commit).
+  const [prevFindQuery, setPrevFindQuery] = useState(query);
+  if (prevFindQuery !== query) { setPrevFindQuery(query); setActiveIdx(0); }
   // Measured per-file body heights (comment threads are variable-height, so a
   // file's body isn't pure arithmetic). Kept in state, not a ref: offsets derive
   // from it during render, and reading a ref in render is unsafe under React
@@ -797,15 +881,25 @@ export function VirtualDiffPane({
   }, [matchCount]);
   // Auto-scroll to the first match once results land for a query — but only once
   // per query, so matches streaming in as off-screen models build don't re-jump.
-  const autoScrolledFor = useRef<string>("");
-  useEffect(() => {
-    if (!findActive) { autoScrolledFor.current = ""; return; }
-    if (matchCount === 0 || autoScrolledFor.current === query) return;
-    autoScrolledFor.current = query;
+  // Tracked in state and adjusted during render (not an effect) so the nonce bump
+  // doesn't cascade through an extra commit.
+  const [autoScrolledQuery, setAutoScrolledQuery] = useState<string | null>(null);
+  if (!findActive) {
+    if (autoScrolledQuery !== null) setAutoScrolledQuery(null);
+  } else if (matchCount > 0 && autoScrolledQuery !== query) {
+    setAutoScrolledQuery(query);
     setNavNonce((n) => n + 1);
-  }, [findActive, matchCount, query]);
-  // Bring the active match into view: expand its file, rough-scroll by its body
-  // offset, then exact-center the row once it mounts (retry, like comment jump).
+  }
+  // Expand the active match's file (drop its collapse override) during render so
+  // the scroll effect below finds the row mounted — mirrors the jump pattern,
+  // keyed on the nonce so each navigation re-fires.
+  const [prevNavNonce, setPrevNavNonce] = useState(0);
+  if (navNonce !== prevNavNonce) {
+    setPrevNavNonce(navNonce);
+    if (activeMatch) setOverrides((o) => (o[activeMatch.file] === false ? o : { ...o, [activeMatch.file]: false }));
+  }
+  // Bring the active match into view: rough-scroll by its body offset, then
+  // exact-center the row once it mounts (retry, like comment jump).
   useEffect(() => {
     if (!navNonce) return;
     const m = activeMatch;
@@ -813,16 +907,19 @@ export function VirtualDiffPane({
     if (!m || !pane) return;
     const i = files.findIndex((f) => f.path === m.file);
     if (i < 0) return;
-    setOverrides((o) => (o[m.file] === false ? o : { ...o, [m.file]: false }));
-    const rough = offsets[i] + HEADER_H + m.y - pane.clientHeight / 2;
-    pane.scrollTop = Math.max(0, Math.min(rough, pane.scrollHeight - pane.clientHeight));
+    const rough = () => Math.max(0, Math.min(offsets[i] + HEADER_H + m.y - pane.clientHeight / 2, pane.scrollHeight - pane.clientHeight));
     let tries = 0;
     const center = () => {
       const row = pane.querySelector(`[data-file="${CSS.escape(m.file)}"] [data-row-index="${m.modelIndex}"]`) as HTMLElement | null;
+      // Row already mounted (e.g. stepping between matches on the same line) →
+      // center it directly. scrollIntoView is a no-op when it's already centered,
+      // so there's no jolt. Only rough-scroll (by arithmetic) when the row isn't
+      // in the window yet, then retry until it mounts. (#8)
       if (row) { row.scrollIntoView({ block: "center" }); return; }
-      if (tries++ < 20) findScrollTimer.current = window.setTimeout(center, 30);
+      pane.scrollTop = rough();
+      if (tries < 20) { tries += 1; findScrollTimer.current = window.setTimeout(center, 30); }
     };
-    findScrollTimer.current = window.setTimeout(center, 0);
+    center();
     return () => clearTimeout(findScrollTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navNonce]);

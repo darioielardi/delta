@@ -8,9 +8,17 @@ export function useReview(initial: Review | null) {
   const [review, setReview] = useState<Review | null>(initial);
   const latest = useRef<Review | null>(initial);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  latest.current = review;
 
-  useEffect(() => setReview(initial), [initial]);
+  // Sync the (rare) `initial` prop into state via a prev-prop guard during render
+  // — not an effect — so there's no extra commit showing a stale review between.
+  const [prevInitial, setPrevInitial] = useState(initial);
+  if (prevInitial !== initial) { setPrevInitial(initial); setReview(initial); }
+
+  // Mirror the latest committed review into a ref so the stable save callbacks
+  // read it without re-subscribing. Written post-commit here (ref writes belong
+  // in effects, not render); `mutate` also writes it inline so an immediate
+  // saveNow sees the freshest value before this effect runs.
+  useEffect(() => { latest.current = review; }, [review]);
 
   // All actions are stable (useCallback over refs / stable setters) so consumers
   // that pass them down don't get new function identities every render — that
