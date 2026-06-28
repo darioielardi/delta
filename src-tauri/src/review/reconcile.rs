@@ -151,6 +151,7 @@ mod tests {
             }),
             body: "b".into(),
             stale: false,
+            resolved: false,
             created_at: "t".into(),
             updated_at: "t".into(),
         }

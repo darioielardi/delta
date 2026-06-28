@@ -414,7 +414,7 @@ mod tests {
         let original_file_count = session.summary.files.len() as u32;
 
         let mut review = session.review.clone();
-        review.comments.push(Comment { id: "c1".into(), scope: CommentScope::Line, anchor: None, body: "hi".into(), stale: false, created_at: "t".into(), updated_at: "t".into() });
+        review.comments.push(Comment { id: "c1".into(), scope: CommentScope::Line, anchor: None, body: "hi".into(), stale: false, resolved: false, created_at: "t".into(), updated_at: "t".into() });
         save_review_impl_with_registry(&storage, &reg_store, review).unwrap();
 
         let reg = reg_store.load().unwrap();

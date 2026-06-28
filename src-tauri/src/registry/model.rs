@@ -137,6 +137,7 @@ mod tests {
             anchor: None,
             body: "b".into(),
             stale,
+            resolved: false,
             created_at: "t".into(),
             updated_at: "t".into(),
         }
