@@ -12,7 +12,7 @@ import { prefetchPicker } from "../picker/pickerData";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
-import { ArrowRight, Check, ChevronDown, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
 import { getEditorPref } from "../editor";
 import { worktreeName } from "../lib/utils";
 import type { Anchor, Comment, DiffMode, DiffSummary, Review, ReviewSession, Target } from "../types";
@@ -329,11 +329,6 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               </select>
               <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             </div>
-            <span className="flex items-center gap-1 rounded-lg squircle bg-muted px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
-              {summary.baseLabel}
-              <ArrowRight className="size-3 opacity-50" />
-              {summary.headLabel}
-            </span>
             <div className="ml-auto flex items-center gap-3">
               {pendingRefresh && (
                 <Button
