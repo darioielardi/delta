@@ -65,7 +65,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { review, setReview, addComment, updateCommentBody, deleteComment, toggleViewed } = useReview(null);
+  const { review, setReview, addComment, updateCommentBody, deleteComment, toggleViewed, toggleResolved } = useReview(null);
 
   // Auto-refresh plumbing (#9): reviewRef lets the once-mounted fs-watcher
   // listener always refresh the *current* review; sigRef skips no-op state
@@ -421,6 +421,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 onAddFileComment={onAddFileComment}
                 onEditComment={updateCommentBody}
                 onDeleteComment={deleteComment}
+                onToggleResolvedComment={toggleResolved}
               />
             </main>
             <CommentIndex

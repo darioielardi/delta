@@ -271,7 +271,7 @@ function FoldRow({ top, count, showDown, showUp, onDown, onUp, onAll }: { top: n
 }
 
 // An inline comment thread anchored under a row. Measures its own (variable) height.
-function CommentBlock({ id, top, comments, onEdit, onDelete, onHeight }: { id: string; top: number; comments: Comment[]; onEdit: (id: string, body: string) => void; onDelete: (id: string) => void; onHeight: (id: string, h: number) => void }) {
+function CommentBlock({ id, top, comments, onEdit, onDelete, onToggleResolved, onHeight }: { id: string; top: number; comments: Comment[]; onEdit: (id: string, body: string) => void; onDelete: (id: string) => void; onToggleResolved: (id: string) => void; onHeight: (id: string, h: number) => void }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const el = ref.current;
@@ -286,7 +286,7 @@ function CommentBlock({ id, top, comments, onEdit, onDelete, onHeight }: { id: s
     // `delta-comment-ui` flips the comment UI back to the sans font (the diff
     // wrapper forces mono on everything inside it) and restores app colors. (#3)
     <div ref={ref} className="delta-comment-ui absolute inset-x-0 px-3 py-3" style={{ top }}>
-      <CommentThread comments={comments} onEdit={onEdit} onDelete={onDelete} />
+      <CommentThread comments={comments} onEdit={onEdit} onDelete={onDelete} onToggleResolved={onToggleResolved} />
     </div>
   );
 }
@@ -294,7 +294,7 @@ function CommentBlock({ id, top, comments, onEdit, onDelete, onHeight }: { id: s
 interface Block { id: string; index: number; comments: Comment[] }
 
 const VFileSection = memo(function VFileSection({
-  entry, theme, layout, cache, collapsed, viewed, headerSolo, repoPath, onToggleCollapse, onToggleViewed, view, paneW, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, reportBodyHeight, registerRef,
+  entry, theme, layout, cache, collapsed, viewed, headerSolo, repoPath, onToggleCollapse, onToggleViewed, view, paneW, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment, reportBodyHeight, registerRef,
 }: {
   entry: FileEntry; theme: "light" | "dark"; layout: DiffLayout;
   cache: ReturnType<typeof useFileDiffCache>;
@@ -315,6 +315,7 @@ const VFileSection = memo(function VFileSection({
   onAddFileComment: (file: string, body: string) => void;
   onEditComment: (id: string, body: string) => void;
   onDeleteComment: (id: string) => void;
+  onToggleResolvedComment: (id: string) => void;
   reportBodyHeight: (path: string, h: number) => void;
   registerRef: (path: string, el: HTMLDivElement | null) => void;
 }) {
@@ -761,7 +762,7 @@ const VFileSection = memo(function VFileSection({
                 return <FoldRow key={`fold-${vr.start}`} top={visualRowTop(v)} count={vr.count} showDown={canDown || both} showUp={canUp || both} onDown={() => growFold(key, "top")} onUp={() => growFold(key, "bottom")} onAll={() => growFold(key, "all")} />;
               })}
               {model && blocks.map((b) => (
-                <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + ROW_H} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onHeight={onHeight} />
+                <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + ROW_H} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onToggleResolved={onToggleResolvedComment} onHeight={onHeight} />
               ))}
             </>
           )}
@@ -779,7 +780,7 @@ function useFileDiffCacheEntry(cache: ReturnType<typeof useFileDiffCache>, path:
 }
 
 export function VirtualDiffPane({
-  target, files, theme, layout, viewedFiles, comments, jump, invalidate, onVisibleFileChange, onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment,
+  target, files, theme, layout, viewedFiles, comments, jump, invalidate, onVisibleFileChange, onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment,
 }: {
   target: Target; files: FileEntry[]; theme: "light" | "dark"; layout: DiffLayout;
   viewedFiles: Set<string>; comments: Comment[];
@@ -793,6 +794,7 @@ export function VirtualDiffPane({
   onAddFileComment: (file: string, body: string) => void;
   onEditComment: (id: string, body: string) => void;
   onDeleteComment: (id: string) => void;
+  onToggleResolvedComment: (id: string) => void;
 }) {
   const cache = useFileDiffCache(target);
 
@@ -1118,7 +1120,7 @@ export function VirtualDiffPane({
                 onMatches={onMatches}
                 forceModel={findActive}
                 comments={view || findActive ? (commentsByFile.get(entry.path) ?? noComments) : noComments}
-                onAddComment={onAddComment} onAddFileComment={onAddFileComment} onEditComment={onEditComment} onDeleteComment={onDeleteComment}
+                onAddComment={onAddComment} onAddFileComment={onAddFileComment} onEditComment={onEditComment} onDeleteComment={onDeleteComment} onToggleResolvedComment={onToggleResolvedComment}
                 reportBodyHeight={reportBodyHeight} registerRef={registerRef}
               />
             </div>

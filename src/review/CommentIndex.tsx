@@ -87,7 +87,7 @@ export function CommentIndex({
         {anchored.map((c) => (
           <button
             key={c.id}
-            className="group flex w-full min-w-0 shrink-0 flex-col items-start gap-1 overflow-hidden rounded-lg border border-border bg-card px-3 py-2.5 text-left text-[13px] shadow-xs hover:border-foreground/25 hover:bg-foreground/[0.04] dark:shadow-none"
+            className={`group flex w-full min-w-0 shrink-0 flex-col items-start gap-1 overflow-hidden rounded-lg border border-border bg-card px-3 py-2.5 text-left text-[13px] shadow-xs hover:border-foreground/25 hover:bg-foreground/[0.04] dark:shadow-none${c.resolved ? " opacity-55" : ""}`}
             onClick={() => onJump(c)}
           >
             <span className="flex w-full min-w-0 items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
@@ -102,6 +102,7 @@ export function CommentIndex({
                 );
               })()}
               {c.stale && <span className="shrink-0 rounded-md squircle bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">⚠ stale</span>}
+              {c.resolved && <span className="shrink-0 rounded-md squircle bg-emerald-500/15 px-1.5 py-0.5 text-emerald-600 dark:text-emerald-400">✓</span>}
             </span>
             {c.body.trim() === "" ? (
               <span className="italic text-muted-foreground/70">Empty note</span>
