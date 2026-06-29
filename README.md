@@ -12,7 +12,7 @@
 
 ---
 
-delta is a fast, beautiful desktop app for reviewing git changes. Read the
+**delta** is a fast, beautiful desktop app for reviewing git changes. Read the
 diff, drop comments on the exact lines that matter, then copy the whole review
 as clean Markdown your AI coding agent can act on.
 
@@ -34,7 +34,7 @@ as clean Markdown your AI coding agent can act on.
 
 ## 🤖 Copy for agents
 
-The reason delta exists. Every comment becomes a self-contained instruction with
+The reason **delta** exists. Every comment becomes a self-contained instruction with
 its location and the code it refers to, grouped by file — so an agent has
 everything it needs without the original diff in front of it:
 
