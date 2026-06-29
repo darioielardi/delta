@@ -6,6 +6,7 @@
 import { api } from "./api";
 import { ReviewPicker } from "./picker/ReviewPicker";
 import { addRepo } from "./picker/pickerActions";
+import { DeltaMark } from "@/components/DeltaMark";
 import { Settings } from "lucide-react";
 import type { PickerWorktree, ReviewEntry } from "./types";
 
@@ -43,9 +44,7 @@ export function Home({ onOpenSettings }: { onOpenSettings?: () => void }) {
       <main className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-hidden px-6 pb-10">
         <div className="flex w-full max-w-lg flex-col items-center">
           {/* Brand mark + wordmark */}
-          <div className="mb-3 flex size-12 select-none items-center justify-center rounded-2xl squircle bg-gradient-to-br from-primary to-primary/70 text-[24px] font-semibold leading-none text-primary-foreground shadow-lg shadow-primary/25">
-            Δ
-          </div>
+          <DeltaMark className="mb-2 size-16" />
           <h1 className="text-[22px] font-semibold tracking-tight">delta</h1>
           <p className="mt-1 text-center text-[13px] text-muted-foreground">Review diffs. Leave structured comments for agents.</p>
 

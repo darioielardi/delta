@@ -247,8 +247,21 @@ pub fn route_launch(app: &AppHandle, args: &[String], cwd: &Path) {
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum InstallOutcome {
+    /// Symlinked into a directory already on PATH — runnable in open and new terminals.
     Linked { path: String },
+    /// Symlinked into ~/.local/bin and wired that dir into the user's shell configs.
+    /// New terminals pick it up automatically; an already-open shell won't until it
+    /// re-reads its config. `shells` lists the shells we updated.
+    LinkedPathUpdated { path: String, shells: Vec<String> },
+    /// Couldn't install automatically; surface a command for the user to run.
     ManualNeeded { command: String, reason: String },
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CliStatus {
+    pub installed: bool,
+    pub path: Option<String>,
 }
 
 /// Pure: pick the install dir. Prefer /usr/local/bin, else the first writable PATH dir.
@@ -291,30 +304,125 @@ fn link_into(dir: &Path, exe: &Path) -> Result<InstallOutcome, String> {
     }
 }
 
+/// Dirs conventionally on a terminal's PATH that a GUI-launched macOS app's own
+/// PATH usually omits (launchd hands a minimal PATH). Linking here lets `delta`
+/// resolve in already-open and new terminals without touching any shell config.
+fn preferred_bin_dirs() -> Vec<PathBuf> {
+    vec![PathBuf::from("/usr/local/bin"), PathBuf::from("/opt/homebrew/bin")]
+}
+
 pub fn install_cli() -> Result<InstallOutcome, String> {
     let exe = std::env::current_exe().map_err(|e| format!("current exe: {e}"))?;
     let path_var = std::env::var("PATH").unwrap_or_default();
-    let dirs: Vec<PathBuf> = std::env::split_paths(&path_var).collect();
+    let path_dirs: Vec<PathBuf> = std::env::split_paths(&path_var).collect();
 
-    if let Some(dir) = choose_install_dir(&dirs, dir_is_writable) {
+    // 1) Prefer a writable dir that's conventionally on the terminal PATH (covers
+    //    Homebrew Macs with zero config edits), then any writable PATH dir.
+    let mut candidates = preferred_bin_dirs();
+    candidates.extend(path_dirs.iter().cloned());
+    if let Some(dir) = choose_install_dir(&candidates, dir_is_writable) {
         return link_into(&dir, &exe);
     }
-    // Fall back to ~/.local/bin (create it); note if it isn't on PATH.
+
+    // 2) Fall back to ~/.local/bin (create it). If it isn't already on PATH, wire it
+    //    into the user's shell configs so new terminals pick it up — no manual step.
     if let Ok(home) = std::env::var("HOME") {
-        let local_bin = PathBuf::from(home).join(".local/bin");
+        let home = PathBuf::from(home);
+        let local_bin = home.join(".local/bin");
         if fs::create_dir_all(&local_bin).is_ok() && dir_is_writable(&local_bin) {
             link_into(&local_bin, &exe)?; // the symlink itself succeeded
             let path = local_bin.join("delta").display().to_string();
-            let on_path = dirs.iter().any(|d| d == &local_bin);
-            return Ok(InstallOutcome::Linked {
-                path: if on_path { path } else { format!("{path}  (add ~/.local/bin to your PATH)") },
-            });
+            if path_dirs.iter().any(|d| d == &local_bin) {
+                return Ok(InstallOutcome::Linked { path });
+            }
+            let shells = ensure_dir_on_path(&home, &local_bin);
+            return Ok(InstallOutcome::LinkedPathUpdated { path, shells });
         }
     }
+
     Ok(InstallOutcome::ManualNeeded {
         command: format!("sudo ln -sf '{}' /usr/local/bin/delta", exe.display()),
         reason: "No writable directory found on your PATH.".into(),
     })
+}
+
+/// Best-effort check for an installed `delta` shim in the dirs we (or a manual
+/// install) would use, so the UI can stop offering to install it.
+pub fn cli_status() -> CliStatus {
+    let mut dirs = preferred_bin_dirs();
+    if let Ok(home) = std::env::var("HOME") {
+        dirs.push(PathBuf::from(home).join(".local/bin"));
+    }
+    if let Ok(path_var) = std::env::var("PATH") {
+        dirs.extend(std::env::split_paths(&path_var));
+    }
+    for dir in dirs {
+        let link = dir.join("delta");
+        if fs::symlink_metadata(&link).is_ok() {
+            return CliStatus { installed: true, path: Some(link.display().to_string()) };
+        }
+    }
+    CliStatus { installed: false, path: None }
+}
+
+/// Tags the block we append to a shell config so re-running install is idempotent.
+const RC_MARKER: &str = "# Added by delta (delta CLI)";
+
+/// POSIX (bash/zsh) snippet prepending `dir` to PATH.
+fn posix_path_block(dir: &Path) -> String {
+    format!("\n{RC_MARKER}\nexport PATH=\"{}:$PATH\"\n", dir.display())
+}
+
+/// fish snippet — fish manages PATH via its own builtin.
+fn fish_path_block(dir: &Path) -> String {
+    format!("\n{RC_MARKER}\nfish_add_path {}\n", dir.display())
+}
+
+/// Append `block` to `file` unless our marker is already there. Creates the file
+/// (and parents) only when `create` is set — we don't want to materialize shell
+/// configs the user doesn't use. Returns true if the file ends up wiring the dir.
+fn append_block_if_missing(file: &Path, block: &str, create: bool) -> bool {
+    match fs::read_to_string(file) {
+        Ok(existing) => {
+            if existing.contains(RC_MARKER) {
+                return true; // already wired by a previous install
+            }
+            let mut contents = existing;
+            contents.push_str(block);
+            fs::write(file, contents).is_ok()
+        }
+        Err(_) if create => {
+            if let Some(parent) = file.parent() {
+                let _ = fs::create_dir_all(parent);
+            }
+            fs::write(file, block.trim_start_matches('\n')).is_ok()
+        }
+        Err(_) => false,
+    }
+}
+
+/// Add `dir` to PATH across the user's shells by editing their rc files. zsh is the
+/// macOS default so its config is created if absent; bash/fish are only touched when
+/// the user already has them. Returns the shells we updated.
+fn ensure_dir_on_path(home: &Path, dir: &Path) -> Vec<String> {
+    let mut updated = Vec::new();
+    if append_block_if_missing(&home.join(".zshrc"), &posix_path_block(dir), true) {
+        updated.push("zsh".to_string());
+    }
+    let bash_updated = [".bashrc", ".bash_profile", ".profile"]
+        .iter()
+        .map(|f| home.join(f))
+        .filter(|p| p.exists())
+        .fold(false, |acc, p| append_block_if_missing(&p, &posix_path_block(dir), false) || acc);
+    if bash_updated {
+        updated.push("bash".to_string());
+    }
+    if home.join(".config/fish").is_dir() {
+        if append_block_if_missing(&home.join(".config/fish/config.fish"), &fish_path_block(dir), true) {
+            updated.push("fish".to_string());
+        }
+    }
+    updated
 }
 
 #[cfg(test)]
@@ -417,5 +525,66 @@ mod tests {
     fn choose_none_when_nothing_writable() {
         let dirs = vec![PathBuf::from("/usr/local/bin")];
         assert_eq!(choose_install_dir(&dirs, |_| false), None);
+    }
+
+    #[test]
+    fn path_blocks_carry_marker_and_dir() {
+        let dir = Path::new("/Users/me/.local/bin");
+        let posix = posix_path_block(dir);
+        assert!(posix.contains(RC_MARKER));
+        assert!(posix.contains("export PATH=\"/Users/me/.local/bin:$PATH\""));
+        let fish = fish_path_block(dir);
+        assert!(fish.contains(RC_MARKER));
+        assert!(fish.contains("fish_add_path /Users/me/.local/bin"));
+    }
+
+    #[test]
+    fn append_block_is_idempotent() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let rc = tmp.path().join(".zshrc");
+        let block = posix_path_block(Path::new("/x/bin"));
+        // First run creates the file and writes the block once.
+        assert!(append_block_if_missing(&rc, &block, true));
+        // Second run is a no-op (marker already present) — no duplication.
+        assert!(append_block_if_missing(&rc, &block, true));
+        let contents = fs::read_to_string(&rc).unwrap();
+        assert_eq!(contents.matches(RC_MARKER).count(), 1);
+    }
+
+    #[test]
+    fn append_block_skips_creating_when_not_requested() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let rc = tmp.path().join(".bashrc");
+        assert!(!append_block_if_missing(&rc, "x", false));
+        assert!(!rc.exists());
+    }
+
+    #[test]
+    fn ensure_dir_on_path_creates_zsh_and_touches_existing_only() {
+        let home = tempfile::TempDir::new().unwrap();
+        let home = home.path();
+        // Pre-existing bash + fish configs; no zshrc yet.
+        fs::write(home.join(".bashrc"), "# mine\n").unwrap();
+        fs::create_dir_all(home.join(".config/fish")).unwrap();
+
+        let updated = ensure_dir_on_path(home, &home.join(".local/bin"));
+        assert!(updated.contains(&"zsh".to_string()));
+        assert!(updated.contains(&"bash".to_string()));
+        assert!(updated.contains(&"fish".to_string()));
+
+        // zshrc was created; bash kept its original content + our block; fish wired.
+        assert!(home.join(".zshrc").exists());
+        assert!(fs::read_to_string(home.join(".bashrc")).unwrap().contains("# mine"));
+        assert!(fs::read_to_string(home.join(".bashrc")).unwrap().contains(RC_MARKER));
+        assert!(fs::read_to_string(home.join(".config/fish/config.fish")).unwrap().contains("fish_add_path"));
+        // We never created a bash_profile the user didn't have.
+        assert!(!home.join(".bash_profile").exists());
+    }
+
+    #[test]
+    fn ensure_dir_on_path_without_fish_skips_fish() {
+        let home = tempfile::TempDir::new().unwrap();
+        let updated = ensure_dir_on_path(home.path(), &home.path().join(".local/bin"));
+        assert_eq!(updated, vec!["zsh".to_string()]);
     }
 }

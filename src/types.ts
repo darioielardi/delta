@@ -140,4 +140,10 @@ export interface PickerData {
 
 export type InstallOutcome =
   | { kind: "linked"; path: string }
+  | { kind: "linkedPathUpdated"; path: string; shells: string[] }
   | { kind: "manualNeeded"; command: string; reason: string };
+
+export interface CliStatus {
+  installed: boolean;
+  path: string | null;
+}
