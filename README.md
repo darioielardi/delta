@@ -12,10 +12,9 @@
 
 ---
 
-delta is a fast, native-feeling desktop app for reviewing git changes. Read the
+delta is a fast, beautiful desktop app for reviewing git changes. Read the
 diff, drop comments on the exact lines that matter, then copy the whole review
-as clean Markdown your AI coding agent can act on — no copy-pasting line numbers,
-no losing track of what you asked for.
+as clean Markdown your AI coding agent can act on.
 
 ## ✨ Features
 
@@ -73,10 +72,9 @@ pnpm tauri dev      # run the app
 pnpm tauri build    # build a bundle
 ```
 
-## 💻 Review from your terminal
+## 💻 Open from your terminal
 
-Install the `delta` CLI with the one-click **Install CLI** button in the app
-header (or from the first-run screen). Then run it from any repo or worktree —
+Install the `delta` CLI with the one-click **Install CLI** button. Then run it from any repo or worktree —
 ideal for reviewing an agent's work the moment it finishes:
 
 ```bash
@@ -91,8 +89,9 @@ A path can follow any of these, e.g. `delta --branch ../other-checkout`.
 ## 🛠️ Development
 
 ```bash
-pnpm dev:mock     # run the whole UI in a browser against fixtures → localhost:5599
-pnpm test         # UI tests · cargo test in src-tauri/ for the backend
+pnpm dev:mock                  # run the whole UI in a browser against fixtures → localhost:5599
+pnpm test                      # UI tests
+cd src-tauri && cargo test     # Rust backend tests
 ```
 
 Architecture and conventions live in [CLAUDE.md](CLAUDE.md). PRs welcome — keep
