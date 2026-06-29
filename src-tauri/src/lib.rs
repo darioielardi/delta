@@ -15,6 +15,26 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // CLI guard: a terminal invocation pointed at a path that isn't a git repo should
+    // warn on stderr and exit without opening any window — instead of silently falling
+    // back to the launcher. This runs in EVERY process: the primary's cold start and
+    // each single-instance secondary, which re-runs run() top-to-bottom before the
+    // plugin forwards argv. So the warning reaches the terminal that typed the command,
+    // and a non-repo is never forwarded to the running instance. Gated on stderr being
+    // a TTY so GUI launches (Finder/dock) — no terminal, cwd typically "/" — are
+    // unaffected and still open the launcher.
+    {
+        use std::io::IsTerminal;
+        if std::io::stderr().is_terminal() {
+            let args: Vec<String> = std::env::args().skip(1).collect();
+            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            let launch = crate::launch::parse_launch(&args, &cwd);
+            if crate::launch::launch_targets_non_repo(&launch) {
+                eprintln!("delta: not a git repository: {}", launch.repo_path.display());
+                std::process::exit(1);
+            }
+        }
+    }
     tauri::Builder::default()
         // single-instance MUST be the first plugin registered.
         .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {

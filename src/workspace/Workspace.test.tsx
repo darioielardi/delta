@@ -13,6 +13,9 @@ vi.mock("../api", () => ({
     saveReview: vi.fn(),
     exportReview: vi.fn(),
     getFileDiff: vi.fn(),
+    // The empty-session path renders <NothingToReview>, which enumerates the repo's
+    // other worktrees; default to none so it shows its placeholder.
+    listWorktrees: vi.fn().mockResolvedValue([]),
     showPicker: vi.fn(),
     // Already-installed → the header CLI CTA hides itself, keeping these tests focused.
     cliStatus: vi.fn().mockResolvedValue({ installed: true, path: "/usr/local/bin/delta" }),
