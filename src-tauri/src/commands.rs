@@ -3,8 +3,9 @@ use crate::git::diff::{compute_diff as engine_compute, get_file_diff as engine_f
 use crate::git::model::{DiffMode, Target};
 use crate::git::{open_repo, resolve_worktree};
 use crate::launch::{
-    install_cli as launch_install_cli, list_worktrees as launch_list_worktrees, open_target_window,
-    repo_display_name, repo_entry, InstallOutcome,
+    cli_status as launch_cli_status, install_cli as launch_install_cli,
+    list_worktrees as launch_list_worktrees, open_target_window, repo_display_name, repo_entry,
+    CliStatus, InstallOutcome,
 };
 use crate::registry::model::{Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
@@ -71,6 +72,16 @@ fn registry_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn reg_store(app: &tauri::AppHandle) -> Result<JsonRegistryStore, String> {
     Ok(JsonRegistryStore::new(registry_path(app)?, reviews_dir(app)?))
+}
+
+/// True when a recent review already covers this worktree (so the picker lists it
+/// under "recent", not "other worktrees"). Matches by worktree path, or by repo
+/// name + branch (a linked worktree resolves to a different path than the review's).
+pub fn worktree_has_review(w: &WorktreeEntry, repo_name: &str, recents: &[ReviewEntry]) -> bool {
+    recents.iter().any(|r| {
+        r.target.repo_path == w.path
+            || (r.repo_name == repo_name && r.target.worktree.as_deref() == Some(w.branch.as_str()))
+    })
 }
 
 /// Upsert repo + review entry with a fresh file_count (open/refresh path). Non-fatal.
@@ -206,6 +217,55 @@ pub fn list_registry(app: tauri::AppHandle) -> Result<Registry, String> {
     Ok(reg)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickerWorktree {
+    #[serde(flatten)]
+    pub worktree: WorktreeEntry,
+    pub repo_name: String,
+    pub repo_id: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickerData {
+    pub recents: Vec<ReviewEntry>,
+    pub worktrees: Vec<PickerWorktree>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub home: Option<String>,
+}
+
+/// Recents + the live, currently-checked-out worktrees of every known repo, with
+/// worktrees already covered by a review removed (they show under recents).
+pub fn list_picker_impl(reg_store: &dyn RegistryStore, home: Option<String>) -> Result<PickerData, String> {
+    let reg = reg_store.load()?;
+    let recents = reg.reviews.clone();
+    let mut worktrees = Vec::new();
+    for repo in &reg.repos {
+        // Best-effort: a repo whose worktrees can't be listed (moved/deleted) is skipped.
+        let wts = launch_list_worktrees(&repo.root).unwrap_or_default();
+        for w in wts {
+            if worktree_has_review(&w, &repo.name, &recents) {
+                continue;
+            }
+            worktrees.push(PickerWorktree { worktree: w, repo_name: repo.name.clone(), repo_id: repo.id.clone() });
+        }
+    }
+    Ok(PickerData { recents, worktrees, home })
+}
+
+// Async so Tauri runs the git enumeration OFF the main thread. A synchronous command
+// blocks the main thread for the whole scan, freezing the UI on every open — which is
+// the picker's open latency, paid per call regardless of the frontend cache.
+#[tauri::command]
+pub async fn list_picker(app: tauri::AppHandle) -> Result<PickerData, String> {
+    let home = std::env::var("HOME").ok();
+    let store = reg_store(&app)?;
+    tauri::async_runtime::spawn_blocking(move || list_picker_impl(&store, home))
+        .await
+        .map_err(|e| format!("list_picker task failed: {e}"))?
+}
+
 #[tauri::command]
 pub fn list_worktrees(repo_path: String) -> Result<Vec<WorktreeEntry>, String> {
     launch_list_worktrees(&repo_path)
@@ -248,6 +308,11 @@ pub fn open_target(app: tauri::AppHandle, repo_path: String, mode: DiffMode, bas
 #[tauri::command]
 pub fn install_cli() -> Result<InstallOutcome, String> {
     launch_install_cli()
+}
+
+#[tauri::command]
+pub fn cli_status() -> CliStatus {
+    launch_cli_status()
 }
 
 // "Open in your editor" (#editor). Each curated editor maps to a CLI; where the
@@ -316,6 +381,56 @@ mod tests {
     fn stores(dir: &std::path::Path) -> (JsonStorage, JsonRegistryStore) {
         let reviews = dir.join("reviews");
         (JsonStorage::new(reviews.clone()), JsonRegistryStore::new(dir.join("registry.json"), reviews))
+    }
+
+    #[test]
+    fn worktree_has_review_matches_by_path_or_repo_and_branch() {
+        let recents = vec![ReviewEntry {
+            id: "x".into(),
+            repo_name: "demo".into(),
+            target: Target { repo_path: "/r/demo".into(), worktree: Some("feat/a".into()), mode: DiffMode::AllChanges, base: None },
+            last_opened_at: "t".into(),
+            comment_count: 0, stale_count: 0, resolved_count: 0, viewed_count: 0, file_count: 1,
+        }];
+        let wt = |path: &str, branch: &str| WorktreeEntry { path: path.into(), branch: branch.into(), is_main: false, last_commit_at: None, dirty: false };
+        // same path → covered
+        assert!(worktree_has_review(&wt("/r/demo", "feat/a"), "demo", &recents));
+        // same repo + branch, different path (linked worktree) → covered
+        assert!(worktree_has_review(&wt("/r/demo-a", "feat/a"), "demo", &recents));
+        // different branch → not covered
+        assert!(!worktree_has_review(&wt("/r/demo-b", "feat/b"), "demo", &recents));
+        // different repo (different path + name) → not covered, even on a same-named branch
+        assert!(!worktree_has_review(&wt("/r/other", "feat/a"), "other", &recents));
+    }
+
+    #[test]
+    fn list_picker_returns_recents_and_unreviewed_worktrees() {
+        let (dir, repo) = repo_with_commit(); // main worktree on "main"
+        add_worktree(&repo, dir.path(), "demo-feat", "feat/a"); // linked worktree "feat/a"
+        let root = dir.path().to_str().unwrap().to_string();
+
+        let store_dir = tempfile::TempDir::new().unwrap();
+        let (_storage, reg_store) = stores(store_dir.path());
+        let entry = repo_entry(&root).unwrap();
+        let repo_name = entry.name.clone();
+        let mut reg = reg_store.load().unwrap();
+        reg.upsert_repo(entry);
+        reg.upsert_review(ReviewEntry {
+            id: "rev1".into(),
+            repo_name: repo_name.clone(),
+            target: Target { repo_path: root.clone(), worktree: Some("main".into()), mode: DiffMode::AllChanges, base: None },
+            last_opened_at: "t".into(),
+            comment_count: 0, stale_count: 0, resolved_count: 0, viewed_count: 0, file_count: 1,
+        });
+        reg_store.save(&reg).unwrap();
+
+        let data = list_picker_impl(&reg_store, Some("/Users/me".into())).unwrap();
+        assert_eq!(data.recents.len(), 1);
+        // "main" is covered by a review → only "feat/a" appears under other worktrees.
+        let branches: Vec<&str> = data.worktrees.iter().map(|w| w.worktree.branch.as_str()).collect();
+        assert_eq!(branches, vec!["feat/a"]);
+        assert_eq!(data.worktrees[0].repo_name, repo_name);
+        assert_eq!(data.home.as_deref(), Some("/Users/me"));
     }
 
     #[test]

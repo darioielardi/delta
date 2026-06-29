@@ -6,6 +6,7 @@ import { Home } from "./Home";
 import { CommandPalette } from "./picker/CommandPalette";
 import { SettingsDialog } from "./settings/SettingsDialog";
 import { resolveRoute } from "./route";
+import { addRepo } from "./picker/pickerActions";
 import { useApplyTheme } from "./theme";
 
 function readLabel(): string | null {
@@ -36,8 +37,15 @@ export default function App() {
         setSettingsOpen((o) => !o);
         return;
       }
+      // ⌘O imports a repo from anywhere — Home or a review, picker open or not.
+      if (e.key === "o" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setPaletteOpen(false);
+        void addRepo();
+        return;
+      }
       if (!isReview) return; // no command palette on the launch screen (#6)
-      if ((e.key === "k" || e.key === "o" || e.key === "p") && (e.metaKey || e.ctrlKey)) {
+      if ((e.key === "k" || e.key === "p") && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setPaletteOpen((o) => !o);
       }

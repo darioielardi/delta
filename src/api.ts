@@ -6,9 +6,11 @@ import type {
   Review,
   ReviewSession,
   Registry,
+  PickerData,
   WorktreeEntry,
   RepoEntry,
   InstallOutcome,
+  CliStatus,
   DiffMode,
 } from "./types";
 
@@ -39,6 +41,7 @@ export const api = {
   exportReview: (review: Review): Promise<string> =>
     invokeImpl("export_review", { review }),
   listRegistry: (): Promise<Registry> => invokeImpl("list_registry"),
+  listPicker: (): Promise<PickerData> => invokeImpl("list_picker"),
   listWorktrees: (repoPath: string): Promise<WorktreeEntry[]> =>
     invokeImpl("list_worktrees", { repoPath }),
   importRepo: (): Promise<RepoEntry | null> => invokeImpl("import_repo"),
@@ -46,6 +49,7 @@ export const api = {
     invokeImpl("open_target", { repoPath, mode, base }),
   deleteReview: (id: string): Promise<void> => invokeImpl("delete_review", { id }),
   installCli: (): Promise<InstallOutcome> => invokeImpl("install_cli"),
+  cliStatus: (): Promise<CliStatus> => invokeImpl("cli_status"),
   // Open a file (or the repo root, when `file` is omitted) in the user's editor;
   // `line` jumps there where the editor's CLI supports it. (#editor)
   openInEditor: (editor: string, repoPath: string, file?: string, line?: number): Promise<void> =>

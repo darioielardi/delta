@@ -38,7 +38,7 @@ export function CommentThread({
     <div className="divide-y divide-border/60 overflow-hidden rounded-lg border border-border/70 bg-card/60 text-[13px] shadow-sm">
       {comments.map((c) =>
         editing?.id === c.id ? (
-          <div key={c.id} data-comment-id={c.id} className="flex flex-col gap-1.5 px-3.5 py-3">
+          <div key={c.id} data-comment-id={c.id} className="flex flex-col gap-1.5 px-4 py-3">
             <CommentEditor
               initialValue={c.body}
               onSubmit={(body) => {
@@ -58,7 +58,7 @@ export function CommentThread({
             />
           </div>
         ) : (
-          <div key={c.id} data-comment-id={c.id} className={`group flex flex-col gap-1.5 px-3.5 py-3${c.resolved ? " opacity-55" : ""}`}>
+          <div key={c.id} data-comment-id={c.id} className={`group flex flex-col gap-1.5 px-4 pb-3 pt-3.5${c.resolved ? " opacity-55" : ""}`}>
             {c.stale && (
               <span className="flex w-fit items-center gap-1 rounded-md squircle bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">⚠ stale</span>
             )}

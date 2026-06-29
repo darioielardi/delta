@@ -14,6 +14,9 @@ vi.mock("../api", () => ({
     exportReview: vi.fn(),
     getFileDiff: vi.fn(),
     showPicker: vi.fn(),
+    // Already-installed → the header CLI CTA hides itself, keeping these tests focused.
+    cliStatus: vi.fn().mockResolvedValue({ installed: true, path: "/usr/local/bin/delta" }),
+    installCli: vi.fn(),
   },
 }));
 

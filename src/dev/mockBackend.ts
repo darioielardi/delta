@@ -5,7 +5,7 @@
 // Keep fixtures realistic but small. As Plan 2 adds commands (open_review,
 // refresh_review, save_review, export_review) extend the switch + fixtures here.
 import { __setInvokeForDev } from "../api";
-import type { DiffSummary, FileDiff, Registry, Review, ReviewSession } from "../types";
+import type { DiffSummary, FileDiff, PickerData, Registry, Review, ReviewSession } from "../types";
 
 const SUMMARY: DiffSummary = {
   baseLabel: "main",
@@ -191,7 +191,7 @@ const REGISTRY: Registry = {
     {
       id: "abc123",
       repoName: "demo",
-      target: { repoPath: "/Users/me/projects/demo", worktree: "feat/auth", mode: "all-changes", base: "main" },
+      target: { repoPath: "/Users/me/projects/demo/.worktrees/feat-auth-wt", worktree: "feat/auth", mode: "all-changes", base: "main" },
       lastOpenedAt: "2026-06-26T10:00:00Z",
       commentCount: 3,
       staleCount: 1,
@@ -287,10 +287,15 @@ function genLarge(fileCount: number): { summary: DiffSummary; files: Record<stri
 }
 
 export function installMockBackend(): void {
-  const largeParam = typeof location !== "undefined" ? new URLSearchParams(location.search).get("large") : null;
-  const ds = largeParam
-    ? genLarge(Math.max(1, Math.min(2000, parseInt(largeParam, 10) || 80)))
-    : { summary: SUMMARY, files: FILES, review: REVIEW };
+  const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
+  const largeParam = params.get("large");
+  // `?empty=1` → a review with no changed files, to exercise the empty state.
+  const emptyParam = params.get("empty") === "1";
+  const ds = emptyParam
+    ? { summary: { ...SUMMARY, files: [] }, files: {}, review: { ...REVIEW, comments: [], viewed: [] } }
+    : largeParam
+      ? genLarge(Math.max(1, Math.min(2000, parseInt(largeParam, 10) || 80)))
+      : { summary: SUMMARY, files: FILES, review: REVIEW };
   __setInvokeForDev(async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     switch (cmd) {
       case "compute_diff":
@@ -333,11 +338,43 @@ export function installMockBackend(): void {
         return undefined as T;
       case "list_registry":
         return structuredClone(REGISTRY) as T;
+      case "list_picker": {
+        // `?empty=1` → no recents/worktrees, to exercise the first-launch empty state.
+        // Otherwise: feat/auth + main have reviews (see REGISTRY.reviews) → only the
+        // spike worktree shows under "other worktrees".
+        const data: PickerData = emptyParam
+          ? { home: REGISTRY.home, recents: [], worktrees: [] }
+          : {
+              home: REGISTRY.home,
+              recents: REGISTRY.reviews,
+              worktrees: [
+                { path: "/Users/me/projects/demo/.worktrees/spike", branch: "spike/new-idea", isMain: false, lastCommitAt: "2026-06-26T15:45:00Z", dirty: false, repoName: "demo", repoId: "r1" },
+              ],
+            };
+        return structuredClone(data) as T;
+      }
       case "delete_review":
         console.info("[delta mock] delete_review", args);
         return undefined as T;
-      case "install_cli":
+      case "install_cli": {
+        // `?cli=path` / `?cli=manual` exercise the other install outcomes in mock.
+        const variant = params.get("cli");
+        if (variant === "manual")
+          return {
+            kind: "manualNeeded",
+            command: "sudo ln -sf '/Applications/delta.app/Contents/MacOS/delta' /usr/local/bin/delta",
+            reason: "No writable directory found on your PATH.",
+          } as T;
+        if (variant === "path")
+          return { kind: "linkedPathUpdated", path: "/Users/me/.local/bin/delta", shells: ["zsh", "fish"] } as T;
         return { kind: "linked", path: "/usr/local/bin/delta" } as T;
+      }
+      case "cli_status":
+        // Default: not installed so the header CTA shows. `?cli=installed` hides it.
+        return {
+          installed: params.get("cli") === "installed",
+          path: params.get("cli") === "installed" ? "/usr/local/bin/delta" : null,
+        } as T;
       case "open_in_editor":
         console.info("[delta mock] open_in_editor", args);
         return undefined as T;

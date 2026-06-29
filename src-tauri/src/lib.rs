@@ -8,6 +8,9 @@ mod review;
 mod storage;
 mod watch;
 
+#[cfg(debug_assertions)]
+mod devbridge;
+
 use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -41,16 +44,20 @@ pub fn run() {
             commands::export_review,
             commands::open_target,
             commands::list_registry,
+            commands::list_picker,
             commands::list_worktrees,
             commands::import_repo,
             commands::delete_review,
             commands::install_cli,
+            commands::cli_status,
             commands::open_in_editor
         ])
         .setup(|app| {
             let args: Vec<String> = std::env::args().skip(1).collect();
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             crate::launch::route_launch(app.handle(), &args, &cwd);
+            #[cfg(debug_assertions)]
+            crate::devbridge::start(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())
