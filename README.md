@@ -19,21 +19,17 @@ as clean Markdown your AI coding agent can act on.
 ## ✨ Features
 
 - 🚀 **Fast diffs** — Smooth on huge changesets. Unified or split, word-level
-  highlighting, syntax colors, fold/expand context, and find-in-diff with
-  match-case and whole-word.
-- 💬 **Comments that stick** — Comment on a line, a range, or a whole file. Edit
-  them inline as Markdown, resolve them once they're handled, and they re-anchor
-  as the diff shifts under you — drift too far and they flag themselves *stale*
-  instead of silently pointing at the wrong place.
+  highlighting, syntax colors, fold/expand context, and find-in-diff.
+- 💬 **Comments that stick** — Comment on a line, range, or whole file in
+  Markdown. They re-anchor as the diff shifts and flag themselves *stale* rather
+  than silently drift. Resolve them once they're handled.
 - 🤖 **Copy for agents** — One click turns the review into clean, line-anchored
-  Markdown ready to paste into an agent. Resolved comments drop out; stale ones
-  are flagged, not lost.
-- 🌿 **Git-native** — Review all changes, just what's uncommitted, the last
-  commit, or your branch against its base. Worktree-aware, and it watches the
-  working tree so a single keystroke re-diffs the moment files change.
-- 🧭 **Made for flow** — Browse changed files as a tree or flat list, mark files
-  viewed as you go, jump to any file in your editor, and use the command palette
-  to hop between recent reviews.
+  Markdown an agent can act on — resolved comments drop out, stale ones are
+  flagged. *(See below.)*
+- 🌿 **Git-native** — All changes, just uncommitted, the last commit, or
+  branch-vs-base. Worktree-aware, and it re-diffs the moment files change.
+- 🧭 **Made for flow** — Files as a tree or list, mark-as-viewed, jump to your
+  editor, command palette to hop between reviews.
 - 🎨 **Light & dark** — System, light, or dark theme.
 
 ## 🤖 Copy for agents
