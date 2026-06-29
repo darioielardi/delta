@@ -53,7 +53,7 @@ export function CommentEditor({
         autoCapitalize="off"
         autoComplete="off"
         className="min-h-[5.25rem] w-full resize-none overflow-hidden rounded-md border border-input bg-muted/40 px-3 py-2 text-[13px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-ring"
-        placeholder="Leave a comment (markdown)…"
+        placeholder="Leave a comment…"
         value={value}
         onChange={(e) => {
           setValue(e.target.value);
