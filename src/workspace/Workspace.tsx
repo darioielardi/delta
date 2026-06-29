@@ -5,6 +5,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Kbd } from "@/components/ui/kbd";
 import { DeltaMark } from "@/components/DeltaMark";
 import { CliInstallButton } from "./CliInstallButton";
+import { NothingToReview } from "./NothingToReview";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
 import { FilesPanel } from "../files/FilesPanel";
@@ -15,7 +16,7 @@ import { prefetchPicker } from "../picker/pickerData";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
-import { Check, ChevronDown, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, GitCompareArrows, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
+import { Check, ChevronDown, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
 import { getEditorPref } from "../editor";
 import { worktreeName } from "../lib/utils";
 import type { Anchor, Comment, DiffMode, DiffSummary, Review, ReviewSession, Target } from "../types";
@@ -414,10 +415,11 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
       <div className="flex min-h-0 flex-1">
         {summary && review ? (
           orderedFiles.length === 0 ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-4 text-muted-foreground">
-              <GitCompareArrows className="size-12 text-muted-foreground/35" strokeWidth={1.5} />
-              <p className="text-[13px]">Nothing to review</p>
-            </div>
+            <NothingToReview
+              target={review.target}
+              repoName={repoName}
+              modeLabel={MODES.find((m) => m.id === diffMode)?.label ?? diffMode}
+            />
           ) : (
           <>
             <aside className="flex w-80 min-h-0 shrink-0 flex-col">

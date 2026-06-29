@@ -5,44 +5,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { rankReviews, rankWorktrees } from "./fuzzy";
 import { loadPicker, peekPickerCache } from "./pickerData";
-import { GitBranch, MessageSquare, TriangleAlert, Check, FolderPlus, Folder } from "lucide-react";
+import { relTime, worktreeIdentity, worktreeMeta } from "./pickerUi";
+import { MessageSquare, TriangleAlert, Check, FolderPlus } from "lucide-react";
 import { Kbd } from "@/components/ui/kbd";
-import { worktreeName } from "../lib/utils";
 import type { PickerData, PickerWorktree, ReviewEntry, Target } from "../types";
-
-function relTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return "";
-  const mins = Math.max(0, Math.round((Date.now() - then) / 60000));
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.round(hrs / 24)}d ago`;
-}
-
-/** Leading icon + a hierarchical "repo / worktree" line over the branch — the identity
- *  shown for every row. The worktree name (what you usually know) is emphasized; the repo
- *  is a muted breadcrumb prefix, dropped when it equals the worktree (the main worktree). */
-function worktreeIdentity(repoName: string, path: string, branch: string): ReactNode {
-  const wt = worktreeName(path);
-  const isMain = wt === repoName;
-  return (
-    <>
-      <Folder className="size-4 shrink-0 self-center text-muted-foreground" />
-      <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex min-w-0 items-baseline text-[13px] leading-tight">
-          {!isMain && <span className="shrink-0 text-muted-foreground">{repoName}&nbsp;/&nbsp;</span>}
-          <span className="truncate font-medium">{isMain ? repoName : wt}</span>
-        </div>
-        <div className="flex min-w-0 items-center gap-1 text-[11px] leading-tight text-muted-foreground">
-          <GitBranch className="size-3 shrink-0" />
-          <span className="truncate">{branch}</span>
-        </div>
-      </div>
-    </>
-  );
-}
 
 export interface ReviewPickerProps {
   /** Current review's target, excluded from the recents (⌘K frame). Omit on Home. */
@@ -98,14 +64,7 @@ function worktreeNode(w: PickerWorktree): ReactNode {
   return (
     <>
       {worktreeIdentity(w.repoName, w.path, w.branch)}
-      <span className="ml-auto flex shrink-0 items-center gap-2.5 self-center whitespace-nowrap text-[11px] text-muted-foreground">
-        {w.dirty && (
-          <span className="inline-flex items-center gap-1 text-amber-500" title="Uncommitted changes">
-            <span className="size-1.5 rounded-full bg-amber-500" /> uncommitted
-          </span>
-        )}
-        {w.lastCommitAt && <span>{relTime(w.lastCommitAt)}</span>}
-      </span>
+      {worktreeMeta(w)}
     </>
   );
 }

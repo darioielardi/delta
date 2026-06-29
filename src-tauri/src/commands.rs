@@ -292,6 +292,12 @@ pub async fn import_repo(app: tauri::AppHandle) -> Result<Option<RepoEntry>, Str
         .map_err(|e| format!("dialog path: {e}"))?
         .display()
         .to_string();
+    // Reject a non-repo selection with a clean, user-facing message (the UI shows it in
+    // a modal) rather than the raw git2 error repo_entry would surface. discover walks
+    // up, so picking a subdir of a repo still imports that repo.
+    if open_repo(&repo_path).is_err() {
+        return Err(format!("{repo_path} is not a git repository."));
+    }
     let entry = repo_entry(&repo_path)?;
     let store = reg_store(&app)?;
     let mut reg = store.load()?;

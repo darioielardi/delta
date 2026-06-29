@@ -289,8 +289,12 @@ function genLarge(fileCount: number): { summary: DiffSummary; files: Record<stri
 export function installMockBackend(): void {
   const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
   const largeParam = params.get("large");
-  // `?empty=1` → a review with no changed files, to exercise the empty state.
-  const emptyParam = params.get("empty") === "1";
+  // `?empty=1` → a review with no changed files, to exercise the empty state (which
+  // lists the repo's other worktrees). `?empty=solo` → same empty review, but
+  // list_worktrees returns only the current worktree, so the no-siblings placeholder
+  // shows instead. `?empty=many` → many siblings, to exercise the 5-row scroll cap.
+  const emptyKind = params.get("empty"); // "1" | "solo" | "many" | null
+  const emptyParam = emptyKind === "1" || emptyKind === "solo" || emptyKind === "many";
   const ds = emptyParam
     ? { summary: { ...SUMMARY, files: [] }, files: {}, review: { ...REVIEW, comments: [], viewed: [] } }
     : largeParam
@@ -317,15 +321,36 @@ export function installMockBackend(): void {
         });
         return `# Review — demo · feat/auth · All changes\n\n${lines.join("\n")}\n` as T;
       }
-      case "list_worktrees":
+      case "list_worktrees": {
         // Varied timestamps + dirty flags exercise the recency sort and the
         // enriched worktree picker (#1/#6).
-        return [
+        const all = [
           { path: "/Users/me/projects/demo", branch: "feat/auth", isMain: true, lastCommitAt: "2026-06-26T09:30:00Z", dirty: true },
           { path: "/Users/me/projects/demo-main", branch: "main", isMain: false, lastCommitAt: "2026-06-20T12:00:00Z", dirty: false },
           { path: "/Users/me/projects/demo-spike", branch: "spike/new-idea", isMain: false, lastCommitAt: "2026-06-26T15:45:00Z", dirty: false },
-        ] as T;
+        ];
+        // `?empty=solo` → only the current worktree, so the empty-review screen has no
+        // siblings to list and shows its placeholder instead.
+        if (emptyKind === "solo") return all.filter((w) => w.path === "/Users/me/projects/demo") as T;
+        // `?empty=many` → current + 7 extra siblings, to exercise the 5-row scroll cap.
+        if (emptyKind === "many") {
+          const extra = Array.from({ length: 7 }, (_, i) => ({
+            path: `/Users/me/projects/demo-wt${i + 1}`,
+            branch: `feat/topic-${i + 1}`,
+            isMain: false,
+            lastCommitAt: `2026-06-${String(18 - i).padStart(2, "0")}T12:00:00Z`,
+            dirty: i % 3 === 0,
+          }));
+          return [all[0], ...extra] as T;
+        }
+        return all as T;
+      }
       case "import_repo":
+        // `?import=nonrepo` → reject like the backend does for a non-git folder, to
+        // exercise the "Can't add repository" modal.
+        if (params.get("import") === "nonrepo") {
+          throw new Error("/Users/me/Downloads is not a git repository.");
+        }
         return {
           id: "imported",
           root: "/Users/me/projects/imported",

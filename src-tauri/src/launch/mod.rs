@@ -40,6 +40,13 @@ pub fn parse_launch(args: &[String], cwd: &Path) -> Launch {
     Launch { repo_path, mode }
 }
 
+/// True when a CLI launch points at a path that isn't inside a git repo — the case a
+/// terminal invocation should reject (warn + do nothing) instead of falling back to the
+/// launcher. `open_repo` discovers upward, so a subdir of a repo still counts as valid.
+pub fn launch_targets_non_repo(launch: &Launch) -> bool {
+    open_repo(&launch.repo_path.to_string_lossy()).is_err()
+}
+
 /// HEAD commit time (RFC3339) + dirty flag for an open worktree repo handle.
 /// Both are best-effort — failures degrade to (None, false) rather than erroring
 /// the whole listing.
@@ -521,6 +528,16 @@ mod tests {
         let l = parse_launch(&["--uncommitted".into(), "/abs/repo".into()], Path::new("/c"));
         assert_eq!(l.repo_path, PathBuf::from("/abs/repo"));
         assert_eq!(l.mode, DiffMode::Uncommitted);
+    }
+
+    #[test]
+    fn launch_targets_non_repo_distinguishes_repo_from_plain_dir() {
+        // Inside a repo (discover walks up) → valid, not rejected.
+        let (repo_dir, _repo) = repo_with_commit();
+        assert!(!launch_targets_non_repo(&parse_launch(&[], repo_dir.path())));
+        // A plain directory with no git anywhere above → rejected.
+        let plain = tempfile::TempDir::new().unwrap();
+        assert!(launch_targets_non_repo(&parse_launch(&[], plain.path())));
     }
 
     #[test]

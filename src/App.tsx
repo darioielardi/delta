@@ -7,6 +7,8 @@ import { CommandPalette } from "./picker/CommandPalette";
 import { SettingsDialog } from "./settings/SettingsDialog";
 import { resolveRoute } from "./route";
 import { addRepo } from "./picker/pickerActions";
+import { NoticeDialog } from "@/components/ui/notice-dialog";
+import { onNotice, type Notice } from "./lib/notify";
 import { useApplyTheme } from "./theme";
 import { useApplyCodeFont } from "./codeFont";
 
@@ -33,6 +35,10 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Settings is global — openable from either window with ⌘, (#5).
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // App-wide notice modal (e.g. "not a git repository" from Add repo). Driven by the
+  // notify() channel so non-component actions can raise it from any call site. (#add-repo-nonrepo)
+  const [notice, setNotice] = useState<Notice | null>(null);
+  useEffect(() => onNotice(setNotice), []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -99,6 +105,12 @@ export default function App() {
       )}
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} current={route.kind === "review" ? route.target : undefined} />}
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <NoticeDialog
+        open={notice != null}
+        title={notice?.title ?? ""}
+        message={notice?.message}
+        onClose={() => setNotice(null)}
+      />
     </>
   );
 }
