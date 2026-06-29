@@ -26,7 +26,6 @@
       "icons/icon.ico"
     ],
     "macOS": {
-      "signingIdentity": "Developer ID Application: Dario Ielardi (N9NLP7RJBH)",
       "hardenedRuntime": true
     }
   }

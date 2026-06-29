@@ -163,6 +163,7 @@ require_cmd spctl
 require_cmd shasum
 require_clean_worktree
 require_notary_auth
+[ -n "${APPLE_SIGNING_IDENTITY:-}" ] || die "APPLE_SIGNING_IDENTITY is required so the build can sign the app (e.g. 'Developer ID Application: Your Name (TEAMID)')"
 
 old_version="$(package_version)"
 product="$(product_name)"
