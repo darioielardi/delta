@@ -2,7 +2,7 @@
 
 <img src="src/assets/delta-mark.png" width="96" height="96" alt="delta" />
 
-# Delta
+# delta
 
 **Review code diffs. Leave structured comments for your agents.**
 
