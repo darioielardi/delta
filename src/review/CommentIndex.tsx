@@ -25,15 +25,24 @@ export function CommentIndex({
   comments: Comment[];
   onJump: (comment: Comment) => void;
 }) {
-  // Inset right panel — part of the layout, not an overlay. It slides in/out by
-  // animating its width 0↔20rem. The <aside> stays mounted so the width
-  // transition fires reliably (a mount-then-flip needs rAF, which the webview
-  // pauses while offscreen); only the contents unmount, kept alive through the
-  // close animation by `render`. (#4) Reduced-motion gets the instant change via
-  // the app-wide media rule.
+  // Inset right panel — part of the layout, not an overlay. The space is reserved
+  // by SNAPPING the <aside> width 0↔20rem (no transition); only the inner panel
+  // slides/fades in via translate+opacity. Animating width would resize the
+  // sibling diff pane every frame, and its ResizeObserver re-renders the whole
+  // virtualized list on each — that was the jank. translate/opacity is composited
+  // (Tailwind v4 maps translate-x-* to the standalone `translate` property, which
+  // is GPU-accelerated like transform), so the diff pane reflows exactly once per
+  // toggle (when the width snaps). (#4)
+  //
+  // The inner wrapper stays mounted whenever the aside renders, so flipping its
+  // class reliably fires the transition (a mount-then-flip needs rAF, which the
+  // webview pauses while offscreen). Only the contents unmount, kept alive through
+  // the close animation by `render`. Reduced-motion neutralizes the transition via
+  // the app-wide media rule; the width snap is already instant.
   const [render, setRender] = useState(open);
   // Mount immediately on open by adjusting state during render (no effect cascade);
-  // the effect below only DEFERS unmount until the close animation finishes.
+  // the effect below only DEFERS unmount + the width-snap-to-0 until the close
+  // animation finishes, so the panel can slide out before the space collapses.
   if (open && !render) setRender(true);
   useEffect(() => {
     if (open) return;
@@ -52,8 +61,14 @@ export function CommentIndex({
 
   return (
     <aside
-      className={`shrink-0 overflow-hidden transition-[width] duration-200 ease-out ${open ? "w-80" : "w-0"}`}
+      aria-hidden={!open}
+      className={`shrink-0 overflow-hidden ${visible ? "w-80" : "w-0"}`}
     >
+      {/* Always-mounted animation target: slides + fades on open/close. The space
+          is reserved by the aside's width, so this only animates composited props. */}
+      <div
+        className={`h-full w-80 transition-[translate,opacity] duration-200 ease-out ${open ? "translate-x-0 opacity-100" : "translate-x-3 opacity-0"}`}
+      >
       {visible && (
       // Floating layout (#pad): transparent panel, no borders, PAD inset; the
       // comment cards float on the canvas like the diff cards.
@@ -113,6 +128,7 @@ export function CommentIndex({
       </div>
       </div>
       )}
+      </div>
     </aside>
   );
 }
