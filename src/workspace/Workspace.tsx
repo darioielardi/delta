@@ -2,6 +2,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { DeltaMark } from "@/components/DeltaMark";
+import { CliInstallButton } from "./CliInstallButton";
 import { listen } from "@tauri-apps/api/event";
 import { api } from "../api";
 import { FilesPanel } from "../files/FilesPanel";
@@ -330,6 +332,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             </div>
             <div className="ml-auto flex items-center gap-3">
+              <CliInstallButton />
               {pendingRefresh && (
                 <Button
                   size="sm"
@@ -458,9 +461,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               </div>
             ) : (
               <div className="flex flex-col items-center gap-4">
-                <div className="flex size-12 select-none items-center justify-center rounded-2xl squircle bg-gradient-to-br from-primary to-primary/70 text-[22px] font-semibold leading-none text-primary-foreground shadow-lg shadow-primary/25">
-                  Δ
-                </div>
+                <DeltaMark className="size-12 shadow-lg shadow-black/20" />
                 <div className="flex flex-col items-center gap-2.5">
                   <span className="text-[13px]">Computing delta…</span>
                   <div className="relative h-1 w-32 overflow-hidden rounded-full bg-muted">

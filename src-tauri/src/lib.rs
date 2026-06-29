@@ -49,6 +49,7 @@ pub fn run() {
             commands::import_repo,
             commands::delete_review,
             commands::install_cli,
+            commands::cli_status,
             commands::open_in_editor
         ])
         .setup(|app| {

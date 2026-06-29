@@ -342,8 +342,25 @@ export function installMockBackend(): void {
       case "delete_review":
         console.info("[delta mock] delete_review", args);
         return undefined as T;
-      case "install_cli":
+      case "install_cli": {
+        // `?cli=path` / `?cli=manual` exercise the other install outcomes in mock.
+        const variant = params.get("cli");
+        if (variant === "manual")
+          return {
+            kind: "manualNeeded",
+            command: "sudo ln -sf '/Applications/delta.app/Contents/MacOS/delta' /usr/local/bin/delta",
+            reason: "No writable directory found on your PATH.",
+          } as T;
+        if (variant === "path")
+          return { kind: "linkedPathUpdated", path: "/Users/me/.local/bin/delta", shells: ["zsh", "fish"] } as T;
         return { kind: "linked", path: "/usr/local/bin/delta" } as T;
+      }
+      case "cli_status":
+        // Default: not installed so the header CTA shows. `?cli=installed` hides it.
+        return {
+          installed: params.get("cli") === "installed",
+          path: params.get("cli") === "installed" ? "/usr/local/bin/delta" : null,
+        } as T;
       case "open_in_editor":
         console.info("[delta mock] open_in_editor", args);
         return undefined as T;
