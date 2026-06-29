@@ -290,7 +290,7 @@ function CommentBlock({ id, top, comments, onEdit, onDelete, onToggleResolved, o
   return (
     // `delta-comment-ui` flips the comment UI back to the sans font (the diff
     // wrapper forces mono on everything inside it) and restores app colors. (#3)
-    <div ref={ref} className="delta-comment-ui absolute inset-x-0 px-3 py-3" style={{ top }}>
+    <div ref={ref} className="delta-comment-ui absolute inset-x-0 px-3 pb-3 pt-1.5" style={{ top }}>
       <CommentThread comments={comments} onEdit={onEdit} onDelete={onDelete} onToggleResolved={onToggleResolved} />
     </div>
   );
