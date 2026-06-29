@@ -1,6 +1,8 @@
 <div align="center">
 
-# Δ&nbsp;&nbsp;delta
+<img src="src/assets/delta-mark.png" width="96" height="96" alt="delta" />
+
+# delta
 
 **Review diffs. Hand precise, line-anchored feedback to your coding agents.**
 

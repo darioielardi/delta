@@ -67,13 +67,16 @@ export function Home({ onOpenSettings }: { onOpenSettings?: () => void }) {
               known-repo worktrees + add-repo). While the first fetch is in flight
               (data null, cold start) hold a quiet placeholder of the same size. */}
           {data == null ? (
-            <div className="mt-6 h-28 w-full" aria-hidden />
+            <div className="mt-6 h-[54vh] w-full" aria-hidden />
           ) : noRepos ? (
             <div className="mt-6 w-full">
               <FirstRun onOpenRepo={() => void addRepo()} />
             </div>
           ) : (
-            <div className="mt-6 flex max-h-[58vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-card text-[13px] shadow-sm">
+            // Fixed height (not max-h) so the picker's footprint never changes with
+            // the result count — the centered hero above it stays put while you
+            // search. Sized to fit the min window (560px) without clipping. (#layout)
+            <div className="mt-6 flex h-[54vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-card text-[13px] shadow-sm">
               <ReviewPicker onOpenReview={openReview} onOpenWorktree={openWorktree} onAddRepo={addRepo} onDeleteReview={deleteReview} />
             </div>
           )}

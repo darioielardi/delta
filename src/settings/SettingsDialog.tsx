@@ -95,7 +95,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           </button>
         </div>
 
-        <div className="px-5 py-4">
+        <div className="px-5 pb-4 pt-2">
           <Row
             label="Theme"
             hint="Match the system, or force light/dark."
