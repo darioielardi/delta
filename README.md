@@ -6,6 +6,8 @@
 
 **Review code diffs. Leave structured comments for your agents.**
 
+<img src="docs/screenshot.png" alt="delta reviewing a diff in dark mode" width="900" />
+
 </div>
 
 ---
