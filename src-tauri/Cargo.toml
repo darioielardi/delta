@@ -2,7 +2,9 @@
 name = "delta"
 version = "0.1.0"
 description = "A local-first desktop app for reviewing code diffs and leaving structured comments for Claude Code"
-authors = ["you"]
+authors = ["Dario Ielardi"]
+license = "MIT"
+repository = "https://github.com/darioielardi/delta"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
