@@ -20,7 +20,8 @@ describe("FirstRun", () => {
     mockCli(true); // CLI installed → promo hidden, keeps this test focused
     render(<FirstRun onOpenRepo={() => {}} />);
     expect(screen.getByText("Open a repository")).toBeInTheDocument();
-    expect(screen.getByText("⌘O")).toBeInTheDocument();
+    // The Kbd splits the shortcut into per-key spans, so match the kbd's text.
+    expect(screen.getByText((_, el) => el?.tagName === "KBD" && el.textContent === "⌘O")).toBeInTheDocument();
   });
 
   it("invokes onOpenRepo when the action is clicked", () => {

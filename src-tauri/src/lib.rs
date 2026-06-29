@@ -43,6 +43,7 @@ pub fn run() {
             commands::save_review,
             commands::export_review,
             commands::open_target,
+            commands::rewatch_window,
             commands::list_registry,
             commands::list_picker,
             commands::list_worktrees,

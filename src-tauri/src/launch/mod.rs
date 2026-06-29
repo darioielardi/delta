@@ -205,6 +205,21 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
     Ok(())
 }
 
+/// Re-point an existing window's fs watcher at a different target's worktree.
+/// Used by "replace current" picker mode: the review window navigates in place
+/// (frontend) to a new review, so its watcher must follow the new repo for
+/// auto-refresh to stay correct. `watch::start` replaces any watcher already
+/// registered under this label, dropping the old one. (#replace)
+pub fn rewatch_target(app: &AppHandle, label: &str, repo_path: &str) -> Result<(), String> {
+    let repo = open_repo(repo_path)?;
+    let canonical = repo
+        .workdir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| repo_path.to_string());
+    crate::watch::start(app, label, Path::new(&canonical));
+    Ok(())
+}
+
 /// The cold-launch host window. The command palette (frontend) opens over it.
 /// Focus-or-create the singleton `home` window.
 pub fn open_home_window(app: &AppHandle) -> Result<(), String> {

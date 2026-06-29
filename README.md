@@ -60,18 +60,6 @@ export const TTL = 3600
 Make this configurable.
 ````
 
-## ⌨️ Shortcuts
-
-| Key | Action |
-| --- | --- |
-| `⌘P` / `⌘K` | Command palette — switch between reviews |
-| `⌘O` | Open a repository |
-| `⌘F` | Find in diff |
-| `⌘⇧F` | Filter files |
-| `⌘2` | Toggle comments pane |
-| `⌘,` | Settings |
-| `r` | Refresh the diff |
-
 ## 🚀 Run it
 
 macOS for now. Needs [Rust](https://www.rust-lang.org/tools/install),

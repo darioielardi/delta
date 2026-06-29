@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Kbd } from "@/components/ui/kbd";
 import { DeltaMark } from "@/components/DeltaMark";
 import { CliInstallButton } from "./CliInstallButton";
 import { listen } from "@tauri-apps/api/event";
@@ -271,14 +272,16 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "2" && (e.metaKey || e.ctrlKey)) {
+      if ((e.key === "r" || e.key === "R") && (e.metaKey || e.ctrlKey)) {
+        // ⌘R re-diffs now: apply a pending change if there is one, else force a
+        // full reload. preventDefault stops the webview's reload accelerator. (#9/#12)
         e.preventDefault();
-        setIndexOpen((o) => !o);
-      } else if (e.key === "r" && !e.metaKey && !e.ctrlKey) {
-        // `r` is a manual force-reload — re-diff and apply now. (#9/#12)
-        const tag = document.activeElement?.tagName ?? "";
-        const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
-        if (!typing) void forceRefresh();
+        if (pendingRef.current) applyRefresh();
+        else void forceRefresh();
+      } else if ((e.key === "c" || e.key === "C") && e.shiftKey && (e.metaKey || e.ctrlKey)) {
+        // ⌘⇧C copies the agent export, when there's something to copy. (#copy)
+        e.preventDefault();
+        if (commentCount > 0) void copyForClaude();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -314,7 +317,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               <span className="truncate">{review.target.worktree}</span>
             </span>
           ) : null}
-          <kbd className="ml-1 rounded border border-border/70 bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">⌘P</kbd>
+          <Kbd keys="⌘P" className="ml-1" />
         </button>
         {summary && (
           <>
@@ -338,10 +341,11 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                   size="sm"
                   variant="outline"
                   onClick={applyRefresh}
-                  title="The diff changed on disk — click to update"
+                  title="The diff changed on disk — click to update (⌘R)"
                   className="h-7 gap-1.5 px-2.5 text-[13px] border-amber-500/40 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 hover:text-amber-700 dark:border-amber-400/40 dark:bg-amber-400/10 dark:text-amber-400 dark:hover:text-amber-300"
                 >
                   <RefreshCw className="size-3.5" /> Refresh
+                  <Kbd keys="⌘R" className="border-amber-600/30 bg-amber-500/15 text-amber-700 dark:border-amber-400/30 dark:text-amber-300" />
                 </Button>
               )}
               <ToggleGroup
@@ -359,7 +363,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               </Button>
               <Button
                 size="sm"
-                className="h-7 min-w-[8.75rem] justify-center gap-1.5 px-2.5 text-[13px] transition-colors"
+                className="h-7 min-w-[11.75rem] justify-center gap-1.5 px-2.5 text-[13px] transition-colors"
                 style={
                   copyState === "ok"
                     ? { backgroundColor: "#059669", color: "#fff" }
@@ -376,7 +380,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 ) : copyState === "err" ? (
                   <><Copy className="size-3.5" /> Failed</>
                 ) : (
-                  <><Copy className="size-3.5" /> Copy for agents</>
+                  <><Copy className="size-3.5" /> Copy for agents{commentCount > 0 && <Kbd keys="⌘⇧C" className="border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground/90" />}</>
                 )}
               </Button>
             </div>

@@ -4,8 +4,8 @@ use crate::git::model::{DiffMode, Target};
 use crate::git::{open_repo, resolve_worktree};
 use crate::launch::{
     cli_status as launch_cli_status, install_cli as launch_install_cli,
-    list_worktrees as launch_list_worktrees, open_target_window, repo_display_name, repo_entry,
-    CliStatus, InstallOutcome,
+    list_worktrees as launch_list_worktrees, open_target_window, rewatch_target,
+    repo_display_name, repo_entry, CliStatus, InstallOutcome,
 };
 use crate::registry::model::{Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
@@ -303,6 +303,13 @@ pub async fn import_repo(app: tauri::AppHandle) -> Result<Option<RepoEntry>, Str
 #[tauri::command]
 pub fn open_target(app: tauri::AppHandle, repo_path: String, mode: DiffMode, base: Option<String>) -> Result<(), String> {
     open_target_window(&app, &repo_path, mode, base)
+}
+
+/// Re-point the calling window's fs watcher at `repo_path`'s worktree — used when
+/// a review window navigates in place ("replace current" picker mode). (#replace)
+#[tauri::command]
+pub fn rewatch_window(window: tauri::WebviewWindow, app: tauri::AppHandle, repo_path: String) -> Result<(), String> {
+    rewatch_target(&app, window.label(), &repo_path)
 }
 
 #[tauri::command]

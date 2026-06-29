@@ -18,13 +18,14 @@ function relTime(iso: string): string {
 }
 
 // The 3px status rail color encodes the comment's state at a glance, replacing
-// the old chunky pills: editing → primary, resolved → emerald, stale → amber,
-// otherwise a quiet neutral.
+// the old chunky pills: resolved → emerald, stale → amber, otherwise primary —
+// matching the blue accent the diff puts on the line(s) the comment hangs off,
+// so the card reads as part of the same annotation (editing shares primary; the
+// open editor makes that state obvious on its own).
 function railClass(c: Comment, isEditing: boolean): string {
-  if (isEditing) return "bg-primary";
-  if (c.resolved) return "bg-emerald-500";
-  if (c.stale) return "bg-amber-500";
-  return "bg-muted-foreground/30";
+  if (c.resolved && !isEditing) return "bg-emerald-500";
+  if (c.stale && !isEditing) return "bg-amber-500";
+  return "bg-primary";
 }
 
 const ICON_BTN = "size-7 text-muted-foreground hover:text-foreground";
@@ -103,8 +104,8 @@ export function CommentThread({
                   </Button>
                 </div>
               ) : (
-                <div className="px-4 py-3.5">
-                  <div className="mb-2.5 flex items-center gap-1.5">
+                <div className="pl-4 pr-3 pt-2.5 pb-3.5">
+                  <div className="mb-2 flex items-center gap-1.5">
                     {c.stale ? (
                       <span className="flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
                         <TriangleAlert className="size-3.5" /> stale

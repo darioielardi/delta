@@ -6,6 +6,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "re
 import { rankReviews, rankWorktrees } from "./fuzzy";
 import { loadPicker, peekPickerCache } from "./pickerData";
 import { GitBranch, MessageSquare, TriangleAlert, Check, FolderPlus, Folder } from "lucide-react";
+import { Kbd } from "@/components/ui/kbd";
 import { worktreeName } from "../lib/utils";
 import type { PickerData, PickerWorktree, ReviewEntry, Target } from "../types";
 
@@ -210,6 +211,10 @@ export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo,
         <input
           ref={inputRef}
           autoFocus
+          spellCheck={false}
+          autoCorrect="off"
+          autoCapitalize="off"
+          autoComplete="off"
           className="h-11 min-w-0 flex-1 bg-transparent px-4 text-[14px] outline-none placeholder:text-muted-foreground/70"
           placeholder="Search reviews & worktrees…"
           value={query}
@@ -226,7 +231,7 @@ export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo,
           className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-input bg-muted/40 pl-2.5 pr-1.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
           <FolderPlus className="size-3.5" /> Add repo
-          <kbd className="rounded border border-border/70 bg-background/60 px-1 py-0.5 text-[10px] font-medium leading-none">⌘O</kbd>
+          <Kbd keys="⌘O" className="bg-background/60" />
         </button>
       </div>
       <div
