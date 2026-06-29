@@ -57,16 +57,10 @@ export const TTL = 3600
 Make this configurable.
 ````
 
-## 🚀 Run it
+## 🚀 Installation
 
-macOS for now. Needs [Rust](https://www.rust-lang.org/tools/install),
-[Node](https://nodejs.org), and [pnpm](https://pnpm.io).
-
-```bash
-pnpm install
-pnpm tauri dev      # run the app
-pnpm tauri build    # build a bundle
-```
+You can download the latest release from the [releases](https://github.com/darioielardi/delta/releases) page, brew coming soon!
+macOS only for now.
 
 ## 💻 Open from your terminal
 
