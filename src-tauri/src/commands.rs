@@ -3,8 +3,9 @@ use crate::git::diff::{compute_diff as engine_compute, get_file_diff as engine_f
 use crate::git::model::{DiffMode, Target};
 use crate::git::{open_repo, resolve_worktree};
 use crate::launch::{
-    install_cli as launch_install_cli, list_worktrees as launch_list_worktrees, open_target_window,
-    repo_display_name, repo_entry, InstallOutcome,
+    cli_status as launch_cli_status, install_cli as launch_install_cli,
+    list_worktrees as launch_list_worktrees, open_target_window, repo_display_name, repo_entry,
+    CliStatus, InstallOutcome,
 };
 use crate::registry::model::{Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
@@ -307,6 +308,11 @@ pub fn open_target(app: tauri::AppHandle, repo_path: String, mode: DiffMode, bas
 #[tauri::command]
 pub fn install_cli() -> Result<InstallOutcome, String> {
     launch_install_cli()
+}
+
+#[tauri::command]
+pub fn cli_status() -> CliStatus {
+    launch_cli_status()
 }
 
 // "Open in your editor" (#editor). Each curated editor maps to a CLI; where the
