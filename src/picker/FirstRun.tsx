@@ -4,6 +4,7 @@
 // first repo) and a quiet promo that explains why the CLI is worth installing.
 // (#empty)
 import { FolderOpen, ArrowRight, Terminal, X, CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
+import { Kbd } from "@/components/ui/kbd";
 import { useCliInstall } from "@/workspace/useCliInstall";
 
 export function FirstRun({ onOpenRepo }: { onOpenRepo: () => void }) {
@@ -30,7 +31,7 @@ export function FirstRun({ onOpenRepo }: { onOpenRepo: () => void }) {
 
       <p className="px-1 text-center text-[12px] text-muted-foreground/70">
         or press{" "}
-        <kbd className="rounded border border-border/70 bg-background/60 px-1 py-0.5 text-[10px] font-medium leading-none">⌘O</kbd>{" "}
+        <Kbd keys="⌘O" className="bg-background/60" />{" "}
         to open a repository
       </p>
     </div>

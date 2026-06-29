@@ -336,6 +336,11 @@ export function installMockBackend(): void {
       case "open_target":
         console.info("[delta mock] open_target", args);
         return undefined as T;
+      case "rewatch_window":
+        // No real fs watcher in the browser mock — the in-place navigation does
+        // the visible work. (#replace)
+        console.info("[delta mock] rewatch_window", args);
+        return undefined as T;
       case "list_registry":
         return structuredClone(REGISTRY) as T;
       case "list_picker": {

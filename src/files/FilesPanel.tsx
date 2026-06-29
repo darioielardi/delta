@@ -1,6 +1,7 @@
 // src/files/FilesPanel.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Kbd } from "@/components/ui/kbd";
 import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, FileCode, FileJson, FileText, Check, List, ListTree, MessageSquare, Search, X } from "lucide-react";
 import type { FileEntry, FileStatus } from "../types";
 import { buildTree, type TreeNode } from "./buildTree";
@@ -384,7 +385,7 @@ export function FilesPanel({
             <X className="size-3" strokeWidth={2.5} />
           </button>
         ) : (
-          <kbd className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 rounded border border-border/70 bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">⌘⇧F</kbd>
+          <Kbd keys="⌘⇧F" className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2" />
         )}
       </div>
 

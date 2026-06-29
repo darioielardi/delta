@@ -39,16 +39,6 @@ delta .                  # review the current repo
 delta --uncommitted .    # also: --last-commit, --branch
 ```
 
-## Shortcuts
-
-| Key | Action |
-| --- | --- |
-| `⌘P` | Command palette |
-| `⌘F` / `⌘⇧F` | Find in diff / filter files |
-| `⌘2` | Comments pane |
-| `⌘,` | Settings |
-| `r` | Refresh |
-
 ## Development
 
 ```bash

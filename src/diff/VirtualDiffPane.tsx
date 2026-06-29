@@ -29,9 +29,13 @@ import { DiffFind } from "./DiffFind";
 import type { Anchor, Comment, FileDiff, FileEntry, Side, Target } from "../types";
 import type { DiffLayout } from "./useDiffLayout";
 import { useFileDiffCache } from "./useFileDiffCache";
+import { useCodeFont, rowHeightFor } from "../codeFont";
 
-const ROW_H = 22;
 const HEADER_H = 40; // sticky file header (border-box); content is vertically centered. (#card)
+// Row height + char width are derived from the code-font-size pref at render (the
+// rows' actual font-size/line-height come from the --code-fs/--code-lh CSS vars
+// set on the wrapper; the JS row height drives the windowing math and must match).
+// CH_PX is calibrated at 13px and scaled with the chosen size.
 const CH_PX = 7.85; // ≈ width of one mono char at 13px (SF Mono/Menlo) — only used to decide whether a file overflows the pane (→ enable horizontal scroll); layout itself uses exact `ch` units (#hscroll)
 // Left-accent colors for changed lines, mirroring the comment-range accent. (#border)
 const ADD_ACCENT = "var(--color-emerald-500)";
@@ -73,12 +77,12 @@ const rowCountOf = (m: Model, layout: DiffLayout) => (layout === "split" ? m.spl
 // Pure, change-size-only helpers — module scope so they're stable references and
 // not rebuilt every render (and safe to read inside memos without being deps).
 const isGiant = (e: FileEntry) => e.additions + e.deletions >= GIANT_CHANGED_LINES;
-const estBodyH = (e: FileEntry) => Math.max(1, Math.round((e.additions + e.deletions) * 1.1) + 6) * ROW_H;
+const estBodyH = (e: FileEntry, rowH: number) => Math.max(1, Math.round((e.additions + e.deletions) * 1.1) + 6) * rowH;
 // Binary + deleted files render a fixed-height placeholder, never a model — so
 // their reserved height is KNOWN, not estimated. Using this (not estBodyH) as the
 // offset fallback keeps them exact even after a bodyHeights reset (layout flip),
 // when a placeholder section can't re-report (its effect deps don't change). (#9)
-const estReserved = (e: FileEntry) => (e.binary || e.status === "deleted" ? PLACEHOLDER_BODY_H : estBodyH(e));
+const estReserved = (e: FileEntry, rowH: number) => (e.binary || e.status === "deleted" ? PLACEHOLDER_BODY_H : estBodyH(e, rowH));
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -143,7 +147,7 @@ function Code({ html, range, changeBg, marks }: { html: string; range: ChangeRan
   );
 }
 
-const gutterCls = "w-12 shrink-0 select-none border-r border-border/40 px-1 text-right text-[11px] text-muted-foreground/60 tabular-nums cursor-ns-resize";
+const gutterCls = "w-12 shrink-0 select-none border-r border-border/40 px-1 text-right text-[length:var(--gutter-fs,11px)] text-muted-foreground/60 tabular-nums cursor-ns-resize";
 const addBtnCls = "absolute z-10 hidden size-5 -translate-y-1/2 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm group-hover:flex hover:brightness-110";
 // Wide files scroll horizontally, but the scrollbar itself is hidden — the always-
 // on thin bar flickered as the outer pane scrolled. Trackpad/shift-wheel still
@@ -180,7 +184,7 @@ function Row({ model, index, top, selected, highlighted, onComment, marks }: { m
   // green/red edge mirroring the comment accent. (#border)
   const accent = highlighted ? "var(--primary)" : kind === "add" ? ADD_ACCENT : kind === "del" ? DEL_ACCENT : undefined;
   return (
-    <div data-row-index={index} className="group absolute left-0 flex items-stretch font-mono text-[13px] leading-[22px]" style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%", background: tint ?? undefined }}>
+    <div data-row-index={index} className="group absolute left-0 flex items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height: "var(--code-lh,22px)", width: "var(--rw)", minWidth: "100%", background: tint ?? undefined }}>
       {kind !== "hunk" && (
         <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 ${addBtnCls}`}>
           <Plus className="size-3.5" strokeWidth={2.5} />
@@ -221,7 +225,7 @@ function SplitColCell({ model, side, index, top, changed, highlighted, selected,
   const range = changed ? changeRangeOf(line.diff) : undefined;
   const accent = changed ? (side === "old" ? DEL_ACCENT : ADD_ACCENT) : highlighted ? "var(--primary)" : undefined;
   return (
-    <div data-row-index={index} className="group absolute left-0 flex w-full items-stretch font-mono text-[13px] leading-[22px]" style={{ top, height: ROW_H, background: tint ?? undefined }}>
+    <div data-row-index={index} className="group absolute left-0 flex w-full items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height: "var(--code-lh,22px)", background: tint ?? undefined }}>
       {has && (
         <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-12 top-1/2 ${addBtnCls}`}>
           <Plus className="size-3.5" strokeWidth={2.5} />
@@ -253,8 +257,8 @@ function FoldRow({ top, count, showDown, showUp, onDown, onUp, onAll }: { top: n
   return (
     <div
       data-fold
-      className="absolute left-0 flex items-stretch bg-primary/10 font-mono text-[12px] font-medium leading-[22px] text-muted-foreground"
-      style={{ top, height: ROW_H, width: "var(--rw)", minWidth: "100%" }}
+      className="absolute left-0 flex items-stretch bg-primary/10 font-mono text-[length:var(--fold-fs,12px)] font-medium leading-[var(--code-lh,22px)] text-muted-foreground"
+      style={{ top, height: "var(--code-lh,22px)", width: "var(--rw)", minWidth: "100%" }}
     >
       <div className="sticky left-0 flex h-full w-24 shrink-0 border-r border-border/40">
         {showDown && (
@@ -299,7 +303,7 @@ function CommentBlock({ id, top, comments, onEdit, onDelete, onToggleResolved, o
 interface Block { id: string; index: number; comments: Comment[] }
 
 const VFileSection = memo(function VFileSection({
-  entry, theme, layout, cache, collapsed, viewed, headerSolo, repoPath, onToggleCollapse, onToggleViewed, view, paneW, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment, reportBodyHeight, registerRef,
+  entry, theme, layout, cache, collapsed, viewed, headerSolo, repoPath, onToggleCollapse, onToggleViewed, view, paneW, rowH, chPx, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment, reportBodyHeight, registerRef,
 }: {
   entry: FileEntry; theme: "light" | "dark"; layout: DiffLayout;
   cache: ReturnType<typeof useFileDiffCache>;
@@ -310,6 +314,8 @@ const VFileSection = memo(function VFileSection({
   onToggleViewed: (path: string) => void;
   view: [number, number] | null; // body-relative visible window [top, bottom] px, or null off-screen
   paneW: number; // diff pane client width — decides if a file overflows → horizontal scroll (#hscroll)
+  rowH: number; // code row height (px), from the font-size pref; must match the --code-lh the rows render at
+  chPx: number; // ~mono char width (px) at the chosen size — only for the overflow check (#hscroll)
   query: string; // in-code find query ("" when find is closed) (#find)
   caseSensitive: boolean; wholeWord: boolean; // find options (#find)
   activeMatch: { modelIndex: number; side: Side; col: number } | null; // the active match, if it lives in THIS file
@@ -375,7 +381,7 @@ const VFileSection = memo(function VFileSection({
   }, [fd]);
   const rowWidthCss = layout === "split" ? `calc(120px + ${2 * maxCols}ch)` : `calc(124px + ${maxCols}ch)`;
   const colWidthCss = `calc(60px + ${maxCols}ch)`; // one split column's content width (gutter + code) (#10)
-  const rowPx = (layout === "split" ? 120 : 124) + maxCols * CH_PX * (layout === "split" ? 2 : 1);
+  const rowPx = (layout === "split" ? 120 : 124) + maxCols * chPx * (layout === "split" ? 2 : 1);
   const wide = paneW > 0 && rowPx > paneW - 2 * PAD - 2; // card is inset by PAD each side, minus its 1px borders
 
   // Comment blocks: file-scope → index -1 (top); line/range → the row they anchor.
@@ -501,7 +507,7 @@ const VFileSection = memo(function VFileSection({
       if (!occ.length) return;
       const vr = modelToVisual.get(i);
       if (vr == null) return; // line folded away — not visible, skip
-      const y = vr * ROW_H;
+      const y = vr * rowH;
       let arr = mbr.get(i);
       if (!arr) mbr.set(i, (arr = []));
       for (const o of occ) {
@@ -543,9 +549,9 @@ const VFileSection = memo(function VFileSection({
   // running sum below can break early. (#10)
   const blockVa = (b: Block) => (b.index < 0 ? -1 : modelToVisual.get(b.index) ?? 0);
   const commentAbove = (v: number) => { let s = 0; for (const b of blocks) { if (blockVa(b) < v) s += heightOf(b); else break; } return s; };
-  const visualRowTop = (v: number) => v * ROW_H + commentAbove(v);
+  const visualRowTop = (v: number) => v * rowH + commentAbove(v);
   const totalCommentH = blocks.reduce((s, b) => s + heightOf(b), 0);
-  const bodyH = collapsed ? 0 : showPlaceholder ? PLACEHOLDER_BODY_H : visualCount * ROW_H + totalCommentH;
+  const bodyH = collapsed ? 0 : showPlaceholder ? PLACEHOLDER_BODY_H : visualCount * rowH + totalCommentH;
   // Report a definite height once it's known — model built, or a fixed-height
   // placeholder shown — so the parent's offsets are exact. (#10/#11)
   useEffect(() => { if (model || showPlaceholder) reportBodyHeight(entry.path, bodyH); }, [model, showPlaceholder, isBinary, entry.path, bodyH, reportBodyHeight]);
@@ -776,7 +782,7 @@ const VFileSection = memo(function VFileSection({
                 return <FoldRow key={`fold-${vr.start}`} top={visualRowTop(v)} count={vr.count} showDown={canDown || both} showUp={canUp || both} onDown={() => growFold(key, "top")} onUp={() => growFold(key, "bottom")} onAll={() => growFold(key, "all")} />;
               })}
               {model && blocks.map((b) => (
-                <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + ROW_H} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onToggleResolved={onToggleResolvedComment} onHeight={onHeight} />
+                <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + rowH} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onToggleResolved={onToggleResolvedComment} onHeight={onHeight} />
               ))}
             </>
           )}
@@ -811,6 +817,13 @@ export function VirtualDiffPane({
   onToggleResolvedComment: (id: string) => void;
 }) {
   const cache = useFileDiffCache(target);
+
+  // Code-font geometry from the size pref. rowH drives ALL the windowing math and
+  // must equal the px the rows actually render at (the --code-lh CSS var, set on
+  // the wrapper below). At the default 13px this is 22 — identical to before.
+  const { size: codeSize } = useCodeFont();
+  const rowH = rowHeightFor(codeSize);
+  const chPx = (CH_PX * codeSize) / 13; // overflow check only; scales with size
 
   // Drop + reload changed files when the user hits Refresh; a fresh FileDiff
   // invalidates its cached model (WeakMap-keyed) so the section rebuilds. (#12)
@@ -920,11 +933,11 @@ export function VirtualDiffPane({
     for (const f of files) {
       offs.push(top);
       const collapsed = collapsedFor(f);
-      const bh = collapsed ? 0 : (bodyHeights[f.path] ?? estReserved(f));
+      const bh = collapsed ? 0 : (bodyHeights[f.path] ?? estReserved(f, rowH));
       top += HEADER_H + bh + GAP; // card body + gap to the next card
     }
     return { offsets: offs, total: top - GAP + PAD }; // trailing gap → bottom padding
-  }, [files, collapsedFor, bodyHeights]);
+  }, [files, collapsedFor, bodyHeights, rowH]);
 
   // Flatten matches in file (tree) order → global next/prev list. (#find)
   const allMatches = useMemo(() => {
@@ -992,9 +1005,20 @@ export function VirtualDiffPane({
     let raf = 0;
     const onScroll = () => { if (raf) return; raf = requestAnimationFrame(() => { raf = 0; setScrollTop(pane.scrollTop); }); };
     pane.addEventListener("scroll", onScroll, { passive: true });
-    const ro = new ResizeObserver(() => { setViewportH(pane.clientHeight); setViewportW(pane.clientWidth); });
+    // Height drives the row window → commit immediately (it's unchanged while the
+    // comments pane animates width, so that's a no-op re-render). Width only feeds
+    // the per-file horizontal-overflow test, so DEBOUNCE it: a comments open/close
+    // animates the pane width over ~200ms, and updating viewportW every frame would
+    // re-render every on-screen file section. Rows reflow natively meanwhile;
+    // commit width once the resize settles. (#pane-anim)
+    let wTimer = 0;
+    const ro = new ResizeObserver(() => {
+      setViewportH(pane.clientHeight);
+      if (wTimer) clearTimeout(wTimer);
+      wTimer = window.setTimeout(() => setViewportW(pane.clientWidth), 160);
+    });
     ro.observe(pane);
-    return () => { pane.removeEventListener("scroll", onScroll); ro.disconnect(); if (raf) cancelAnimationFrame(raf); };
+    return () => { pane.removeEventListener("scroll", onScroll); ro.disconnect(); if (raf) cancelAnimationFrame(raf); if (wTimer) clearTimeout(wTimer); };
   }, []);
 
   // Expand the jump target (drop any collapse override) during render so offsets
@@ -1103,7 +1127,20 @@ export function VirtualDiffPane({
       <div ref={paneRef} className="h-full overflow-auto" data-testid="diff-pane">
       {/* diff-tailwindcss-wrapper + data-theme scope @git-diff-view's hljs token
           colors onto our rows; the gdv layer sits below `utilities`, so our layout wins. */}
-      <div className="diff-tailwindcss-wrapper" data-theme={theme} style={{ position: "relative", height: total }}>
+      <div
+        className="diff-tailwindcss-wrapper"
+        data-theme={theme}
+        style={{
+          position: "relative",
+          height: total,
+          // Code metrics for the rows (font-size, line height) + the gutter/fold
+          // sizes. rowH (JS, used for the windowing math) === --code-lh here.
+          "--code-fs": `${codeSize}px`,
+          "--code-lh": `${rowH}px`,
+          "--gutter-fs": `${Math.max(9, codeSize - 2)}px`,
+          "--fold-fs": `${Math.max(10, codeSize - 1)}px`,
+        } as CSSProperties}
+      >
         {/* Opaque cap over the canvas gap above a stuck file header: without it,
             diff rows scrolling up peek through the strip between the pane's top
             edge and the header (which sticks at top:PAD). Layered BETWEEN content
@@ -1113,7 +1150,7 @@ export function VirtualDiffPane({
         <div className="sticky top-0 z-[15] bg-background" style={{ height: PAD }} aria-hidden />
         {files.map((entry, i) => {
           const collapsed = collapsedFor(entry);
-          const bh = collapsed ? 0 : (bodyHeights[entry.path] ?? estReserved(entry));
+          const bh = collapsed ? 0 : (bodyHeights[entry.path] ?? estReserved(entry, rowH));
           const sectionTop = offsets[i], bodyTop = sectionTop + HEADER_H;
           const onScreen = viewportH > 0 && !collapsed && bodyTop + bh > top0 && bodyTop < bot0;
           const view: [number, number] | null = onScreen ? [Math.max(0, top0 - bodyTop), Math.max(0, bot0 - bodyTop)] : null;
@@ -1129,7 +1166,7 @@ export function VirtualDiffPane({
                 headerSolo={headerSolo}
                 repoPath={target.repoPath}
                 onToggleCollapse={toggleCollapse} onToggleViewed={onToggleViewed}
-                view={view} paneW={viewportW}
+                view={view} paneW={viewportW} rowH={rowH} chPx={chPx}
                 query={findActive ? query : ""}
                 caseSensitive={caseSensitive} wholeWord={wholeWord}
                 activeMatch={activeMatch && activeMatch.file === entry.path ? { modelIndex: activeMatch.modelIndex, side: activeMatch.side, col: activeMatch.col } : null}

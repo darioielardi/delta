@@ -1,19 +1,10 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Monitor, Moon, Sun, X } from "lucide-react";
 import { useThemePref, type ThemePref } from "../theme";
 import { useEditorPref, EDITORS, type EditorId } from "../editor";
-
-// Mocked options for now — the controls render and feel real, but only Theme is
-// wired up. Font family/size are placeholders we'll define behavior for later.
-const FONT_FAMILIES = [
-  { value: "system-mono", label: "System Mono" },
-  { value: "sf-mono", label: "SF Mono" },
-  { value: "jetbrains-mono", label: "JetBrains Mono" },
-  { value: "fira-code", label: "Fira Code" },
-  { value: "geist-mono", label: "Geist Mono" },
-];
-const FONT_SIZES = [11, 12, 13, 14, 15, 16];
+import { useCodeFont, setCodeFontFamily, setCodeFontSize, installedMonoFonts, SIZE_OPTIONS } from "../codeFont";
+import { usePickerOpenMode, type PickerOpenMode } from "../windowMode";
 
 const THEMES: { value: ThemePref; label: string; Icon: typeof Monitor }[] = [
   { value: "system", label: "System", Icon: Monitor },
@@ -45,9 +36,14 @@ const selectClass =
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [theme, setTheme] = useThemePref();
   const [editor, setEditor] = useEditorPref();
-  // Mocked, local-only until we decide what these should do.
-  const [fontFamily, setFontFamily] = useState(FONT_FAMILIES[0].value);
-  const [fontSize, setFontSize] = useState(13);
+  const [openMode, setOpenMode] = usePickerOpenMode();
+  const { family: fontFamily, size: fontSize } = useCodeFont();
+  // Installed mono families (probed once) → "System Mono" default + whatever the
+  // machine actually has. Keep the current pick listed even if it's not detected.
+  const families = useMemo(() => {
+    const found = installedMonoFonts();
+    return fontFamily && !found.includes(fontFamily) ? [fontFamily, ...found] : found;
+  }, [fontFamily]);
   const cardRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -100,10 +96,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         </div>
 
         <div className="px-5 py-4">
-          <div className="mb-1 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-            Appearance
-          </div>
-
           <Row
             label="Theme"
             hint="Match the system, or force light/dark."
@@ -156,6 +148,27 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="h-px bg-border/50" />
 
           <Row
+            label="Open reviews in"
+            hint="Where ⌘K opens a picked review."
+            control={
+              <div className="relative">
+                <select
+                  aria-label="Open reviews in"
+                  value={openMode}
+                  onChange={(e) => setOpenMode(e.target.value as PickerOpenMode)}
+                  className={selectClass}
+                >
+                  <option value="new-window">New window</option>
+                  <option value="replace">Current window</option>
+                </select>
+                <Chevron />
+              </div>
+            }
+          />
+
+          <div className="h-px bg-border/50" />
+
+          <Row
             label="Code font"
             hint="Font family for diffs and code."
             control={
@@ -163,11 +176,12 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 <select
                   aria-label="Code font family"
                   value={fontFamily}
-                  onChange={(e) => setFontFamily(e.target.value)}
+                  onChange={(e) => setCodeFontFamily(e.target.value)}
                   className={selectClass}
                 >
-                  {FONT_FAMILIES.map((f) => (
-                    <option key={f.value} value={f.value}>{f.label}</option>
+                  <option value="">System Mono</option>
+                  {families.map((f) => (
+                    <option key={f} value={f}>{f}</option>
                   ))}
                 </select>
                 <Chevron />
@@ -185,10 +199,10 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 <select
                   aria-label="Code font size"
                   value={fontSize}
-                  onChange={(e) => setFontSize(Number(e.target.value))}
+                  onChange={(e) => setCodeFontSize(Number(e.target.value))}
                   className={selectClass}
                 >
-                  {FONT_SIZES.map((s) => (
+                  {SIZE_OPTIONS.map((s) => (
                     <option key={s} value={s}>{s}px</option>
                   ))}
                 </select>

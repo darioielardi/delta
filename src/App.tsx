@@ -8,6 +8,7 @@ import { SettingsDialog } from "./settings/SettingsDialog";
 import { resolveRoute } from "./route";
 import { addRepo } from "./picker/pickerActions";
 import { useApplyTheme } from "./theme";
+import { useApplyCodeFont } from "./codeFont";
 
 function readLabel(): string | null {
   if (import.meta.env.VITE_MOCK_IPC) return null;
@@ -25,6 +26,9 @@ export default function App() {
   // it — previously only Workspace toggled `.dark`, so the launcher was stuck
   // light (#7).
   useApplyTheme();
+  // Apply the code-font preference (family → --font-mono, size → --code-fs) at the
+  // root too, so the diff renders in the chosen mono font/size in both windows.
+  useApplyCodeFont();
   // The ⌘K palette is a review-window affordance; the home window is the launcher.
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Settings is global — openable from either window with ⌘, (#5).

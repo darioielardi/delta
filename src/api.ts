@@ -47,6 +47,11 @@ export const api = {
   importRepo: (): Promise<RepoEntry | null> => invokeImpl("import_repo"),
   openTarget: (repoPath: string, mode: DiffMode, base?: string): Promise<void> =>
     invokeImpl("open_target", { repoPath, mode, base }),
+  // Re-point THIS window's fs watcher at a new target's worktree — used when a
+  // review window navigates in place ("replace current" picker mode) so
+  // auto-refresh follows the new repo. (#replace)
+  rewatchWindow: (repoPath: string): Promise<void> =>
+    invokeImpl("rewatch_window", { repoPath }),
   deleteReview: (id: string): Promise<void> => invokeImpl("delete_review", { id }),
   installCli: (): Promise<InstallOutcome> => invokeImpl("install_cli"),
   cliStatus: (): Promise<CliStatus> => invokeImpl("cli_status"),
