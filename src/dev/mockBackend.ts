@@ -328,15 +328,18 @@ export function installMockBackend(): void {
       case "list_registry":
         return structuredClone(REGISTRY) as T;
       case "list_picker": {
-        // feat/auth + main have reviews (see REGISTRY.reviews) → only the spike
-        // worktree shows under "other worktrees".
-        const data: PickerData = {
-          home: REGISTRY.home,
-          recents: REGISTRY.reviews,
-          worktrees: [
-            { path: "/Users/me/projects/demo/.worktrees/spike", branch: "spike/new-idea", isMain: false, lastCommitAt: "2026-06-26T15:45:00Z", dirty: false, repoName: "demo", repoId: "r1" },
-          ],
-        };
+        // `?empty=1` → no recents/worktrees, to exercise the first-launch empty state.
+        // Otherwise: feat/auth + main have reviews (see REGISTRY.reviews) → only the
+        // spike worktree shows under "other worktrees".
+        const data: PickerData = emptyParam
+          ? { home: REGISTRY.home, recents: [], worktrees: [] }
+          : {
+              home: REGISTRY.home,
+              recents: REGISTRY.reviews,
+              worktrees: [
+                { path: "/Users/me/projects/demo/.worktrees/spike", branch: "spike/new-idea", isMain: false, lastCommitAt: "2026-06-26T15:45:00Z", dirty: false, repoName: "demo", repoId: "r1" },
+              ],
+            };
         return structuredClone(data) as T;
       }
       case "delete_review":

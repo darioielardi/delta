@@ -1,84 +1,13 @@
 // Header call-to-action that installs the `delta` CLI in one click, with a clear
 // dismiss (✕). It hides itself when the CLI is already installed (cli_status) or
-// once dismissed (persisted in localStorage, so it won't nag across windows).
-// Install is one-shot: the backend symlinks `delta` onto PATH and, when it has to
-// fall back to ~/.local/bin, wires that dir into the user's shell configs so new
-// terminals pick it up with no manual step. (#cli)
-import { useEffect, useState } from "react";
+// once dismissed (persisted in localStorage, so it won't nag across windows). The
+// install state machine lives in useCliInstall so the launcher empty-state promo
+// shares the same status/dismiss/outcomes. (#cli)
 import { Terminal, X, CheckCircle2, Loader2, TriangleAlert } from "lucide-react";
-import { api } from "../api";
-
-type Phase = "checking" | "idle" | "working" | "linked" | "pathUpdated" | "manual" | "error" | "hidden";
-
-const DISMISS_KEY = "delta.cliPromptDismissed";
+import { useCliInstall } from "./useCliInstall";
 
 export function CliInstallButton() {
-  // Dismissed is known synchronously, so seed it in the initializer rather than
-  // via setState in the effect (which would cascade renders). "checking" means we
-  // still need to ask the backend whether the CLI is already installed.
-  const [phase, setPhase] = useState<Phase>(() =>
-    localStorage.getItem(DISMISS_KEY) === "1" ? "hidden" : "checking",
-  );
-  // Carries the path / command / error text relevant to the current phase.
-  const [detail, setDetail] = useState("");
-  const [copied, setCopied] = useState(false);
-
-  // Resolve "checking" → idle/hidden from cli_status. A failed check still offers
-  // install (better to over-offer than hide it). setState happens only in the async
-  // callbacks here, never synchronously in the effect body.
-  useEffect(() => {
-    if (localStorage.getItem(DISMISS_KEY) === "1") return; // seeded hidden already
-    let cancelled = false;
-    void api
-      .cliStatus()
-      .then((s) => !cancelled && setPhase(s.installed ? "hidden" : "idle"))
-      .catch(() => !cancelled && setPhase("idle"));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Success states are transient — they confirm, then get out of the way.
-  useEffect(() => {
-    if (phase !== "linked" && phase !== "pathUpdated") return;
-    const t = setTimeout(() => setPhase("hidden"), phase === "pathUpdated" ? 6000 : 4000);
-    return () => clearTimeout(t);
-  }, [phase]);
-
-  function dismiss() {
-    localStorage.setItem(DISMISS_KEY, "1");
-    setPhase("hidden");
-  }
-
-  async function install() {
-    setPhase("working");
-    try {
-      const out = await api.installCli();
-      if (out.kind === "linked") {
-        setDetail(out.path);
-        setPhase("linked");
-      } else if (out.kind === "linkedPathUpdated") {
-        setDetail(out.path);
-        setPhase("pathUpdated");
-      } else {
-        setDetail(out.command);
-        setPhase("manual");
-      }
-    } catch (e) {
-      setDetail(String(e));
-      setPhase("error");
-    }
-  }
-
-  async function copyCommand() {
-    try {
-      await navigator.clipboard.writeText(detail);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard blocked — the command stays visible in the title */
-    }
-  }
+  const { phase, detail, copied, install, dismiss, copyCommand } = useCliInstall();
 
   if (phase === "checking" || phase === "hidden") return null;
 

@@ -3,12 +3,15 @@
 // also the "what next" surface that reappears when the last review window closes.
 // The macOS traffic lights float over the top-left; the top strip is an invisible
 // drag region (no header chrome, no border). (#8)
+import { useEffect, useState } from "react";
 import { api } from "./api";
 import { ReviewPicker } from "./picker/ReviewPicker";
+import { FirstRun } from "./picker/FirstRun";
 import { addRepo } from "./picker/pickerActions";
+import { loadPicker, peekPickerCache } from "./picker/pickerData";
 import { DeltaMark } from "@/components/DeltaMark";
 import { Settings } from "lucide-react";
-import type { PickerWorktree, ReviewEntry } from "./types";
+import type { PickerData, PickerWorktree, ReviewEntry } from "./types";
 
 const openReview = (r: ReviewEntry) => void api.openTarget(r.target.repoPath, r.target.mode, r.target.base ?? undefined);
 const openWorktree = (w: PickerWorktree) => void api.openTarget(w.path, "all-changes");
@@ -20,6 +23,17 @@ async function deleteReview(r: ReviewEntry) {
 }
 
 export function Home({ onOpenSettings }: { onOpenSettings?: () => void }) {
+  // Decide here (not inside ReviewPicker) whether the launcher has anything to
+  // list, so the empty state can replace the whole picker — search, list, and
+  // footer — with the FirstRun panel. Seeds from the shared cache for an instant
+  // first paint; the picker reuses the same cache, so this adds no extra wait.
+  const [data, setData] = useState<PickerData | null>(() => peekPickerCache());
+  useEffect(() => {
+    // react-doctor-disable-next-line react-hooks-js/set-state-in-effect
+    void loadPicker().then(setData).catch(() => {});
+  }, []);
+  const noRepos = data != null && data.recents.length === 0 && data.worktrees.length === 0;
+
   return (
     <div data-testid="home-root" className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
       {/* Soft accent glow behind the hero — subtle in both themes. */}
@@ -48,10 +62,21 @@ export function Home({ onOpenSettings }: { onOpenSettings?: () => void }) {
           <h1 className="text-[22px] font-semibold tracking-tight">delta</h1>
           <p className="mt-1 text-center text-[13px] text-muted-foreground">Review diffs. Leave structured comments for agents.</p>
 
-          {/* The picker: recents + known-repo worktrees + add-repo. */}
-          <div className="mt-6 flex max-h-[58vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-card text-[13px] shadow-sm">
-            <ReviewPicker onOpenReview={openReview} onOpenWorktree={openWorktree} onAddRepo={addRepo} onDeleteReview={deleteReview} />
-          </div>
+          {/* Decide once data is known so neither view flashes the other on a cold
+              launch: empty → the FirstRun panel; otherwise the picker (recents +
+              known-repo worktrees + add-repo). While the first fetch is in flight
+              (data null, cold start) hold a quiet placeholder of the same size. */}
+          {data == null ? (
+            <div className="mt-6 h-28 w-full" aria-hidden />
+          ) : noRepos ? (
+            <div className="mt-6 w-full">
+              <FirstRun onOpenRepo={() => void addRepo()} />
+            </div>
+          ) : (
+            <div className="mt-6 flex max-h-[58vh] w-full flex-col overflow-hidden rounded-xl border border-border bg-card text-[13px] shadow-sm">
+              <ReviewPicker onOpenReview={openReview} onOpenWorktree={openWorktree} onAddRepo={addRepo} onDeleteReview={deleteReview} />
+            </div>
+          )}
         </div>
       </main>
     </div>
