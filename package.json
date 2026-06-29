@@ -14,6 +14,8 @@
   "scripts": {
     "dev": "vite",
     "dev:mock": "VITE_MOCK_IPC=1 vite --port 5599 --strictPort",
+    "start:demo": "scripts/demo.sh",
+    "start:demo:stress": "scripts/demo-stress.sh",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
