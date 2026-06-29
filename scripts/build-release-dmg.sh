@@ -175,7 +175,16 @@ pnpm test
 new_version="$(bump_version "$bump" "$explicit_version")"
 printf 'Version bumped: %s -> %s\n' "$old_version" "$new_version"
 
-pnpm tauri build --bundles dmg
+# Revert the uncommitted version bump if anything below fails, so a failed run
+# doesn't leave package.json dirty and wedge the next run on require_clean_worktree.
+trap 'git checkout -- package.json' ERR
+
+# Sign during the build, but suppress Tauri's own notarization by unsetting the
+# notary credentials for this command only (NOTARY_ARGS already captured them above).
+# The DMG is notarized exactly once, explicitly, below.
+env -u APPLE_API_KEY -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH \
+    -u APPLE_ID -u APPLE_PASSWORD -u APPLE_TEAM_ID \
+    pnpm tauri build --bundles dmg
 
 dmg_path="$(find_dmg "$new_version" "$product")"
 
@@ -186,7 +195,7 @@ printf 'Stapling final DMG...\n'
 xcrun stapler staple "$dmg_path"
 
 printf 'Verifying final DMG...\n'
-spctl -a -vvv -t install "$dmg_path"
+spctl -a -vvv -t open --context context:primary-signature "$dmg_path"
 xcrun stapler validate "$dmg_path"
 
 sha256="$(shasum -a 256 "$dmg_path" | awk '{print $1}')"

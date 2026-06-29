@@ -108,7 +108,7 @@ tag="v${version}"
 dmg_path="$(find_dmg "$version" "$product")"
 
 printf 'Verifying DMG before publishing...\n'
-spctl -a -vvv -t install "$dmg_path"
+spctl -a -vvv -t open --context context:primary-signature "$dmg_path"
 xcrun stapler validate "$dmg_path"
 
 if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
