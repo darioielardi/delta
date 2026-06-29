@@ -2,7 +2,7 @@
 
 # Δ&nbsp;&nbsp;delta
 
-**Review diffs. Hand precise, line-anchored feedback to your coding agents.**
+**Review code diffs. Leave structured comments for your agents.**
 
 <img src="docs/screenshot.png" alt="delta reviewing a diff in dark mode" width="900" />
 
