@@ -390,7 +390,7 @@ mod tests {
             repo_name: "demo".into(),
             target: Target { repo_path: "/r/demo".into(), worktree: Some("feat/a".into()), mode: DiffMode::AllChanges, base: None },
             last_opened_at: "t".into(),
-            comment_count: 0, stale_count: 0, viewed_count: 0, file_count: 1,
+            comment_count: 0, stale_count: 0, resolved_count: 0, viewed_count: 0, file_count: 1,
         }];
         let wt = |path: &str, branch: &str| WorktreeEntry { path: path.into(), branch: branch.into(), is_main: false, last_commit_at: None, dirty: false };
         // same path → covered
@@ -420,7 +420,7 @@ mod tests {
             repo_name: repo_name.clone(),
             target: Target { repo_path: root.clone(), worktree: Some("main".into()), mode: DiffMode::AllChanges, base: None },
             last_opened_at: "t".into(),
-            comment_count: 0, stale_count: 0, viewed_count: 0, file_count: 1,
+            comment_count: 0, stale_count: 0, resolved_count: 0, viewed_count: 0, file_count: 1,
         });
         reg_store.save(&reg).unwrap();
 
@@ -529,7 +529,7 @@ mod tests {
         let original_file_count = session.summary.files.len() as u32;
 
         let mut review = session.review.clone();
-        review.comments.push(Comment { id: "c1".into(), scope: CommentScope::Line, anchor: None, body: "hi".into(), stale: false, created_at: "t".into(), updated_at: "t".into() });
+        review.comments.push(Comment { id: "c1".into(), scope: CommentScope::Line, anchor: None, body: "hi".into(), stale: false, resolved: false, created_at: "t".into(), updated_at: "t".into() });
         save_review_impl_with_registry(&storage, &reg_store, review).unwrap();
 
         let reg = reg_store.load().unwrap();

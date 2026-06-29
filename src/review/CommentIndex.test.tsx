@@ -4,7 +4,7 @@ import { CommentIndex } from "./CommentIndex";
 import type { Comment } from "../types";
 
 const comments: Comment[] = [
-  { id: "l", scope: "line", anchor: { file: "src/a.ts", side: "new", startLine: 22, endLine: null, snippet: "x" }, body: "line note", stale: true, createdAt: "t", updatedAt: "t" },
+  { id: "l", scope: "line", anchor: { file: "src/a.ts", side: "new", startLine: 22, endLine: null, snippet: "x" }, body: "line note", stale: true, resolved: false, createdAt: "t", updatedAt: "t" },
 ];
 
 describe("CommentIndex", () => {

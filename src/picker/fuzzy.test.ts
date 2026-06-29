@@ -10,6 +10,7 @@ function entry(id: string, branch: string, repoName: string, lastOpenedAt: strin
     lastOpenedAt,
     commentCount: 0,
     staleCount: 0,
+    resolvedCount: 0,
     viewedCount: 0,
     fileCount: 0,
   };

@@ -52,6 +52,7 @@ export interface Comment {
   anchor?: Anchor | null;
   body: string;
   stale: boolean;
+  resolved: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -109,6 +110,7 @@ export interface ReviewEntry {
   lastOpenedAt: string;
   commentCount: number;
   staleCount: number;
+  resolvedCount: number;
   viewedCount: number;
   fileCount: number;
 }

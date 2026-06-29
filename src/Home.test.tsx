@@ -8,7 +8,7 @@ import type { PickerData } from "./types";
 const WITH_REPOS: PickerData = {
   home: "/Users/me",
   recents: [
-    { id: "rev1", repoName: "demo", target: { repoPath: "/r/demo", worktree: "feat/auth", mode: "all-changes" }, lastOpenedAt: "2026-06-26T10:00:00Z", commentCount: 0, staleCount: 0, viewedCount: 0, fileCount: 3 },
+    { id: "rev1", repoName: "demo", target: { repoPath: "/r/demo", worktree: "feat/auth", mode: "all-changes" }, lastOpenedAt: "2026-06-26T10:00:00Z", commentCount: 0, staleCount: 0, resolvedCount: 0, viewedCount: 0, fileCount: 3 },
   ],
   worktrees: [],
 };

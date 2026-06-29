@@ -67,4 +67,16 @@ describe("useReview", () => {
     act(() => { result.current.toggleViewed("a.ts", "h1"); });
     expect(saveMock).toHaveBeenCalledTimes(1);
   });
+
+  it("toggleResolved flips resolved and saves immediately", async () => {
+    const { result } = renderHook(() => useReview(base));
+    act(() => result.current.addComment("line", null, "fix this"));
+    const id = result.current.review!.comments[0].id;
+    saveMock.mockReset();
+    act(() => result.current.toggleResolved(id));
+    expect(result.current.review!.comments[0].resolved).toBe(true);
+    await waitFor(() => expect(saveMock).toHaveBeenCalledTimes(1));
+    act(() => result.current.toggleResolved(id));
+    expect(result.current.review!.comments[0].resolved).toBe(false);
+  });
 });

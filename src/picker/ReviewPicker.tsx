@@ -5,7 +5,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { rankReviews, rankWorktrees } from "./fuzzy";
 import { loadPicker, peekPickerCache } from "./pickerData";
-import { GitBranch, MessageSquare, TriangleAlert, FolderPlus, Folder } from "lucide-react";
+import { GitBranch, MessageSquare, TriangleAlert, Check, FolderPlus, Folder } from "lucide-react";
 import { worktreeName } from "../lib/utils";
 import type { PickerData, PickerWorktree, ReviewEntry, Target } from "../types";
 
@@ -83,6 +83,9 @@ function recentNode(r: ReviewEntry): ReactNode {
         )}
         {r.staleCount > 0 && (
           <span className="inline-flex items-center gap-1 tabular-nums text-amber-500"><TriangleAlert className="size-3.5" />{r.staleCount}</span>
+        )}
+        {r.resolvedCount > 0 && (
+          <span className="inline-flex items-center gap-1 tabular-nums text-emerald-500"><Check className="size-3.5" />{r.resolvedCount}</span>
         )}
         <span>{relTime(r.lastOpenedAt)}</span>
       </span>
