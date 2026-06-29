@@ -12,6 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "doctor": "react-doctor",
+    "build:release-dmg": "scripts/build-release-dmg.sh",
+    "publish:release": "scripts/publish-release.sh",
     "prepare": "husky"
   },
   "dependencies": {
