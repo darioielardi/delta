@@ -461,7 +461,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               </div>
             ) : (
               <div className="flex flex-col items-center gap-4">
-                <DeltaMark className="size-12 shadow-lg shadow-black/20" />
+                <DeltaMark className="size-14" />
                 <div className="flex flex-col items-center gap-2.5">
                   <span className="text-[13px]">Computing delta…</span>
                   <div className="relative h-1 w-32 overflow-hidden rounded-full bg-muted">
