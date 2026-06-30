@@ -27,11 +27,17 @@ pub fn is_cli_invocation(invoked: Option<&OsStr>, real: Option<&OsStr>) -> bool 
 }
 
 pub fn invoked_as_cli() -> bool {
+    // `invoked` is the name we were called by (the shim name, from argv[0]). `real`
+    // is the actual binary: macOS `current_exe()` does NOT resolve the shim symlink,
+    // so canonicalize it — otherwise both basenames are the shim name and the rule
+    // below never fires.
     let argv0 = std::env::args_os().next();
-    let invoked = argv0.as_deref().and_then(|p| Path::new(p).file_name());
-    let exe = std::env::current_exe().ok();
-    let real = exe.as_deref().and_then(|p| p.file_name());
-    is_cli_invocation(invoked, real)
+    let invoked = argv0.as_deref().and_then(|p| Path::new(p).file_name()).map(OsStr::to_os_string);
+    let real = std::env::current_exe()
+        .ok()
+        .and_then(|p| std::fs::canonicalize(p).ok())
+        .and_then(|p| p.file_name().map(OsStr::to_os_string));
+    is_cli_invocation(invoked.as_deref(), real.as_deref())
 }
 
 /// Pure: the argv passed to `open` for a cold launch. `open -b <id> --args <repo> [flag]`.
