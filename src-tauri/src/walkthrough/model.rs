@@ -97,6 +97,7 @@ pub struct ClaudeStatus {
 #[derive(Debug)]
 pub enum WalkthroughError {
     NotInstalled,
+    Git(String),
     Spawn(String),
     Timeout,
     Exit { code: Option<i32>, stderr: String },
@@ -110,6 +111,7 @@ impl std::fmt::Display for WalkthroughError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WalkthroughError::NotInstalled => write!(f, "Claude Code CLI not found."),
+            WalkthroughError::Git(e) => write!(f, "{e}"),
             WalkthroughError::Spawn(e) => write!(f, "Couldn't start Claude: {e}"),
             WalkthroughError::Timeout => write!(f, "Walkthrough timed out."),
             WalkthroughError::Exit { stderr, .. } => {

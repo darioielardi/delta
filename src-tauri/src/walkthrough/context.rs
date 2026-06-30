@@ -18,6 +18,16 @@ pub const WALKTHROUGH_DIFF_BUDGET: usize = 256 * 1024;
 /// frontend pre-gates with a popup, the backend keeps this as a defensive floor.
 pub const MIN_CHANGED_LINES: usize = 20;
 
+/// A walkthrough groups files into reading order, so it needs at least this many
+/// files — and the "≥2 groups" quality invariant is only satisfiable with ≥2 files.
+/// (A single-file change is "one step"; we block it rather than fake a second group.)
+pub const MIN_FILES: usize = 2;
+
+/// The min-diff floor shared by the frontend gate and the backend's defensive check.
+pub fn is_too_small(summary: &DiffSummary) -> bool {
+    summary.files.len() < MIN_FILES || total_changed_lines(summary) < MIN_CHANGED_LINES
+}
+
 /// Total added+deleted lines across the non-binary files in the diff.
 pub fn total_changed_lines(summary: &DiffSummary) -> usize {
     summary
@@ -171,6 +181,13 @@ mod tests {
         assert_ne!(s1, diff_sig(&summ(vec![fe("a", 1, 1)]), "ctx2"), "CLAUDE.md change flips");
         assert_eq!(s1.len(), 16);
         assert!(s1.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn is_too_small_blocks_single_file_and_tiny_diffs() {
+        assert!(is_too_small(&summ(vec![fe("a", 50, 0)])), "single file blocked");
+        assert!(is_too_small(&summ(vec![fe("a", 2, 1), fe("b", 1, 0)])), "few lines blocked");
+        assert!(!is_too_small(&summ(vec![fe("a", 10, 2), fe("b", 8, 3)])), "two files, 23 lines ok");
     }
 
     #[test]
