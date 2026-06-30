@@ -28,18 +28,21 @@ pub struct Launch {
     /// the cwd; whether that opens a review or falls back to Home is a downstream
     /// repo-validity check (see `route_launch`).
     pub repo_path: PathBuf,
-    pub mode: DiffMode,
+    /// `None` when no mode flag was passed; `Some(_)` for an explicit `--all` /
+    /// `--uncommitted` / `--last-commit` / `--branch`.
+    pub mode: Option<DiffMode>,
 }
 
 /// Pure CLI parsing. `args` excludes the binary name. No filesystem access.
 pub fn parse_launch(args: &[String], cwd: &Path) -> Launch {
-    let mut mode = DiffMode::AllChanges;
+    let mut mode: Option<DiffMode> = None;
     let mut path_token: Option<&str> = None;
     for arg in args {
         match arg.as_str() {
-            "--uncommitted" => mode = DiffMode::Uncommitted,
-            "--last-commit" => mode = DiffMode::LastCommit,
-            "--branch" => mode = DiffMode::BranchVsBase,
+            "--all" => mode = Some(DiffMode::AllChanges),
+            "--uncommitted" => mode = Some(DiffMode::Uncommitted),
+            "--last-commit" => mode = Some(DiffMode::LastCommit),
+            "--branch" => mode = Some(DiffMode::BranchVsBase),
             other if !other.starts_with("--") && path_token.is_none() => path_token = Some(other),
             _ => {}
         }
@@ -274,7 +277,8 @@ pub fn open_home_window(app: &AppHandle) -> Result<(), String> {
 pub fn route_launch(app: &AppHandle, args: &[String], cwd: &Path) {
     let launch = parse_launch(args, cwd);
     let path = launch.repo_path.to_string_lossy().to_string();
-    let opened = open_repo(&path).is_ok() && open_target_window(app, &path, launch.mode, None).is_ok();
+    let mode = launch.mode.unwrap_or(DiffMode::AllChanges);
+    let opened = open_repo(&path).is_ok() && open_target_window(app, &path, mode, None).is_ok();
     if !opened {
         let _ = open_home_window(app);
     }
@@ -509,7 +513,15 @@ mod tests {
         // worktree; the home fallback is a downstream repo-validity check.
         let l = parse_launch(&[], Path::new("/home/me/proj"));
         assert_eq!(l.repo_path, PathBuf::from("/home/me/proj"));
-        assert_eq!(l.mode, DiffMode::AllChanges);
+        assert_eq!(l.mode, None);
+    }
+
+    #[test]
+    fn parse_launch_no_mode_flag_is_none_not_all_changes() {
+        // `None` is what lets the socket handler tell "no --mode given" (focus only)
+        // from an explicit `--all` (switch the open window to all-changes).
+        assert_eq!(parse_launch(&["/abs/repo".into()], Path::new("/c")).mode, None);
+        assert_eq!(parse_launch(&["--all".into()], Path::new("/c")).mode, Some(DiffMode::AllChanges));
     }
 
     #[test]
@@ -532,16 +544,17 @@ mod tests {
 
     #[test]
     fn parse_launch_mode_flags() {
-        assert_eq!(parse_launch(&["--uncommitted".into()], Path::new("/c")).mode, DiffMode::Uncommitted);
-        assert_eq!(parse_launch(&["--last-commit".into()], Path::new("/c")).mode, DiffMode::LastCommit);
-        assert_eq!(parse_launch(&["--branch".into()], Path::new("/c")).mode, DiffMode::BranchVsBase);
+        assert_eq!(parse_launch(&["--all".into()], Path::new("/c")).mode, Some(DiffMode::AllChanges));
+        assert_eq!(parse_launch(&["--uncommitted".into()], Path::new("/c")).mode, Some(DiffMode::Uncommitted));
+        assert_eq!(parse_launch(&["--last-commit".into()], Path::new("/c")).mode, Some(DiffMode::LastCommit));
+        assert_eq!(parse_launch(&["--branch".into()], Path::new("/c")).mode, Some(DiffMode::BranchVsBase));
     }
 
     #[test]
     fn parse_launch_flag_then_path() {
         let l = parse_launch(&["--uncommitted".into(), "/abs/repo".into()], Path::new("/c"));
         assert_eq!(l.repo_path, PathBuf::from("/abs/repo"));
-        assert_eq!(l.mode, DiffMode::Uncommitted);
+        assert_eq!(l.mode, Some(DiffMode::Uncommitted));
     }
 
     #[test]
