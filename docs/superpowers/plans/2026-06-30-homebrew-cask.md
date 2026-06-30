@@ -28,6 +28,26 @@ Every task implicitly includes these. Exact values, copied from the spec:
 
 ---
 
+## Implementation notes (deviations from this plan as written)
+
+Captured after execution so the plan stays honest:
+
+- **`depends_on macos: :big_sur` was added** (the plan/spec had deferred it). `brew
+  style` requires a macOS floor for a macOS-only cask, and the app binary's Mach-O
+  `minos` is 11.0 (the Info.plist's `LSMinimumSystemVersion` of 10.13 is Tauri's
+  misleading default). The shipped cask in the tap is the source of truth.
+- **Cask stanza order** follows `brew style --fix`: `livecheck` before `depends_on`,
+  and the `zap` array alphabetized. Task 1's heredoc below shows a pre-lint form;
+  `brew style` (Step 4) reconciles it.
+- **Task 2 verification was made non-destructive.** This machine already had a real
+  `/Applications/Delta.app` and real reviews under `~/Library/Application Support/
+  com.darioielardi.delta`. Instead of `brew install` to `/Applications` + `brew
+  uninstall --zap` (which would delete those reviews), the install was tested into a
+  scratch `--appdir` and uninstalled **without** `--zap`. Never run the `--zap`
+  round-trip on a machine holding real Delta data.
+
+---
+
 ### Task 1: Author and style-validate the cask
 
 Produces the validated cask + tap README in a local repo at `~/projects/homebrew-tap`, **without** creating the remote yet (Task 2 does that, gated on this passing).
