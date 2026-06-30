@@ -49,7 +49,9 @@ Installed CLI verified: `claude` 2.1.193 at `~/.local/bin/claude`.
 | **Isolation** | `--safe-mode` (disables hooks/MCP/skills/plugins/global+project CLAUDE.md/commands/agents) + **self-injected** repo CLAUDE.md/docs |
 | **Diff context** | Bounded unified diff piped in, **no tools**; degrade to file-list + stats past a budget and set `degraded: true` |
 | **Structured output** | `--output-format json` → extract `result` → serde-validate into `Walkthrough` → one repair retry |
+| **Output quality** | Prompt rubric (unbiased orientation, calibrated length, right granularity) + machine-checked invariants (2–N groups, full coverage, length bounds) enforced via the repair loop |
 | **Caching** | Persist with the review, keyed by a canonical diff signature (incl. injected-context hash); regenerate only when stale or user-forced |
+| **Min-diff gate** | Block generation for trivially small diffs with a popup (NoticeDialog), client-side, before any spawn |
 | **Failure UX** | Pre-flight `claude_status` gate + **dismissable** error strip |
 | **Cancellation** | Track the in-flight child per review; `cancel_walkthrough` kills it; killed on guide exit / window close / regenerate-supersede |
 
@@ -92,7 +94,7 @@ sidecar roadmap) — not needed now.
 
 ```
 generate_walkthrough(target)                       [commands.rs → walkthrough module]
-  1. resolve worktree + compute git2 diff (reuse compute_diff machinery)
+  1. resolve worktree + compute git2 diff; refuse if below the min-diff floor (UI pre-gates this)
   2. assemble controlled context:
        a. unified patch text, capped at BUDGET bytes  → else file-list+stats, degraded=true
        b. repo CLAUDE.md (+ resolved @imports), capped
@@ -120,7 +122,7 @@ New module owning orchestration, kept off `commands.rs`. Submodules:
 - **`context.rs`** — diff assembly + repo-CLAUDE.md/docs assembly (see §2, §3), and the canonical
   `diffSig`.
 - **`claude.rs`** — build the argv + spawn (§4), child registry for cancellation (§ Cancellation),
-  envelope + JSON extraction, validate + repair (§5).
+  envelope + JSON extraction, validate + repair against the schema (§5) and the quality invariants (§5b).
 - **`model.rs`** — the Rust `Walkthrough` structs mirroring [types.ts](../../../src/types.ts) (serde,
   `camelCase`), plus `CachedWalkthrough { walkthrough, diff_sig, generated_at }` and `ClaudeStatus`.
 
@@ -173,6 +175,40 @@ validation failure, **one repair retry** re-prompts with the parser error append
 `WalkthroughError::Unparseable`. Post-validate: clamp/sort `group.order`, drop `files`/`risks` whose
 paths aren't in the diff (model hallucination guard).
 
+### 5b. Output-quality rubric + invariants
+
+The walkthrough must read as a thoughtful, unbiased orientation — never padded, never a critique. Two
+layers enforce this: prompt guidance (qualitative) and machine-checked invariants that feed the **same
+repair loop** (quantitative). The min-diff gate (§ Min-diff gate / data-flow step 1) guarantees there is
+always enough material for these rules to hold without forcing an artificial split.
+
+**Prompt rubric** (encoded in `--append-system-prompt`):
+
+- **Orientation, not judgment** — describe what changed and where attention belongs; no praise, blame, or
+  editorializing. Risks are attention flags (`watch`/`caution`) phrased as "look here because…", never
+  verdicts on code quality (mirrors the existing type-doc intent).
+- **Right granularity** — group by genuine concern. **Never a single group; never fragmented.** Aim for
+  2–5 groups on a typical change; a group holds a coherent unit of work, not one file each by default.
+- **Calibrated length** — `title` 3–8 words (PR-style, specific — not a filename list); `summary` 1–3
+  sentences. Group `title` 2–6 words; group `summary` 1–2 sentences. File `note` ≤ ~8 words; risk `note`
+  one sentence. No empty strings, no walls of text.
+- **Balanced importance** — don't mark everything `core` or everything `skim`; reflect real signal.
+- **Honest coverage** — every changed non-ignored file appears in exactly one group; `ignored` holds only
+  genuine noise (lockfiles, generated, binary) with a real reason.
+
+**Machine-checked invariants** (validated after parse; a violation is appended to the repair-retry
+prompt, then hard-fails as `WalkthroughError::QualityViolation` on the second miss):
+
+- `2 ≤ groups.length ≤ MAX_GROUPS` (default 7) — kills the one-step and the over-fragmented cases.
+- Every non-ignored diff file is covered exactly once across groups; none duplicated; no group empty.
+- No group/file/risk path is absent from the diff (the hallucination guard).
+- Title/summary/note lengths within the ranges above (trailing whitespace trimmed; out-of-range → repair
+  feedback rather than silent truncation).
+- `order` is a `1..N` permutation (clamp/sort).
+- Not every group is `skim` (avoid an all-noise walkthrough).
+
+Bounds (`MAX_GROUPS`, the length ranges) are named constants, tunable without touching logic.
+
 ### 6. Commands (register in `lib.rs`)
 
 - **`generate_walkthrough(target) -> Walkthrough`** — the orchestration above. **New handler**, and must
@@ -204,6 +240,12 @@ cancellation registry and is the id the frontend already holds (from `openReview
 - **Button gating** — on mount/open, call `claude_status`; if not installed, the Walkthrough affordance
   is disabled with a tooltip/notice ("Claude Code CLI not found") instead of failing on click. Joins the
   existing `dirty`/mode gates.
+- **Min-diff gate** — `requestWalkthrough` blocks trivially small diffs *before* spawning: if total
+  changed lines across non-ignored files `< GUIDE_MIN_CHANGED_LINES` (default 20), show a `NoticeDialog`
+  via the existing `guideBlockedMsg` path explaining a walkthrough isn't useful for a change this small.
+  All inputs are already in `DiffSummary`, so this is a cheap client-side check — no spawn, no credits.
+  The backend keeps a defensive floor (data-flow step 1) for direct callers. Threshold is a named
+  constant, tunable.
 - **Dismissable error strip** — the offending non-dismissable strips are
   [Workspace.tsx](../../../src/workspace/Workspace.tsx) (`{error && <div…>{error}</div>}`) and
   [GuideWorkspace.tsx](../../../src/guide/GuideWorkspace.tsx). Add a **× dismiss** that clears the error,
@@ -220,7 +262,8 @@ cancellation registry and is the id the frontend already holds (from `openReview
 | Not authenticated / usage limit | non-zero exit / `is_error`, stderr | Claude's own message ("Run `claude login`" / limit) in the dismissable strip |
 | Timeout | child exceeds budget → killed | "Walkthrough timed out." |
 | Non-zero exit (other) | exit status | stderr tail in the strip |
-| Unparseable after repair retry | validation | "Couldn't read the walkthrough." |
+| Unparseable / quality-violation after repair retry | schema or invariant (§5b) check | "Couldn't build a good walkthrough — try again." |
+| Diff too small | min-diff gate (client) / floor (backend) | `NoticeDialog` popup; not an error strip |
 | Cancelled | killed via `cancel_walkthrough` | silent (no error; user-initiated) |
 
 Errors are typed in Rust (`WalkthroughError`) and stringified at the IPC boundary into the existing
@@ -242,6 +285,12 @@ promptly.
   sensitivity (file change flips it, CLAUDE.md change flips it); `@import` resolution bounds (depth/size,
   no repo-escape). The `claude` spawn is abstracted behind a small trait so tests inject a fake
   transcript instead of shelling out.
+- **Quality invariants** (`cargo test`): a one-group output is rejected and routed to repair; `> MAX_GROUPS`
+  rejected; an empty/duplicate group or an uncovered diff file rejected; out-of-range title/summary lengths
+  trigger repair feedback; an all-`skim` walkthrough rejected; a valid output passes untouched. A
+  second-miss violation surfaces as `QualityViolation`, not a silent pass.
+- **Min-diff gate**: a sub-threshold `DiffSummary` makes `requestWalkthrough` show the notice and never
+  call `generateWalkthrough`; at/above threshold proceeds. Backend floor rejects a sub-threshold target.
 - **Mock backend** keeps serving fixtures so `pnpm dev:mock` and existing UI tests are unaffected; add
   `claude_status`/`cancel_walkthrough` stubs.
 - **Frontend tests** (Vitest): error strip dismissal clears the message; button is gated/disabled when
@@ -258,7 +307,7 @@ promptly.
 - `src/api.ts` (+`claudeStatus`, `cancelWalkthrough`; `generateWalkthrough` unchanged).
 - `src/dev/mockBackend.ts` (stubs for the two new commands; existing walkthrough mock retained).
 - `src/types.ts` (`CachedWalkthrough`, `ClaudeStatus`, `Review.walkthrough`).
-- UI: shared `ErrorStrip`, button gating, cancellation calls.
+- UI: shared `ErrorStrip`, button gating, min-diff gate (`GUIDE_MIN_CHANGED_LINES` + notice), cancellation calls.
 
 ## Non-goals / future
 
