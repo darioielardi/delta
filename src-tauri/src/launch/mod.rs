@@ -189,8 +189,16 @@ pub fn enc(s: &str) -> String {
     out
 }
 
+/// Outcome of `open_target_window`: whether an existing window was focused or a
+/// new one created. The payload is the `review-{id}` window label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Opened {
+    Focused(String),
+    Created(String),
+}
+
 /// The single choke point for "open this target". Focus-or-create, ≤1 per target.
-pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base: Option<String>) -> Result<(), String> {
+pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base: Option<String>) -> Result<Opened, String> {
     let repo = open_repo(repo_path)?;
     let canonical = repo
         .workdir()
@@ -202,7 +210,7 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
     if let Some(w) = app.get_webview_window(&label) {
         let _ = w.show();
         let _ = w.set_focus();
-        return Ok(());
+        return Ok(Opened::Focused(label));
     }
     let mut url = format!("index.html?repo={}&mode={}", enc(&canonical), mode.as_str());
     if let Some(b) = base.as_deref() {
@@ -226,7 +234,7 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
     builder.build().map_err(|e| format!("create window: {e}"))?;
     // Auto-refresh: watch this worktree and notify the window on change. (#9)
     crate::watch::start(app, &label, Path::new(&canonical));
-    Ok(())
+    Ok(Opened::Created(label))
 }
 
 /// Re-point an existing window's fs watcher at a different target's worktree.
