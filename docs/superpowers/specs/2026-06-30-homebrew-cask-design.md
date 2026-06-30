@@ -58,8 +58,10 @@ works, and keeps it current automatically on each release.
 - A self-updater (Sparkle / Tauri updater) — brew owns upgrades.
 - Submitting to the official `homebrew-cask` (notability bar); the personal tap
   stands on its own.
-- `depends_on macos:` floor — omitted until we confirm the real minimum, rather
-  than guess a version that wrongly blocks valid installs.
+- ~~`depends_on macos:` floor — omitted~~ **Resolved during implementation to
+  `:big_sur`.** `brew style` requires a macOS floor for a macOS-only cask, and the
+  app binary's Mach-O `minos` is 11.0 (the Info.plist's `LSMinimumSystemVersion` of
+  10.13 is Tauri's misleading default), so Big Sur is the honest minimum.
 
 ## Future direction: premium / self-updater coexistence (out of scope)
 
@@ -116,22 +118,23 @@ cask "delta" do
   desc "Desktop app for reviewing git diffs with structured comments for AI agents"
   homepage "https://github.com/darioielardi/delta"
 
-  depends_on arch: :arm64
-
   livecheck do
     url :url
     strategy :github_latest
   end
+
+  depends_on arch: :arm64
+  depends_on macos: :big_sur
 
   app "Delta.app"
 
   zap trash: [
     "~/Library/Application Support/com.darioielardi.delta",
     "~/Library/Caches/com.darioielardi.delta",
+    "~/Library/HTTPStorages/com.darioielardi.delta",
     "~/Library/Preferences/com.darioielardi.delta.plist",
     "~/Library/Saved Application State/com.darioielardi.delta.savedState",
     "~/Library/WebKit/com.darioielardi.delta",
-    "~/Library/HTTPStorages/com.darioielardi.delta",
   ]
 end
 ```
