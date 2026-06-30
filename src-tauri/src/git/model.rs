@@ -29,6 +29,16 @@ impl DiffMode {
             DiffMode::BranchVsBase => "branch-vs-base",
         }
     }
+
+    /// The CLI flag that selects this mode (inverse of `parse_launch`).
+    pub fn flag(&self) -> &'static str {
+        match self {
+            DiffMode::AllChanges => "--all",
+            DiffMode::Uncommitted => "--uncommitted",
+            DiffMode::LastCommit => "--last-commit",
+            DiffMode::BranchVsBase => "--branch",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -39,6 +49,14 @@ mod model_tests {
     fn diffmode_as_str_is_kebab() {
         assert_eq!(DiffMode::AllChanges.as_str(), "all-changes");
         assert_eq!(DiffMode::BranchVsBase.as_str(), "branch-vs-base");
+    }
+
+    #[test]
+    fn diffmode_flag_is_the_cli_flag() {
+        assert_eq!(DiffMode::AllChanges.flag(), "--all");
+        assert_eq!(DiffMode::Uncommitted.flag(), "--uncommitted");
+        assert_eq!(DiffMode::LastCommit.flag(), "--last-commit");
+        assert_eq!(DiffMode::BranchVsBase.flag(), "--branch");
     }
 
     #[test]
