@@ -5,11 +5,15 @@ import { act, render, screen, fireEvent, waitFor } from "@testing-library/react"
 const openReview = vi.fn();
 const openTarget = vi.fn();
 const refreshReview = vi.fn();
+const listCommits = vi.fn();
+const computeDiff = vi.fn();
 vi.mock("../api", () => ({
   api: {
     openReview: (...a: unknown[]) => openReview(...a),
     openTarget: (...a: unknown[]) => openTarget(...a),
     refreshReview: (...a: unknown[]) => refreshReview(...a),
+    listCommits: (...a: unknown[]) => listCommits(...a),
+    computeDiff: (...a: unknown[]) => computeDiff(...a),
     saveReview: vi.fn(),
     exportReview: vi.fn(),
     getFileDiff: vi.fn(),
@@ -44,12 +48,20 @@ const fileSession = {
   ...minimalSession,
   summary: { files: [{ path: "src/a.ts", status: "modified", additions: 1, deletions: 0, binary: false }], baseLabel: "main", headLabel: "wt" },
 };
+const COMMITS = [
+  { oid: "o0", shortOid: "o0aaaaa", subject: "third", author: "me", time: 3 },
+  { oid: "o1", shortOid: "o1bbbbb", subject: "second", author: "me", time: 2 },
+  { oid: "o2", shortOid: "o2ccccc", subject: "first", author: "me", time: 1 },
+];
+const commitTarget: Target = { repoPath: "/r", mode: "commit", commit: "o1" };
 
 describe("Workspace", () => {
   beforeEach(() => {
     openReview.mockReset();
     openTarget.mockReset();
     refreshReview.mockReset();
+    listCommits.mockReset().mockResolvedValue([]);
+    computeDiff.mockReset().mockResolvedValue({ files: [], baseLabel: "p", headLabel: "c" });
     fsChanged = null;
   });
 
@@ -60,15 +72,32 @@ describe("Workspace", () => {
     expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "all-changes", base: undefined });
   });
 
-  it("switching mode re-opens in place (openReview, not a new window)", async () => {
-    openReview.mockResolvedValue(minimalSession);
-    render(<Workspace target={target} />);
-    await waitFor(() => expect(screen.getByRole("button", { name: /copy for agents/i })).toBeInTheDocument());
-    openReview.mockClear();
-
-    fireEvent.change(screen.getByRole("combobox", { name: /diff mode/i }), { target: { value: "uncommitted" } });
-    await waitFor(() => expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "uncommitted", base: undefined }));
+  it("opens the review on its canonical mode, not 'commit'", async () => {
+    // A ?mode=commit cold-start review still opens canonically (branch-vs-base);
+    // commit mode is a display overlay, never the persisted review mode.
+    openReview.mockResolvedValue(fileSession);
+    listCommits.mockResolvedValue(COMMITS);
+    render(<Workspace target={commitTarget} />);
+    await waitFor(() => expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "branch-vs-base", base: undefined }));
     expect(openTarget).not.toHaveBeenCalled();
+  });
+
+  it("renders the commit stepper in commit mode and steps to the next commit", async () => {
+    openReview.mockResolvedValue(fileSession);
+    listCommits.mockResolvedValue(COMMITS);
+    computeDiff.mockResolvedValue(fileSession.summary); // pinned commit has files → panes render
+    render(<Workspace target={commitTarget} />);
+
+    // Stepper shows the pinned commit's position (o1 is index 1 of 3) + its short oid.
+    await waitFor(() => expect(screen.getByTestId("commit-stepper")).toHaveTextContent("2 / 3"));
+    expect(screen.getByRole("button", { name: /diff mode/i })).toHaveTextContent("o1bbbbb");
+    expect(openTarget).not.toHaveBeenCalled(); // no window spawned for the overlay
+
+    // Stepping "next" advances to o2 and recomputes that commit's isolated diff.
+    computeDiff.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: /next commit/i }));
+    await waitFor(() => expect(screen.getByTestId("commit-stepper")).toHaveTextContent("3 / 3"));
+    expect(computeDiff).toHaveBeenCalledWith(expect.objectContaining({ mode: "commit", commit: "o2" }));
   });
 
   it("a filesystem change surfaces a Refresh button instead of updating the diff in place (#12)", async () => {
