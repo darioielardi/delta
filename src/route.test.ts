@@ -16,6 +16,11 @@ describe("resolveRoute", () => {
     expect(r).toEqual({ kind: "review", target: { repoPath: "/r", mode: "all-changes", base: undefined } });
   });
 
+  it("parses the commit oid into the target", () => {
+    const r = resolveRoute("review-x", "?view=review&repo=%2Fr&mode=commit&commit=a1b2c3d");
+    expect(r).toEqual({ kind: "review", target: { repoPath: "/r", mode: "commit", base: undefined, commit: "a1b2c3d" } });
+  });
+
   it("falls back to all-changes for an unknown mode", () => {
     const r = resolveRoute("review-x", "?repo=%2Fr&mode=bogus");
     expect(r.kind).toBe("review");

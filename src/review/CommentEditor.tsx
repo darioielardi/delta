@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 
 export function CommentEditor({
   initialValue = "",
@@ -47,8 +48,12 @@ export function CommentEditor({
       <textarea
         ref={ref}
         rows={3}
-        className="min-h-[4.875rem] w-full resize-none overflow-hidden rounded-md border border-input bg-muted/40 px-2.5 py-1.5 text-[13px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-ring"
-        placeholder="Leave a comment (markdown)…"
+        spellCheck={false}
+        autoCorrect="off"
+        autoCapitalize="off"
+        autoComplete="off"
+        className="min-h-[5.25rem] w-full resize-none overflow-hidden rounded-md border border-input bg-muted/40 px-3 py-2 text-[13px] leading-relaxed text-foreground outline-none transition-colors placeholder:text-muted-foreground/70 focus:border-ring"
+        placeholder="Leave a comment…"
         value={value}
         onChange={(e) => {
           setValue(e.target.value);
@@ -65,11 +70,8 @@ export function CommentEditor({
           }
         }}
       />
-      <div className="mt-2 flex items-center gap-1.5">
-        <Button size="sm" className="h-7 px-3 text-[12px]" onClick={submit}>Save</Button>
-        {onCancel && (
-          <Button size="sm" variant="ghost" className="h-7 px-2.5 text-[12px] text-muted-foreground hover:text-foreground" onClick={onCancel}>Cancel</Button>
-        )}
+      <div className="mt-2.5 flex items-center gap-2">
+        <span className="mr-auto select-none text-[11px] text-muted-foreground/70">Markdown supported</span>
         {onDelete && (
           <Button
             size="sm"
@@ -80,7 +82,14 @@ export function CommentEditor({
             Delete
           </Button>
         )}
-        <span className="ml-auto select-none text-[11px] text-muted-foreground/80">⌘↵ save · esc cancel</span>
+        {onCancel && (
+          <Button size="sm" variant="ghost" className="h-7 gap-1.5 px-2.5 text-[12px] text-muted-foreground hover:text-foreground" onClick={onCancel}>
+            Cancel <Kbd keys="esc" className="border-border/60 bg-muted/50" />
+          </Button>
+        )}
+        <Button size="sm" className="h-7 gap-1.5 px-3 text-[12px]" onClick={submit}>
+          Save <Kbd keys="⌘↵" className="border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground/90" />
+        </Button>
       </div>
     </div>
   );

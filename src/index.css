@@ -71,8 +71,10 @@
     /* A soft neutral gray base so the white header + file-diff cards read as
        floating surfaces above it. `card` stays pure white. The cards carry their
        own border + subtle shadow, so the canvas can sit close to white and still
-       read as distinct — kept just below the cards for a light, airy base. (#7) */
-    --background: oklch(0.986 0 0);
+       read as distinct — kept just below the cards for a light, airy base. Nudged
+       up toward white so muted chrome (toggles, the viewed pill) stops blending
+       into the canvas; cards still separate via their border + shadow. (#7) */
+    --background: oklch(0.992 0 0);
     --foreground: oklch(0.145 0 0);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.145 0 0);
@@ -336,10 +338,12 @@
   .diff-tailwindcss-wrapper .delta-comment-ui { color: var(--foreground); }
   .diff-tailwindcss-wrapper .delta-comment-ui * { color: inherit; }
 
-  /* Code is selectable; line numbers stay unselectable for clean copy. Single
-     class keeps this below the library's drag-time `.diff-multi-selecting
-     .diff-line-content { user-select: none }` so range-drag still works. */
-  .diff-line-content {
+  /* Code is selectable + copyable. The virtual renderer draws its own rows, so
+     this targets its code cell (`.diff-line-syntax-raw`) — the app-wide
+     `body { user-select: none }` (native feel) otherwise leaves diff text
+     unselectable. Line-number gutters + the +/− marker keep their `select-none`
+     (set in the row markup) so a copy never picks them up. */
+  .diff-line-syntax-raw {
     -webkit-user-select: text;
     user-select: text;
     cursor: text;

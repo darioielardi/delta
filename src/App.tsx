@@ -7,7 +7,12 @@ import { Home } from "./Home";
 import { CommandPalette } from "./picker/CommandPalette";
 import { SettingsDialog } from "./settings/SettingsDialog";
 import { resolveRoute } from "./route";
+import { addRepo } from "./picker/pickerActions";
+import { NoticeDialog } from "@/components/ui/notice-dialog";
+import { onNotice, type Notice } from "./lib/notify";
 import { useApplyTheme } from "./theme";
+import { useApplyCodeFont } from "./codeFont";
+import { DevBadge } from "@/components/DevBadge";
 
 function readLabel(): string | null {
   if (import.meta.env.VITE_MOCK_IPC) return null;
@@ -28,10 +33,17 @@ export default function App() {
   // it — previously only Workspace toggled `.dark`, so the launcher was stuck
   // light (#7).
   useApplyTheme();
+  // Apply the code-font preference (family → --font-mono, size → --code-fs) at the
+  // root too, so the diff renders in the chosen mono font/size in both windows.
+  useApplyCodeFont();
   // The ⌘K palette is a review-window affordance; the home window is the launcher.
   const [paletteOpen, setPaletteOpen] = useState(false);
   // Settings is global — openable from either window with ⌘, (#5).
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // App-wide notice modal (e.g. "not a git repository" from Add repo). Driven by the
+  // notify() channel so non-component actions can raise it from any call site. (#add-repo-nonrepo)
+  const [notice, setNotice] = useState<Notice | null>(null);
+  useEffect(() => onNotice(setNotice), []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -40,8 +52,15 @@ export default function App() {
         setSettingsOpen((o) => !o);
         return;
       }
+      // ⌘O imports a repo from anywhere — Home or a review, picker open or not.
+      if (e.key === "o" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setPaletteOpen(false);
+        void addRepo();
+        return;
+      }
       if (!isReview) return; // no command palette on the launch screen (#6)
-      if ((e.key === "k" || e.key === "o" || e.key === "p") && (e.metaKey || e.ctrlKey)) {
+      if ((e.key === "k" || e.key === "p") && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
         setPaletteOpen((o) => !o);
       }
@@ -93,6 +112,13 @@ export default function App() {
       )}
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} current={route.kind === "review" ? route.target : undefined} />}
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <NoticeDialog
+        open={notice != null}
+        title={notice?.title ?? ""}
+        message={notice?.message}
+        onClose={() => setNotice(null)}
+      />
+      <DevBadge />
     </>
   );
 }

@@ -41,6 +41,10 @@ pub struct Comment {
     pub body: String,
     #[serde(default)]
     pub stale: bool,
+    #[serde(default)]
+    pub resolved: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -121,5 +125,16 @@ mod tests {
     fn scope_and_side_serialize_lowercase() {
         assert_eq!(serde_json::to_string(&CommentScope::Range).unwrap(), "\"range\"");
         assert_eq!(serde_json::to_string(&Side::New).unwrap(), "\"new\"");
+    }
+
+    #[test]
+    fn comment_resolved_defaults_false_and_serializes() {
+        // Legacy JSON without `resolved` must deserialize (→ false).
+        let json = r#"{"id":"c","scope":"line","body":"b","stale":false,"createdAt":"t","updatedAt":"t"}"#;
+        let c: Comment = serde_json::from_str(json).unwrap();
+        assert!(!c.resolved);
+        // And it is always written back out.
+        let out = serde_json::to_string(&c).unwrap();
+        assert!(out.contains("\"resolved\":false"));
     }
 }

@@ -1,17 +1,30 @@
 {
   "name": "delta",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.5.0",
+  "description": "Fast, beautiful local-first desktop app for reviewing your agents work and leaving structured comments for them.",
+  "author": "Dario Ielardi",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/darioielardi/delta.git"
+  },
+  "homepage": "https://github.com/darioielardi/delta#readme",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "dev:mock": "VITE_MOCK_IPC=1 vite --port 5599 --strictPort",
+    "start:demo": "scripts/demo.sh",
+    "start:demo:stress": "scripts/demo-stress.sh",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
+    "dev:app": "tauri dev --config src-tauri/tauri.dev.conf.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "doctor": "react-doctor",
+    "build:release-dmg": "scripts/build-release-dmg.sh",
+    "publish:release": "scripts/publish-release.sh",
     "prepare": "husky"
   },
   "dependencies": {

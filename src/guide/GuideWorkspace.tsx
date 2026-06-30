@@ -148,6 +148,7 @@ export function GuideWorkspace({ target }: { target: Target }) {
                 onAddFileComment={noop}
                 onEditComment={noop}
                 onDeleteComment={noop}
+                onToggleResolvedComment={noop}
               />
             </main>
           </>

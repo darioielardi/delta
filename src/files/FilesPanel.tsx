@@ -1,6 +1,7 @@
 // src/files/FilesPanel.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Kbd } from "@/components/ui/kbd";
 import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, Check, List, ListTree, MessageSquare, Search, X } from "lucide-react";
 import type { FileEntry } from "../types";
 import { buildTree, type TreeNode } from "./buildTree";
@@ -10,6 +11,10 @@ import { FileGlyph } from "./fileGlyph";
 const NO_COLLAPSE: Set<string> = new Set();
 // Stable empty map fallback when no comment counts are supplied. (#1)
 const EMPTY_COUNTS: Map<string, number> = new Map();
+
+// Compact large diff totals so the header stays on one line: over 100k → drop the
+// last three digits and append "k" (156048 → "156k"). Smaller counts stay exact.
+const fmtCount = (n: number) => (n > 100_000 ? `${Math.floor(n / 1000)}k` : String(n));
 
 interface RowHandlers {
   activePath: string | null;
@@ -301,17 +306,17 @@ export function FilesPanel({
     <div className="flex min-h-0 flex-1 flex-col pl-1.5 pt-3.5">
       <div className="flex h-7 shrink-0 items-center gap-2 px-2 text-[12px]">
         <span
-          className={`inline-block select-none rounded-md px-2 py-0.5 text-[13px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
+          className={`inline-block shrink-0 whitespace-nowrap select-none rounded-md px-2 py-0.5 text-[13px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
           title="Files viewed"
         >
           <span className={`font-medium ${allViewed ? "" : "text-foreground"}`}>{viewedFiles.size}</span>
           <span className="opacity-80">{" / "}{files.length} viewed</span>
         </span>
-        <span className="ml-auto tabular-nums">
-          {totalAdds > 0 && <span className="text-emerald-500">+{totalAdds}</span>}{" "}
-          {totalDels > 0 && <span className="text-rose-500">−{totalDels}</span>}
+        <span className="ml-auto shrink-0 whitespace-nowrap tabular-nums">
+          {totalAdds > 0 && <span className="text-emerald-500">+{fmtCount(totalAdds)}</span>}{" "}
+          {totalDels > 0 && <span className="text-rose-500">−{fmtCount(totalDels)}</span>}
         </span>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           {mode === "tree" && !searching && (
             <button
               type="button"
@@ -366,7 +371,7 @@ export function FilesPanel({
             <X className="size-3" strokeWidth={2.5} />
           </button>
         ) : (
-          <kbd className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 rounded border border-border/70 bg-muted px-1 py-0.5 text-[10px] font-medium text-muted-foreground">⌘⇧F</kbd>
+          <Kbd keys="⌘⇧F" className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2" />
         )}
       </div>
 

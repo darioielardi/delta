@@ -6,11 +6,14 @@ import type {
   Review,
   ReviewSession,
   Registry,
+  PickerData,
   WorktreeEntry,
   RepoEntry,
   InstallOutcome,
+  CliStatus,
   DiffMode,
   Walkthrough,
+  CommitMeta,
 } from "./types";
 
 // Transport indirection: a dev-only fixture backend (VITE_MOCK_IPC) can replace
@@ -31,6 +34,8 @@ export const api = {
     invokeImpl("compute_diff", { target }),
   getFileDiff: (target: Target, path: string): Promise<FileDiff> =>
     invokeImpl("get_file_diff", { target, path }),
+  listCommits: (target: Target): Promise<CommitMeta[]> =>
+    invokeImpl("list_commits", { target }),
   openReview: (target: Target): Promise<ReviewSession> =>
     invokeImpl("open_review", { target }),
   refreshReview: (review: Review): Promise<ReviewSession> =>
@@ -44,15 +49,22 @@ export const api = {
   generateWalkthrough: (target: Target): Promise<Walkthrough> =>
     invokeImpl("generate_walkthrough", { target }),
   listRegistry: (): Promise<Registry> => invokeImpl("list_registry"),
+  listPicker: (): Promise<PickerData> => invokeImpl("list_picker"),
   listWorktrees: (repoPath: string): Promise<WorktreeEntry[]> =>
     invokeImpl("list_worktrees", { repoPath }),
   importRepo: (): Promise<RepoEntry | null> => invokeImpl("import_repo"),
   openTarget: (repoPath: string, mode: DiffMode, base?: string): Promise<void> =>
     invokeImpl("open_target", { repoPath, mode, base }),
+  // Re-point THIS window's fs watcher at a new target's worktree — used when a
+  // review window navigates in place ("replace current" picker mode) so
+  // auto-refresh follows the new repo. (#replace)
+  rewatchWindow: (repoPath: string): Promise<void> =>
+    invokeImpl("rewatch_window", { repoPath }),
   deleteReview: (id: string): Promise<void> => invokeImpl("delete_review", { id }),
   // Dev-only: open the Guide experience on mock fixtures in its own window. (#guide-dev)
   openGuide: (): Promise<void> => invokeImpl("open_guide"),
   installCli: (): Promise<InstallOutcome> => invokeImpl("install_cli"),
+  cliStatus: (): Promise<CliStatus> => invokeImpl("cli_status"),
   // Open a file (or the repo root, when `file` is omitted) in the user's editor;
   // `line` jumps there where the editor's CLI supports it. (#editor)
   openInEditor: (editor: string, repoPath: string, file?: string, line?: number): Promise<void> =>

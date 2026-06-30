@@ -1,10 +1,12 @@
 use crate::export::export_markdown;
 use crate::git::diff::{compute_diff as engine_compute, get_file_diff as engine_file, DiffSummary, FileDiff};
+use crate::git::log::{list_commits as engine_list_commits, CommitMeta};
 use crate::git::model::{DiffMode, Target};
 use crate::git::{open_repo, resolve_worktree};
 use crate::launch::{
-    install_cli as launch_install_cli, list_worktrees as launch_list_worktrees, open_guide_window,
-    open_target_window, repo_display_name, repo_entry, InstallOutcome,
+    cli_status as launch_cli_status, install_cli as launch_install_cli,
+    list_worktrees as launch_list_worktrees, open_guide_window, open_target_window, rewatch_target,
+    repo_display_name, repo_entry, CliStatus, InstallOutcome,
 };
 use crate::registry::model::{Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
@@ -20,6 +22,10 @@ pub fn compute_diff_impl(target: Target) -> Result<DiffSummary, String> {
 
 pub fn get_file_diff_impl(target: Target, path: String) -> Result<FileDiff, String> {
     engine_file(&target, &path)
+}
+
+pub fn list_commits_impl(target: Target) -> Result<Vec<CommitMeta>, String> {
+    engine_list_commits(&target)
 }
 
 fn reviews_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -71,6 +77,16 @@ fn registry_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
 
 fn reg_store(app: &tauri::AppHandle) -> Result<JsonRegistryStore, String> {
     Ok(JsonRegistryStore::new(registry_path(app)?, reviews_dir(app)?))
+}
+
+/// True when a recent review already covers this worktree (so the picker lists it
+/// under "recent", not "other worktrees"). Matches by worktree path, or by repo
+/// name + branch (a linked worktree resolves to a different path than the review's).
+pub fn worktree_has_review(w: &WorktreeEntry, repo_name: &str, recents: &[ReviewEntry]) -> bool {
+    recents.iter().any(|r| {
+        r.target.repo_path == w.path
+            || (r.repo_name == repo_name && r.target.worktree.as_deref() == Some(w.branch.as_str()))
+    })
 }
 
 /// Upsert repo + review entry with a fresh file_count (open/refresh path). Non-fatal.
@@ -152,6 +168,13 @@ pub async fn get_file_diff(target: Target, path: String) -> Result<FileDiff, Str
 }
 
 #[tauri::command]
+pub async fn list_commits(target: Target) -> Result<Vec<CommitMeta>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_commits_impl(target))
+        .await
+        .map_err(|e| format!("list_commits task: {e}"))?
+}
+
+#[tauri::command]
 pub async fn open_review(app: tauri::AppHandle, target: Target) -> Result<ReviewSession, String> {
     let reviews = reviews_dir(&app)?;
     let reg_path = registry_path(&app)?;
@@ -206,6 +229,55 @@ pub fn list_registry(app: tauri::AppHandle) -> Result<Registry, String> {
     Ok(reg)
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickerWorktree {
+    #[serde(flatten)]
+    pub worktree: WorktreeEntry,
+    pub repo_name: String,
+    pub repo_id: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickerData {
+    pub recents: Vec<ReviewEntry>,
+    pub worktrees: Vec<PickerWorktree>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub home: Option<String>,
+}
+
+/// Recents + the live, currently-checked-out worktrees of every known repo, with
+/// worktrees already covered by a review removed (they show under recents).
+pub fn list_picker_impl(reg_store: &dyn RegistryStore, home: Option<String>) -> Result<PickerData, String> {
+    let reg = reg_store.load()?;
+    let recents = reg.reviews.clone();
+    let mut worktrees = Vec::new();
+    for repo in &reg.repos {
+        // Best-effort: a repo whose worktrees can't be listed (moved/deleted) is skipped.
+        let wts = launch_list_worktrees(&repo.root).unwrap_or_default();
+        for w in wts {
+            if worktree_has_review(&w, &repo.name, &recents) {
+                continue;
+            }
+            worktrees.push(PickerWorktree { worktree: w, repo_name: repo.name.clone(), repo_id: repo.id.clone() });
+        }
+    }
+    Ok(PickerData { recents, worktrees, home })
+}
+
+// Async so Tauri runs the git enumeration OFF the main thread. A synchronous command
+// blocks the main thread for the whole scan, freezing the UI on every open — which is
+// the picker's open latency, paid per call regardless of the frontend cache.
+#[tauri::command]
+pub async fn list_picker(app: tauri::AppHandle) -> Result<PickerData, String> {
+    let home = std::env::var("HOME").ok();
+    let store = reg_store(&app)?;
+    tauri::async_runtime::spawn_blocking(move || list_picker_impl(&store, home))
+        .await
+        .map_err(|e| format!("list_picker task failed: {e}"))?
+}
+
 #[tauri::command]
 pub fn list_worktrees(repo_path: String) -> Result<Vec<WorktreeEntry>, String> {
     launch_list_worktrees(&repo_path)
@@ -232,6 +304,12 @@ pub async fn import_repo(app: tauri::AppHandle) -> Result<Option<RepoEntry>, Str
         .map_err(|e| format!("dialog path: {e}"))?
         .display()
         .to_string();
+    // Reject a non-repo selection with a clean, user-facing message (the UI shows it in
+    // a modal) rather than the raw git2 error repo_entry would surface. discover walks
+    // up, so picking a subdir of a repo still imports that repo.
+    if open_repo(&repo_path).is_err() {
+        return Err(format!("{repo_path} is not a git repository."));
+    }
     let entry = repo_entry(&repo_path)?;
     let store = reg_store(&app)?;
     let mut reg = store.load()?;
@@ -242,7 +320,14 @@ pub async fn import_repo(app: tauri::AppHandle) -> Result<Option<RepoEntry>, Str
 
 #[tauri::command]
 pub fn open_target(app: tauri::AppHandle, repo_path: String, mode: DiffMode, base: Option<String>) -> Result<(), String> {
-    open_target_window(&app, &repo_path, mode, base)
+    open_target_window(&app, &repo_path, mode, base).map(|_| ())
+}
+
+/// Re-point the calling window's fs watcher at `repo_path`'s worktree — used when
+/// a review window navigates in place ("replace current" picker mode). (#replace)
+#[tauri::command]
+pub fn rewatch_window(window: tauri::WebviewWindow, app: tauri::AppHandle, repo_path: String) -> Result<(), String> {
+    rewatch_target(&app, window.label(), &repo_path)
 }
 
 // Dev-only affordance behind the header "Walkthrough" button: open the Guide
@@ -255,6 +340,11 @@ pub fn open_guide(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub fn install_cli() -> Result<InstallOutcome, String> {
     launch_install_cli()
+}
+
+#[tauri::command]
+pub fn cli_status() -> CliStatus {
+    launch_cli_status()
 }
 
 // "Open in your editor" (#editor). Each curated editor maps to a CLI; where the
@@ -326,6 +416,56 @@ mod tests {
     }
 
     #[test]
+    fn worktree_has_review_matches_by_path_or_repo_and_branch() {
+        let recents = vec![ReviewEntry {
+            id: "x".into(),
+            repo_name: "demo".into(),
+            target: Target { repo_path: "/r/demo".into(), worktree: Some("feat/a".into()), mode: DiffMode::AllChanges, base: None, commit: None },
+            last_opened_at: "t".into(),
+            comment_count: 0, stale_count: 0, resolved_count: 0, viewed_count: 0, file_count: 1,
+        }];
+        let wt = |path: &str, branch: &str| WorktreeEntry { path: path.into(), branch: branch.into(), is_main: false, last_commit_at: None, dirty: false };
+        // same path → covered
+        assert!(worktree_has_review(&wt("/r/demo", "feat/a"), "demo", &recents));
+        // same repo + branch, different path (linked worktree) → covered
+        assert!(worktree_has_review(&wt("/r/demo-a", "feat/a"), "demo", &recents));
+        // different branch → not covered
+        assert!(!worktree_has_review(&wt("/r/demo-b", "feat/b"), "demo", &recents));
+        // different repo (different path + name) → not covered, even on a same-named branch
+        assert!(!worktree_has_review(&wt("/r/other", "feat/a"), "other", &recents));
+    }
+
+    #[test]
+    fn list_picker_returns_recents_and_unreviewed_worktrees() {
+        let (dir, repo) = repo_with_commit(); // main worktree on "main"
+        add_worktree(&repo, dir.path(), "demo-feat", "feat/a"); // linked worktree "feat/a"
+        let root = dir.path().to_str().unwrap().to_string();
+
+        let store_dir = tempfile::TempDir::new().unwrap();
+        let (_storage, reg_store) = stores(store_dir.path());
+        let entry = repo_entry(&root).unwrap();
+        let repo_name = entry.name.clone();
+        let mut reg = reg_store.load().unwrap();
+        reg.upsert_repo(entry);
+        reg.upsert_review(ReviewEntry {
+            id: "rev1".into(),
+            repo_name: repo_name.clone(),
+            target: Target { repo_path: root.clone(), worktree: Some("main".into()), mode: DiffMode::AllChanges, base: None, commit: None },
+            last_opened_at: "t".into(),
+            comment_count: 0, stale_count: 0, resolved_count: 0, viewed_count: 0, file_count: 1,
+        });
+        reg_store.save(&reg).unwrap();
+
+        let data = list_picker_impl(&reg_store, Some("/Users/me".into())).unwrap();
+        assert_eq!(data.recents.len(), 1);
+        // "main" is covered by a review → only "feat/a" appears under other worktrees.
+        let branches: Vec<&str> = data.worktrees.iter().map(|w| w.worktree.branch.as_str()).collect();
+        assert_eq!(branches, vec!["feat/a"]);
+        assert_eq!(data.worktrees[0].repo_name, repo_name);
+        assert_eq!(data.home.as_deref(), Some("/Users/me"));
+    }
+
+    #[test]
     fn compute_diff_command_returns_summary() {
         let (dir, _repo) = repo_with_commit();
         write(dir.path(), "file.txt", "a\nb\n");
@@ -334,6 +474,7 @@ mod tests {
             worktree: None,
             mode: DiffMode::Uncommitted,
             base: None,
+            commit: None,
         })
         .unwrap();
         assert_eq!(summary.files.len(), 1);
@@ -348,7 +489,7 @@ mod tests {
         let store_dir = tempfile::TempDir::new().unwrap();
         let storage = JsonStorage::new(store_dir.path().join("reviews"));
 
-        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
         let session = open_review_impl(&storage, target).unwrap();
 
         assert!(session.summary.files.iter().any(|f| f.path == "file.txt"));
@@ -366,7 +507,7 @@ mod tests {
         let storage = JsonStorage::new(store_dir.path().join("reviews"));
         let now = chrono::Utc::now().to_rfc3339();
 
-        let target = Target { repo_path: "/repo".into(), worktree: Some("main".into()), mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: "/repo".into(), worktree: Some("main".into()), mode: DiffMode::Uncommitted, base: None, commit: None };
         let snapshot = Snapshot { base_oid: "abc123".into(), head_oid: None, captured_at: now.clone() };
         let review = Review::new("0123456789abcdef".into(), target, snapshot, now);
 
@@ -385,7 +526,7 @@ mod tests {
         let store_dir = tempfile::TempDir::new().unwrap();
         let storage = JsonStorage::new(store_dir.path().join("reviews"));
 
-        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
         let session = open_review_impl(&storage, target).unwrap();
 
         let refreshed = refresh_review_impl(&storage, session.review.clone()).unwrap();
@@ -400,7 +541,7 @@ mod tests {
         write(repo_dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
         let store_dir = tempfile::TempDir::new().unwrap();
         let (storage, reg_store) = stores(store_dir.path());
-        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
 
         let session = open_review_impl_with_registry(&storage, &reg_store, target).unwrap();
 
@@ -416,12 +557,12 @@ mod tests {
         write(repo_dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
         let store_dir = tempfile::TempDir::new().unwrap();
         let (storage, reg_store) = stores(store_dir.path());
-        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
         let session = open_review_impl_with_registry(&storage, &reg_store, target).unwrap();
         let original_file_count = session.summary.files.len() as u32;
 
         let mut review = session.review.clone();
-        review.comments.push(Comment { id: "c1".into(), scope: CommentScope::Line, anchor: None, body: "hi".into(), stale: false, created_at: "t".into(), updated_at: "t".into() });
+        review.comments.push(Comment { id: "c1".into(), scope: CommentScope::Line, anchor: None, body: "hi".into(), stale: false, resolved: false, commit: None, created_at: "t".into(), updated_at: "t".into() });
         save_review_impl_with_registry(&storage, &reg_store, review).unwrap();
 
         let reg = reg_store.load().unwrap();
@@ -458,7 +599,7 @@ mod tests {
         write(repo_dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
         let store_dir = tempfile::TempDir::new().unwrap();
         let (storage, reg_store) = stores(store_dir.path());
-        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
         let session = open_review_impl_with_registry(&storage, &reg_store, target).unwrap();
 
         delete_review_impl(&storage, &reg_store, &session.review.id).unwrap();

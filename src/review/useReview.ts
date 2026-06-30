@@ -58,7 +58,7 @@ export function useReview(initial: Review | null) {
   // A new comment starts as an in-memory draft (no disk write) — it only
   // persists when the editor is explicitly saved (updateCommentBody). Cancelling
   // a never-saved draft just deletes it from memory. (#r2)
-  const addComment = useCallback((scope: CommentScope, anchor: Anchor | null, body: string) => {
+  const addComment = useCallback((scope: CommentScope, anchor: Anchor | null, body: string, commit?: string | null) => {
     const now = new Date().toISOString();
     const comment: Comment = {
       id: crypto.randomUUID(),
@@ -66,6 +66,8 @@ export function useReview(initial: Review | null) {
       anchor: anchor ?? null,
       body,
       stale: false,
+      resolved: false,
+      commit: commit ?? undefined,
       createdAt: now,
       updatedAt: now,
     };
@@ -87,6 +89,14 @@ export function useReview(initial: Review | null) {
     mutate((r) => ({ ...r, comments: r.comments.filter((c) => c.id !== id) }), "now");
   }, [mutate]);
 
+  const toggleResolved = useCallback((id: string) => {
+    const now = new Date().toISOString();
+    mutate(
+      (r) => ({ ...r, comments: r.comments.map((c) => (c.id === id ? { ...c, resolved: !c.resolved, updatedAt: now } : c)) }),
+      "now",
+    );
+  }, [mutate]);
+
   const toggleViewed = useCallback((file: string, diffHash: string) => {
     mutate((r) => {
       const exists = r.viewed.some((v) => v.file === file);
@@ -95,5 +105,5 @@ export function useReview(initial: Review | null) {
     }, "now");
   }, [mutate]);
 
-  return { review, setReview, addComment, updateCommentBody, deleteComment, toggleViewed };
+  return { review, setReview, addComment, updateCommentBody, deleteComment, toggleResolved, toggleViewed };
 }

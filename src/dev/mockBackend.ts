@@ -5,7 +5,7 @@
 // Keep fixtures realistic but small. As Plan 2 adds commands (open_review,
 // refresh_review, save_review, export_review) extend the switch + fixtures here.
 import { __setInvokeForDev } from "../api";
-import type { DiffSummary, FileDiff, Registry, Review, ReviewSession, Walkthrough } from "../types";
+import type { DiffSummary, FileDiff, PickerData, Registry, Review, ReviewSession, Walkthrough } from "../types";
 
 const SUMMARY: DiffSummary = {
   baseLabel: "main",
@@ -32,6 +32,19 @@ const SUMMARY: DiffSummary = {
     { path: "README.md", status: "added", additions: 6, deletions: 0, binary: false },
     { path: "assets/logo.png", status: "added", additions: 0, deletions: 0, binary: true },
   ],
+};
+
+// Commit fixtures for `?view=review&repo=demo` commit-by-commit review. Each commit
+// "touches" a subset of SUMMARY's files (COMMIT_FILES), so stepping changes the file set.
+const COMMITS = [
+  { oid: "e4f1a2b0000000000000000000000000000000aa", shortOid: "e4f1a2b", subject: "wire login form into the page", author: "Dario", time: 1782700000 },
+  { oid: "c9a30d40000000000000000000000000000000bb", shortOid: "c9a30d4", subject: "add session store", author: "Dario", time: 1782600000 },
+  { oid: "a1b2c3d0000000000000000000000000000000cc", shortOid: "a1b2c3d", subject: "add auth guard to protected routes", author: "Dario", time: 1782500000 },
+];
+const COMMIT_FILES: Record<string, string[]> = {
+  e4f1a2b0000000000000000000000000000000aa: ["src/auth/login.ts"],
+  c9a30d40000000000000000000000000000000bb: ["src/auth/session.ts"],
+  a1b2c3d0000000000000000000000000000000cc: ["src/api/routes.ts", "src/auth/session.ts"],
 };
 
 // A deliberately wide file: several lines far exceed the pane width so the diff
@@ -233,6 +246,7 @@ const REVIEW: Review = {
       anchor: { file: "src/auth/session.ts", side: "new", startLine: 3, endLine: null, snippet: "  return store.read(user.id)" },
       body: "Use the store, not the cache.",
       stale: false,
+      resolved: false,
       createdAt: "2026-06-25T18:50:00Z",
       updatedAt: "2026-06-25T18:50:00Z",
     },
@@ -242,6 +256,7 @@ const REVIEW: Review = {
       anchor: null,
       body: "Standardize error handling across `auth/`.",
       stale: false,
+      resolved: false,
       createdAt: "2026-06-25T18:51:00Z",
       updatedAt: "2026-06-25T18:51:00Z",
     },
@@ -252,6 +267,7 @@ const REVIEW: Review = {
       anchor: { file: "src/config/limits.ts", side: "new", startLine: 3, endLine: 5, snippet: "export const RETRY_BACKOFF_MS = 250\nexport const REQUEST_TIMEOUT_MS = 5000\nexport const MAX_PAYLOAD_BYTES = 1_048_576" },
       body: "These three belong in env config, not hardcoded.",
       stale: false,
+      resolved: true,
       createdAt: "2026-06-25T18:52:00Z",
       updatedAt: "2026-06-25T18:52:00Z",
     },
@@ -416,10 +432,11 @@ const REGISTRY: Registry = {
     {
       id: "abc123",
       repoName: "demo",
-      target: { repoPath: "/Users/me/projects/demo", worktree: "feat/auth", mode: "all-changes", base: "main" },
+      target: { repoPath: "/Users/me/projects/demo/.worktrees/feat-auth-wt", worktree: "feat/auth", mode: "all-changes", base: "main" },
       lastOpenedAt: "2026-06-26T10:00:00Z",
       commentCount: 3,
       staleCount: 1,
+      resolvedCount: 1,
       viewedCount: 2,
       fileCount: 7,
     },
@@ -430,6 +447,7 @@ const REGISTRY: Registry = {
       lastOpenedAt: "2026-06-25T09:00:00Z",
       commentCount: 0,
       staleCount: 0,
+      resolvedCount: 0,
       viewedCount: 0,
       fileCount: 2,
     },
@@ -496,10 +514,10 @@ function genLarge(fileCount: number): { summary: DiffSummary; files: Record<stri
       oldContent: genFile(path, n, 0, churn, ext), newContent: genFile(path, n, 1, churn, ext),
     };
     if (i % 4 === 0) {
-      comments.push({ id: `gc${i}`, scope: "line", anchor: { file: path, side: "new", startLine: 4, endLine: null, snippet: "  const v3 = compute(3, ...)" }, body: `Review note on ${path}: verify this path.`, stale: i % 7 === 0, createdAt: "2026-06-25T18:50:00Z", updatedAt: "2026-06-25T18:50:00Z" });
+      comments.push({ id: `gc${i}`, scope: "line", anchor: { file: path, side: "new", startLine: 4, endLine: null, snippet: "  const v3 = compute(3, ...)" }, body: `Review note on ${path}: verify this path.`, stale: i % 7 === 0, resolved: i % 5 === 0, createdAt: "2026-06-25T18:50:00Z", updatedAt: "2026-06-25T18:50:00Z" });
     }
     if (i % 9 === 3) {
-      comments.push({ id: `gr${i}`, scope: "range", anchor: { file: path, side: "new", startLine: 6, endLine: 9, snippet: "range" }, body: `Range comment on ${path}.`, stale: false, createdAt: "2026-06-25T18:50:00Z", updatedAt: "2026-06-25T18:50:00Z" });
+      comments.push({ id: `gr${i}`, scope: "range", anchor: { file: path, side: "new", startLine: 6, endLine: 9, snippet: "range" }, body: `Range comment on ${path}.`, stale: false, resolved: false, createdAt: "2026-06-25T18:50:00Z", updatedAt: "2026-06-25T18:50:00Z" });
     }
   }
   return {
@@ -512,8 +530,12 @@ function genLarge(fileCount: number): { summary: DiffSummary; files: Record<stri
 export function installMockBackend(): void {
   const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
   const largeParam = params.get("large");
-  // `?empty=1` → a review with no changed files, to exercise the empty state.
-  const emptyParam = params.get("empty") === "1";
+  // `?empty=1` → a review with no changed files, to exercise the empty state (which
+  // lists the repo's other worktrees). `?empty=solo` → same empty review, but
+  // list_worktrees returns only the current worktree, so the no-siblings placeholder
+  // shows instead. `?empty=many` → many siblings, to exercise the 5-row scroll cap.
+  const emptyKind = params.get("empty"); // "1" | "solo" | "many" | null
+  const emptyParam = emptyKind === "1" || emptyKind === "solo" || emptyKind === "many";
   const ds = emptyParam
     ? { summary: { ...SUMMARY, files: [] }, files: {}, review: { ...REVIEW, comments: [], viewed: [] } }
     : largeParam
@@ -521,10 +543,18 @@ export function installMockBackend(): void {
       : { summary: SUMMARY, files: FILES, review: REVIEW };
   __setInvokeForDev(async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     switch (cmd) {
-      case "compute_diff":
+      case "compute_diff": {
+        const t = args?.target as { mode?: string; commit?: string } | undefined;
+        if (t?.mode === "commit" && t.commit) {
+          const set = new Set(COMMIT_FILES[t.commit] ?? []);
+          return { ...ds.summary, files: ds.summary.files.filter((f) => set.has(f.path)) } as T;
+        }
         return ds.summary as T;
+      }
       case "get_file_diff":
         return ds.files[(args?.path as string) ?? ""] as T;
+      case "list_commits":
+        return COMMITS as T;
       case "open_review":
       case "refresh_review": {
         const session: ReviewSession = { review: ds.review, summary: ds.summary, repoName: "demo" };
@@ -532,22 +562,49 @@ export function installMockBackend(): void {
       }
       case "save_review":
         return undefined as T;
-      case "export_review":
-        return "# Review — demo · feat/auth · All changes\n\n## General\n- Standardize error handling.\n" as T;
+      case "export_review": {
+        const open = ds.review.comments.filter((c) => !c.resolved);
+        const lines = open.map((c) => {
+          const loc = c.anchor ? `${c.anchor.file}${c.anchor.startLine ? `:${c.anchor.startLine}` : ""}` : "general";
+          return `- [${loc}] ${c.body}`;
+        });
+        return `# Review — demo · feat/auth · All changes\n\n${lines.join("\n")}\n` as T;
+      }
       case "generate_walkthrough": {
         // Simulate `claude` CLI latency so the panel's loading state is exercised.
         await new Promise((r) => setTimeout(r, 450));
         return (largeParam ? genLargeWalkthrough(ds.summary) : WALKTHROUGH) as T;
       }
-      case "list_worktrees":
+      case "list_worktrees": {
         // Varied timestamps + dirty flags exercise the recency sort and the
         // enriched worktree picker (#1/#6).
-        return [
+        const all = [
           { path: "/Users/me/projects/demo", branch: "feat/auth", isMain: true, lastCommitAt: "2026-06-26T09:30:00Z", dirty: true },
           { path: "/Users/me/projects/demo-main", branch: "main", isMain: false, lastCommitAt: "2026-06-20T12:00:00Z", dirty: false },
           { path: "/Users/me/projects/demo-spike", branch: "spike/new-idea", isMain: false, lastCommitAt: "2026-06-26T15:45:00Z", dirty: false },
-        ] as T;
+        ];
+        // `?empty=solo` → only the current worktree, so the empty-review screen has no
+        // siblings to list and shows its placeholder instead.
+        if (emptyKind === "solo") return all.filter((w) => w.path === "/Users/me/projects/demo") as T;
+        // `?empty=many` → current + 7 extra siblings, to exercise the 5-row scroll cap.
+        if (emptyKind === "many") {
+          const extra = Array.from({ length: 7 }, (_, i) => ({
+            path: `/Users/me/projects/demo-wt${i + 1}`,
+            branch: `feat/topic-${i + 1}`,
+            isMain: false,
+            lastCommitAt: `2026-06-${String(18 - i).padStart(2, "0")}T12:00:00Z`,
+            dirty: i % 3 === 0,
+          }));
+          return [all[0], ...extra] as T;
+        }
+        return all as T;
+      }
       case "import_repo":
+        // `?import=nonrepo` → reject like the backend does for a non-git folder, to
+        // exercise the "Can't add repository" modal.
+        if (params.get("import") === "nonrepo") {
+          throw new Error("/Users/me/Downloads is not a git repository.");
+        }
         return {
           id: "imported",
           root: "/Users/me/projects/imported",
@@ -562,13 +619,50 @@ export function installMockBackend(): void {
         // No Tauri windows in the browser — open the guide route in a new tab.
         if (typeof window !== "undefined") window.open("?view=guide&mock=1", "_blank");
         return undefined as T;
+      case "rewatch_window":
+        // No real fs watcher in the browser mock — the in-place navigation does
+        // the visible work. (#replace)
+        console.info("[delta mock] rewatch_window", args);
+        return undefined as T;
       case "list_registry":
         return structuredClone(REGISTRY) as T;
+      case "list_picker": {
+        // `?empty=1` → no recents/worktrees, to exercise the first-launch empty state.
+        // Otherwise: feat/auth + main have reviews (see REGISTRY.reviews) → only the
+        // spike worktree shows under "other worktrees".
+        const data: PickerData = emptyParam
+          ? { home: REGISTRY.home, recents: [], worktrees: [] }
+          : {
+              home: REGISTRY.home,
+              recents: REGISTRY.reviews,
+              worktrees: [
+                { path: "/Users/me/projects/demo/.worktrees/spike", branch: "spike/new-idea", isMain: false, lastCommitAt: "2026-06-26T15:45:00Z", dirty: false, repoName: "demo", repoId: "r1" },
+              ],
+            };
+        return structuredClone(data) as T;
+      }
       case "delete_review":
         console.info("[delta mock] delete_review", args);
         return undefined as T;
-      case "install_cli":
+      case "install_cli": {
+        // `?cli=path` / `?cli=manual` exercise the other install outcomes in mock.
+        const variant = params.get("cli");
+        if (variant === "manual")
+          return {
+            kind: "manualNeeded",
+            command: "sudo ln -sf '/Applications/delta.app/Contents/MacOS/delta' /usr/local/bin/delta",
+            reason: "No writable directory found on your PATH.",
+          } as T;
+        if (variant === "path")
+          return { kind: "linkedPathUpdated", path: "/Users/me/.local/bin/delta", shells: ["zsh", "fish"] } as T;
         return { kind: "linked", path: "/usr/local/bin/delta" } as T;
+      }
+      case "cli_status":
+        // Default: not installed so the header CTA shows. `?cli=installed` hides it.
+        return {
+          installed: params.get("cli") === "installed",
+          path: params.get("cli") === "installed" ? "/usr/local/bin/delta" : null,
+        } as T;
       case "open_in_editor":
         console.info("[delta mock] open_in_editor", args);
         return undefined as T;

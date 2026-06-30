@@ -1,5 +1,6 @@
 use crate::anchor::{diff_hash, reanchor};
 use crate::git::diff::{compute_diff, get_file_diff, DiffSummary};
+use crate::git::log::list_commits;
 use crate::git::model::Target;
 use crate::git::{open_repo, resolve_endpoints, resolve_worktree, GitError, RightSide};
 use crate::review::model::{review_id, Review, Side, Snapshot};
@@ -35,7 +36,21 @@ pub fn reconcile(mut review: Review) -> Result<ReviewSession, GitError> {
 
     // Re-anchor comments.
     let target = review.target.clone();
+    // The commits currently on the branch — a commit-tagged comment is stale iff its
+    // commit is no longer here (history was rewritten). Best-effort: an empty set just
+    // means tagged comments fall through to stale.
+    let present_commits: std::collections::HashSet<String> = list_commits(&target)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|c| c.oid)
+        .collect();
     for comment in &mut review.comments {
+        // Commit-tagged comments are frozen: the commit is immutable, so the anchor
+        // never needs re-checking — it's stale only if the commit was rewritten away.
+        if let Some(oid) = comment.commit.clone() {
+            comment.stale = !present_commits.contains(&oid);
+            continue;
+        }
         let Some(anchor) = comment.anchor.as_mut() else {
             continue; // general note — no anchor
         };
@@ -129,6 +144,7 @@ mod tests {
             worktree: None,
             mode: DiffMode::Uncommitted,
             base: None,
+            commit: None,
         };
         Review::new(
             "id".into(),
@@ -151,9 +167,46 @@ mod tests {
             }),
             body: "b".into(),
             stale: false,
+            resolved: false,
+            commit: None,
             created_at: "t".into(),
             updated_at: "t".into(),
         }
+    }
+
+    /// A feature branch off main with one commit, returning (dir, repo, commit oid).
+    fn repo_with_feature_commit() -> (tempfile::TempDir, git2::Repository, git2::Oid) {
+        let (dir, repo) = repo_with_commit(); // main @ initial
+        let base = repo.head().unwrap().peel_to_commit().unwrap().id();
+        repo.branch("feature", &repo.find_commit(base).unwrap(), false).unwrap();
+        repo.set_head("refs/heads/feature").unwrap();
+        write(dir.path(), "file.txt", "line1\nADDED\nline2\n");
+        let oid = commit_all(&repo, "second on feature");
+        (dir, repo, oid)
+    }
+
+    #[test]
+    fn tagged_comment_stays_fresh_when_its_commit_is_present() {
+        let (dir, _repo, oid) = repo_with_feature_commit();
+        let mut r = empty_review(dir.path().to_str().unwrap());
+        r.target.mode = DiffMode::BranchVsBase;
+        let mut c = line_comment("file.txt", 2, "ADDED");
+        c.commit = Some(oid.to_string());
+        r.comments.push(c);
+        let session = reconcile(r).unwrap();
+        assert!(!session.review.comments[0].stale, "a present commit's comment stays fresh");
+    }
+
+    #[test]
+    fn tagged_comment_goes_stale_when_its_commit_is_gone() {
+        let (dir, _repo, _oid) = repo_with_feature_commit();
+        let mut r = empty_review(dir.path().to_str().unwrap());
+        r.target.mode = DiffMode::BranchVsBase;
+        let mut c = line_comment("file.txt", 2, "ADDED");
+        c.commit = Some("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef".into());
+        r.comments.push(c);
+        let session = reconcile(r).unwrap();
+        assert!(session.review.comments[0].stale, "an unknown commit oid => stale");
     }
 
     #[test]

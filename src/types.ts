@@ -1,10 +1,20 @@
-export type DiffMode = "all-changes" | "uncommitted" | "last-commit" | "branch-vs-base";
+export type DiffMode = "all-changes" | "uncommitted" | "last-commit" | "branch-vs-base" | "commit";
 
 export interface Target {
   repoPath: string;
   mode: DiffMode;
   base?: string;
   worktree?: string;
+  /** Pinned commit oid, set iff mode === "commit". */
+  commit?: string;
+}
+
+export interface CommitMeta {
+  oid: string;
+  shortOid: string;
+  subject: string;
+  author: string;
+  time: number;
 }
 
 export type FileStatus = "added" | "modified" | "deleted" | "renamed";
@@ -52,6 +62,9 @@ export interface Comment {
   anchor?: Anchor | null;
   body: string;
   stale: boolean;
+  resolved: boolean;
+  /** Full oid of the commit this comment was authored against (commit mode). */
+  commit?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -109,6 +122,7 @@ export interface ReviewEntry {
   lastOpenedAt: string;
   commentCount: number;
   staleCount: number;
+  resolvedCount: number;
   viewedCount: number;
   fileCount: number;
 }
@@ -122,8 +136,25 @@ export interface Registry {
   home?: string | null;
 }
 
+export interface PickerWorktree {
+  path: string;
+  branch: string;
+  isMain: boolean;
+  lastCommitAt?: string | null;
+  dirty?: boolean;
+  repoName: string;
+  repoId: string;
+}
+
+export interface PickerData {
+  recents: ReviewEntry[];
+  worktrees: PickerWorktree[];
+  home?: string | null;
+}
+
 export type InstallOutcome =
   | { kind: "linked"; path: string }
+  | { kind: "linkedPathUpdated"; path: string; shells: string[] }
   | { kind: "manualNeeded"; command: string; reason: string };
 
 // ---------------------------------------------------------------------------
@@ -176,4 +207,9 @@ export interface Walkthrough {
   ignored: IgnoredFile[];
   /** True when the diff was too large to read in full (summarized from structure). */
   degraded?: boolean;
+}
+
+export interface CliStatus {
+  installed: boolean;
+  path: string | null;
 }

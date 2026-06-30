@@ -1,23 +1,30 @@
 mod anchor;
+mod cli;
 mod commands;
 mod export;
 mod git;
+mod ipc;
 mod launch;
 mod registry;
 mod review;
 mod storage;
 mod watch;
 
+#[cfg(debug_assertions)]
+mod devbridge;
+
 use tauri::Manager;
+
+pub use cli::{cli_main, invoked_as_cli};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
-        // single-instance MUST be the first plugin registered.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            let args: Vec<String> = argv.into_iter().skip(1).collect();
-            crate::launch::route_launch(app, &args, std::path::Path::new(&cwd));
-        }))
+    // Single-instance and the non-repo CLI guard now live in the `delta` shim
+    // (`cli`/`ipc`): a CLI invocation forwards over the socket or `open -b`s the
+    // bundle, which Launch Services single-instances. The app is only entered via
+    // LS/dock/dev, so the old in-process TTY guard is gone.
+    let builder = tauri::Builder::default();
+    builder
         // Restore size/position but NOT visibility — windows are created hidden
         // and shown by the frontend after first paint (cold-start flash fix), so
         // the plugin must not re-show them early.
@@ -35,23 +42,30 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::compute_diff,
             commands::get_file_diff,
+            commands::list_commits,
             commands::open_review,
             commands::refresh_review,
             commands::save_review,
             commands::export_review,
             commands::open_target,
             commands::open_guide,
+            commands::rewatch_window,
             commands::list_registry,
+            commands::list_picker,
             commands::list_worktrees,
             commands::import_repo,
             commands::delete_review,
             commands::install_cli,
+            commands::cli_status,
             commands::open_in_editor
         ])
         .setup(|app| {
             let args: Vec<String> = std::env::args().skip(1).collect();
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             crate::launch::route_launch(app.handle(), &args, &cwd);
+            crate::ipc::start(app.handle());
+            #[cfg(debug_assertions)]
+            crate::devbridge::start(app.handle().clone());
             Ok(())
         })
         .build(tauri::generate_context!())

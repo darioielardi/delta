@@ -26,6 +26,9 @@ dist-ssr
 # SDD + brainstorm scratch (controller/agent working files)
 .superpowers/
 
+# Committed dev plans/specs — kept locally, not published (they reference local paths)
+docs/superpowers/
+
 # Playwright MCP run artifacts (UI verification)
 .playwright-mcp/
 
