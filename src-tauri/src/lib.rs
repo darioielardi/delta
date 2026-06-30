@@ -2,6 +2,7 @@ mod anchor;
 mod commands;
 mod export;
 mod git;
+mod ipc;
 mod launch;
 mod registry;
 mod review;
