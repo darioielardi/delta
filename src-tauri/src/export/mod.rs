@@ -45,7 +45,11 @@ pub fn export_markdown(review: &Review) -> String {
                 _ => a.start_line.map(|s| format!("#### L{s}")).unwrap_or_else(|| "#### File-level".to_string()),
             };
             let side_note = if a.side == Side::Old { " · old-side" } else { "" };
-            out.push_str(&format!("{header}{side_note}{}\n", stale_suffix(c)));
+            let commit_note = match &c.commit {
+                Some(oid) => format!(" · commit {}", oid.chars().take(7).collect::<String>()),
+                None => String::new(),
+            };
+            out.push_str(&format!("{header}{side_note}{commit_note}{}\n", stale_suffix(c)));
             if let Some(snippet) = &a.snippet {
                 out.push_str(&format!("```{lang}\n{}\n```\n", snippet.trim_end()));
             }
@@ -122,5 +126,19 @@ mod tests {
         ]));
         assert!(md.contains("keep me"));
         assert!(!md.contains("resolved away"));
+    }
+
+    #[test]
+    fn commit_tag_is_rendered() {
+        let mut c = cmt(
+            CommentScope::Line,
+            Some(Anchor { file: "src/a.ts".into(), side: Side::New, start_line: Some(40), end_line: None, snippet: Some("export const TTL = 3600".into()) }),
+            "make configurable",
+            false,
+            false,
+        );
+        c.commit = Some("a1b2c3d4e5f6a7b8c9d0".into());
+        let md = export_markdown(&review_with(vec![c]));
+        assert!(md.contains("commit a1b2c3d"), "expected short commit marker, got:\n{md}");
     }
 }
