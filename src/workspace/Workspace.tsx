@@ -16,6 +16,7 @@ import { prefetchPicker } from "../picker/pickerData";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
+import { useResizableWidth, usePaneResize, PaneResizer, FILE_PANE } from "../lib/resizablePane";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
 import { getEditorPref } from "../editor";
 import { worktreeName } from "../lib/utils";
@@ -66,6 +67,9 @@ function reviewSig(s: DiffSummary | null, r: Review | null): string {
 export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: Target; onOpenPalette?: () => void; onOpenSettings?: () => void }) {
   const theme = useResolvedTheme();
   const [layout, setLayout] = useDiffLayout();
+  // Resizable, persisted file panel; the divider lives on its right edge.
+  const [sidebarWidth, setSidebarWidth] = useResizableWidth(FILE_PANE);
+  const fileResize = usePaneResize(FILE_PANE, sidebarWidth, setSidebarWidth, "right");
   // Diff mode is local, controlled state seeded once from the URL-derived target.
   // syncModeParam keeps the URL in sync on every change, so target.mode never
   // diverges from diffMode — the stale-prop case this rule guards can't occur.
@@ -612,7 +616,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
             />
           ) : (
           <>
-            <aside className="flex w-80 min-h-0 shrink-0 flex-col">
+            <aside style={{ width: sidebarWidth }} className="relative flex min-h-0 shrink-0 flex-col">
               <FilesPanel
                 files={orderedFiles}
                 selected={visibleFile}
@@ -621,6 +625,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 onToggleViewed={onToggleViewedFile}
                 commentCounts={commentCountsByFile}
               />
+              <PaneResizer edge="right" label="Resize file panel" {...fileResize} />
             </aside>
             <main className="min-h-0 min-w-0 flex-1 -ml-1.5">
               <VirtualDiffPane
