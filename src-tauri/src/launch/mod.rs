@@ -38,13 +38,12 @@ pub fn parse_launch(args: &[String], cwd: &Path) -> Launch {
     let mut mode: Option<DiffMode> = None;
     let mut path_token: Option<&str> = None;
     for arg in args {
-        match arg.as_str() {
-            "--all" => mode = Some(DiffMode::AllChanges),
-            "--uncommitted" => mode = Some(DiffMode::Uncommitted),
-            "--last-commit" => mode = Some(DiffMode::LastCommit),
-            "--branch" => mode = Some(DiffMode::BranchVsBase),
-            other if !other.starts_with("--") && path_token.is_none() => path_token = Some(other),
-            _ => {}
+        if let Some(m) = DiffMode::from_flag(arg) {
+            mode = Some(m);
+        } else if !arg.starts_with("--") && path_token.is_none() {
+            // A non-flag token is the path. Unknown `--flags` are ignored here
+            // (the CLI rejects them up front; the app stays lenient). (#help)
+            path_token = Some(arg.as_str());
         }
     }
     // A bare invocation (no path arg) or "." resolves to the cwd, so `delta` inside

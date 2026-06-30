@@ -15,6 +15,59 @@ use crate::launch::{launch_targets_non_repo, parse_launch};
 /// (after `productName`), so a shim invocation always differs from the real name.
 const SHIMS: [&str; 2] = ["delta", "delta-dev"];
 
+const USAGE: &str = "\
+delta — review git diffs with structured comments for AI agents
+
+USAGE:
+    delta [PATH] [MODE]
+
+ARGS:
+    PATH    Repository or worktree to open (default: current directory)
+
+MODE (default: all changes):
+    --all            All changes vs the base branch
+    --uncommitted    Uncommitted working-tree changes
+    --last-commit    The most recent commit
+    --branch         This branch vs its base branch
+
+OPTIONS:
+    -h, --help       Print this help and exit
+    -V, --version    Print version and exit
+
+Runs inside a git repository. A running window for the same worktree is
+focused; an explicit MODE switches it in place.
+";
+
+/// What a CLI invocation resolves to before any repo/socket work. Keeps the
+/// argument-shape decision pure (and unit-testable) and out of `cli_main`'s I/O.
+#[derive(Debug, PartialEq)]
+pub enum PreCheck {
+    Help,
+    Version,
+    /// An unrecognized `-x` / `--xyz` option (incl. a typo'd mode flag).
+    BadFlag(String),
+    Proceed,
+}
+
+/// Classify args: `--help`/`-h` and `--version`/`-V` win over everything (so a
+/// typo alongside `--help` still shows help); otherwise the first unrecognized
+/// flag is rejected; otherwise proceed to open.
+pub fn precheck(args: &[String]) -> PreCheck {
+    for a in args {
+        match a.as_str() {
+            "-h" | "--help" => return PreCheck::Help,
+            "-V" | "--version" => return PreCheck::Version,
+            _ => {}
+        }
+    }
+    for a in args {
+        if a.starts_with('-') && DiffMode::from_flag(a).is_none() {
+            return PreCheck::BadFlag(a.clone());
+        }
+    }
+    PreCheck::Proceed
+}
+
 /// Pure dispatch rule: we are the CLI client iff invoked under a *different* name
 /// than the real binary (i.e. through the installed shim symlink) and that name is
 /// one of our shims. Running the raw `target/release/delta` binary (same name as
@@ -52,6 +105,26 @@ pub fn open_args(identifier: &str, repo: &str, mode: Option<DiffMode>) -> Vec<St
 /// CLI entry point. Returns a process exit code.
 pub fn cli_main() -> i32 {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // Resolve help/version/unknown-flag before any repo or socket work, so
+    // `delta --help` prints usage instead of silently opening the cwd's review.
+    match precheck(&args) {
+        PreCheck::Help => {
+            print!("{USAGE}");
+            return 0;
+        }
+        PreCheck::Version => {
+            println!("delta {}", env!("DELTA_VERSION"));
+            return 0;
+        }
+        PreCheck::BadFlag(flag) => {
+            eprintln!("delta: unknown option '{flag}'");
+            eprintln!("Try 'delta --help' for usage.");
+            return 2;
+        }
+        PreCheck::Proceed => {}
+    }
+
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
     let launch = parse_launch(&args, &cwd);
 
@@ -135,5 +208,36 @@ mod tests {
             open_args("com.x", "/r", Some(DiffMode::Uncommitted)),
             vec!["-b", "com.x", "--args", "/r", "--uncommitted"]
         );
+    }
+
+    fn v(args: &[&str]) -> Vec<String> {
+        args.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn precheck_help_and_version_win() {
+        assert_eq!(precheck(&v(&["--help"])), PreCheck::Help);
+        assert_eq!(precheck(&v(&["-h"])), PreCheck::Help);
+        assert_eq!(precheck(&v(&["--version"])), PreCheck::Version);
+        assert_eq!(precheck(&v(&["-V"])), PreCheck::Version);
+        // help is checked before the unknown-flag pass, so it wins.
+        assert_eq!(precheck(&v(&["--bogus", "--help"])), PreCheck::Help);
+    }
+
+    #[test]
+    fn precheck_rejects_unknown_flags() {
+        assert_eq!(precheck(&v(&["--bogus"])), PreCheck::BadFlag("--bogus".into()));
+        assert_eq!(precheck(&v(&["-x"])), PreCheck::BadFlag("-x".into()));
+        // A typo'd mode flag is caught instead of silently opening the cwd.
+        assert_eq!(precheck(&v(&["--uncomitted"])), PreCheck::BadFlag("--uncomitted".into()));
+    }
+
+    #[test]
+    fn precheck_proceeds_for_paths_and_known_flags() {
+        assert_eq!(precheck(&v(&[])), PreCheck::Proceed);
+        assert_eq!(precheck(&v(&["/some/repo"])), PreCheck::Proceed);
+        assert_eq!(precheck(&v(&["."])), PreCheck::Proceed);
+        assert_eq!(precheck(&v(&["--uncommitted"])), PreCheck::Proceed);
+        assert_eq!(precheck(&v(&["--branch", "/repo"])), PreCheck::Proceed);
     }
 }

@@ -46,6 +46,20 @@ impl DiffMode {
             DiffMode::Commit => "--branch",
         }
     }
+
+    /// Parse a launch mode flag (inverse of `flag`). `None` for anything that
+    /// isn't a recognized mode flag — the single source of truth shared by
+    /// `parse_launch` and the CLI's unknown-option check. (No `--commit`: commit
+    /// is a display overlay, never a launch mode.)
+    pub fn from_flag(flag: &str) -> Option<DiffMode> {
+        match flag {
+            "--all" => Some(DiffMode::AllChanges),
+            "--uncommitted" => Some(DiffMode::Uncommitted),
+            "--last-commit" => Some(DiffMode::LastCommit),
+            "--branch" => Some(DiffMode::BranchVsBase),
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -64,6 +78,17 @@ mod model_tests {
         assert_eq!(DiffMode::Uncommitted.flag(), "--uncommitted");
         assert_eq!(DiffMode::LastCommit.flag(), "--last-commit");
         assert_eq!(DiffMode::BranchVsBase.flag(), "--branch");
+    }
+
+    #[test]
+    fn diffmode_from_flag_round_trips_and_rejects_unknown() {
+        for m in [DiffMode::AllChanges, DiffMode::Uncommitted, DiffMode::LastCommit, DiffMode::BranchVsBase] {
+            assert_eq!(DiffMode::from_flag(m.flag()), Some(m));
+        }
+        assert_eq!(DiffMode::from_flag("--help"), None);
+        assert_eq!(DiffMode::from_flag("--bogus"), None);
+        // `--commit` is intentionally not a launch flag (display overlay only).
+        assert_eq!(DiffMode::from_flag("--commit"), None);
     }
 
     #[test]
