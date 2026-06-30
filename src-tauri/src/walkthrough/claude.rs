@@ -14,6 +14,11 @@ use std::time::{Duration, Instant};
 /// the alias rather than a pinned id; configurable here.
 pub const WALKTHROUGH_MODEL: &str = "sonnet";
 
+/// Default reasoning effort. `high` is ample for bounded orientation; the CLI's own
+/// default (`xhigh`) is overkill and the main driver of slow runs. Override per-run
+/// with `DELTA_WALKTHROUGH_EFFORT`.
+pub const WALKTHROUGH_EFFORT: &str = "high";
+
 /// Built-in tools to deny: the task is pure text → JSON, no tool use, fully
 /// deterministic. (Belt-and-suspenders alongside `--safe-mode`.)
 const DISALLOWED_TOOLS: &str = "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task";
@@ -288,12 +293,10 @@ pub fn claude_argv(system: &str) -> Vec<String> {
         "--append-system-prompt".into(),
         system.into(),
     ];
-    // Effort defaults to the CLI's own (`xhigh` in Claude Code) — heavy for a bounded
-    // orientation task. An env override lets you dial it down without recompiling.
-    if let Some(effort) = effort_override() {
-        argv.push("--effort".into());
-        argv.push(effort);
-    }
+    // Pin effort to `high` (the CLI default `xhigh` is overkill here and the main cause
+    // of slow runs); a valid `DELTA_WALKTHROUGH_EFFORT` override wins.
+    argv.push("--effort".into());
+    argv.push(effort_override().unwrap_or_else(|| WALKTHROUGH_EFFORT.to_string()));
     argv
 }
 
@@ -575,5 +578,7 @@ mod tests {
         assert_eq!(a[oi + 1], "json");
         let si = a.iter().position(|x| x == "--append-system-prompt").unwrap();
         assert_eq!(a[si + 1], "SYS");
+        let ei = a.iter().position(|x| x == "--effort").expect("effort is pinned");
+        assert!(EFFORT_LEVELS.contains(&a[ei + 1].as_str()), "valid effort level, got {}", a[ei + 1]);
     }
 }
