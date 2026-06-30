@@ -79,10 +79,16 @@ A path can follow any of these, e.g. `delta --branch ../other-checkout`.
 ## 🛠️ Development
 
 ```bash
-pnpm dev:mock                  # run the whole UI in a browser against fixtures → localhost:5599
+pnpm dev:app                   # the app, isolated as "Delta Dev" — won't clash with an installed release
+pnpm dev:mock                  # just the UI in a browser against fixtures → localhost:5599
+pnpm start:demo                # build a throwaway review repo + open it (start:demo:stress for a giant one)
 pnpm test                      # UI tests
 cd src-tauri && cargo test     # Rust backend tests
 ```
+
+`dev:app` runs the dev build as a separate app — its own identifier, data dir, and
+`delta-dev` CLI — so you can hack on delta while using a release build for real
+work. (`pnpm tauri dev` works too, but shares the release's identity.)
 
 Architecture and conventions live in [CLAUDE.md](CLAUDE.md). PRs welcome — keep
 changes scoped and the tests green.
