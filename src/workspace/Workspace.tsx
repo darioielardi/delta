@@ -379,12 +379,18 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
         // ⌘⇧C copies the agent export, when there's something to copy. (#copy)
         e.preventDefault();
         if (commentCount > 0) void copyForClaude();
-      } else if (stepperVisible && (e.key === "[" || e.key === "]")) {
-        // Step prev/next commit — but not while typing in a comment editor.
+      } else if (
+        stepperVisible && !e.metaKey && !e.ctrlKey && !e.altKey &&
+        // Match the physical key (e.code) so it works on non-US layouts where
+        // [ and ] aren't direct keys (e.key would be a different char); keep e.key
+        // as a fallback for webviews that don't report code. (#commit-by-commit)
+        (e.code === "BracketLeft" || e.code === "BracketRight" || e.key === "[" || e.key === "]")
+      ) {
+        // …but not while typing in a comment editor.
         const el = e.target as HTMLElement | null;
         if (el && (el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
         e.preventDefault();
-        stepCommit(e.key === "]" ? 1 : -1);
+        stepCommit(e.code === "BracketRight" || e.key === "]" ? 1 : -1);
       }
     }
     window.addEventListener("keydown", onKey);
@@ -432,7 +438,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
             <DropdownMenu>
               <DropdownMenuTrigger
                 aria-label="Diff mode"
-                className="ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-input bg-muted/40 pl-2.5 pr-2 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted"
+                className="ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-input bg-muted/40 pl-2.5 pr-2 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-muted data-[state=open]:bg-muted"
               >
                 {inCommitMode
                   ? <>Commit <span className="font-mono font-normal text-muted-foreground">{commits[commitIndex]?.shortOid ?? "…"}</span></>

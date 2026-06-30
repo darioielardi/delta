@@ -22,4 +22,21 @@ describe("useFileDiffCache", () => {
     act(() => result.current.clear());
     expect(result.current.get("a.ts")).toBeUndefined();
   });
+
+  it("re-points + clears when the pinned commit changes (mode stays 'commit')", async () => {
+    getFileDiff.mockResolvedValue({ status: "modified", binary: false });
+    const tA = { repoPath: "/r", worktree: "main", mode: "commit" as const, commit: "A" };
+    const { result, rerender } = renderHook(({ t }) => useFileDiffCache(t), { initialProps: { t: tA } });
+    await act(async () => { await result.current.load("x.ts"); });
+    expect(getFileDiff).toHaveBeenLastCalledWith(tA, "x.ts");
+
+    // Stepping to another commit keeps mode === "commit"; the store must still reset
+    // and refetch against the new commit (else the section renders blank).
+    const tB = { ...tA, commit: "B" };
+    rerender({ t: tB });
+    expect(result.current.get("x.ts")).toBeUndefined(); // cache cleared on commit change
+    await act(async () => { await result.current.load("x.ts"); });
+    expect(getFileDiff).toHaveBeenLastCalledWith(tB, "x.ts");
+    expect(getFileDiff).toHaveBeenCalledTimes(2);
+  });
 });
