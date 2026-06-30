@@ -7,7 +7,7 @@ cd "$ROOT_DIR"
 usage() {
   cat <<'USAGE'
 Usage:
-  scripts/publish-release.sh [--remote origin]
+  scripts/publish-release.sh [--remote origin] [--skip-cask]
 
 Publishes the already-built and tested DMG for the current package.json version.
 If package.json has an uncommitted version bump, this commits it before tagging.
@@ -75,6 +75,7 @@ commit_version_bump_if_needed() {
 }
 
 remote="origin"
+skip_cask=0
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -82,6 +83,9 @@ while [ "$#" -gt 0 ]; do
       shift
       [ "$#" -gt 0 ] || die "--remote requires a remote name"
       remote="$1"
+      ;;
+    --skip-cask)
+      skip_cask=1
       ;;
     -h|--help)
       usage
@@ -143,3 +147,12 @@ gh release create "$tag" "$dmg_path" --title "${product} ${tag}" --notes-file "$
 printf '\nPublished %s.\n' "$tag"
 printf 'DMG: %s\n' "$dmg_path"
 printf 'SHA-256: %s\n' "$sha256"
+
+if [ "$skip_cask" -eq 0 ]; then
+  printf '\nBumping Homebrew cask...\n'
+  if ! "$ROOT_DIR/scripts/update-cask.sh" --version "$version" --sha256 "$sha256"; then
+    printf 'warning: release %s is published, but the cask bump failed.\n' "$tag" >&2
+    printf 'Re-run: scripts/update-cask.sh --version %s --sha256 %s\n' "$version" "$sha256" >&2
+    exit 1
+  fi
+fi
