@@ -89,15 +89,29 @@ describe("Workspace", () => {
     render(<Workspace target={commitTarget} />);
 
     // Stepper shows the pinned commit's position (o1 is index 1 of 3) + its short oid.
-    await waitFor(() => expect(screen.getByTestId("commit-stepper")).toHaveTextContent("2 / 3"));
+    await waitFor(() => expect(screen.getByTestId("commit-stepper")).toHaveTextContent("2/3"));
     expect(screen.getByRole("button", { name: /diff mode/i })).toHaveTextContent("o1bbbbb");
     expect(openTarget).not.toHaveBeenCalled(); // no window spawned for the overlay
 
     // Stepping "next" advances to o2 and recomputes that commit's isolated diff.
     computeDiff.mockClear();
     fireEvent.click(screen.getByRole("button", { name: /next commit/i }));
-    await waitFor(() => expect(screen.getByTestId("commit-stepper")).toHaveTextContent("3 / 3"));
+    await waitFor(() => expect(screen.getByTestId("commit-stepper")).toHaveTextContent("3/3"));
     expect(computeDiff).toHaveBeenCalledWith(expect.objectContaining({ mode: "commit", commit: "o2" }));
+  });
+
+  it("shows the stepper in 'Last commit' mode too, anchored at the newest commit", async () => {
+    openReview.mockResolvedValue(fileSession);
+    listCommits.mockResolvedValue(COMMITS);
+    render(<Workspace target={{ repoPath: "/r", mode: "last-commit" }} />);
+    // Stepper appears at HEAD (index 0 → "1/3") even though no commit is pinned.
+    await waitFor(() => expect(screen.getByTestId("commit-stepper")).toHaveTextContent("1/3"));
+    // Trigger still reads the canonical mode (not pinned), and no commit diff is fetched.
+    expect(screen.getByRole("button", { name: /diff mode/i })).toHaveTextContent("Last commit");
+    expect(computeDiff).not.toHaveBeenCalled();
+    // Prev is disabled at HEAD; Next (older) is enabled.
+    expect(screen.getByRole("button", { name: /previous commit/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /next commit/i })).toBeEnabled();
   });
 
   it("a filesystem change surfaces a Refresh button instead of updating the diff in place (#12)", async () => {

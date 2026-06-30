@@ -297,12 +297,22 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     if (c.anchor?.file) setJump({ file: c.anchor.file, commentId: c.id, n: Date.now() });
   }, []);
 
-  // Commit-mode navigation.
+  // Commit-mode navigation. "Last commit" is the same diff as the newest commit, so
+  // it steps too (from HEAD / index 0); stepping back to the top returns to last-commit.
   const stepCommit = useCallback((delta: 1 | -1) => {
-    const i = commits.findIndex((c) => c.oid === commitOid);
-    const next = commits[i + delta];
-    if (next) { setCommitOid(next.oid); syncCommitParam(next.oid); }
-  }, [commits, commitOid]);
+    const cur = commitOid != null
+      ? commits.findIndex((c) => c.oid === commitOid)
+      : (diffMode === "last-commit" ? 0 : -1);
+    const next = cur + delta;
+    if (next < 0 || next >= commits.length) return;
+    if (next === 0 && diffMode === "last-commit") {
+      setCommitOid(null);
+      syncCommitParam(null);
+    } else {
+      setCommitOid(commits[next].oid);
+      syncCommitParam(commits[next].oid);
+    }
+  }, [commits, commitOid, diffMode]);
   const pickCommit = useCallback((oid: string) => {
     setCommitOid(oid);
     syncCommitParam(oid);
@@ -325,6 +335,10 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   const allComments = review?.comments ?? [];
   const inCommitMode = commitOid != null;
   const commitIndex = inCommitMode ? commits.findIndex((c) => c.oid === commitOid) : -1;
+  // The stepper also shows in "Last commit" mode — it's the newest commit (index 0).
+  const isLastCommit = diffMode === "last-commit";
+  const stepIndex = inCommitMode ? commitIndex : (isLastCommit ? 0 : -1);
+  const stepperVisible = commits.length > 0 && (inCommitMode || isLastCommit);
   // Commit mode renders the pinned commit's isolated diff over the canonical review.
   const viewTarget = useMemo<Target | undefined>(
     () => (review ? (inCommitMode ? { ...review.target, mode: "commit", commit: commitOid! } : review.target) : undefined),
@@ -365,7 +379,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
         // ⌘⇧C copies the agent export, when there's something to copy. (#copy)
         e.preventDefault();
         if (commentCount > 0) void copyForClaude();
-      } else if (commitOid && (e.key === "[" || e.key === "]")) {
+      } else if (stepperVisible && (e.key === "[" || e.key === "]")) {
         // Step prev/next commit — but not while typing in a comment editor.
         const el = e.target as HTMLElement | null;
         if (el && (el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
@@ -376,7 +390,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [review, commitOid, stepCommit]);
+  }, [review, stepperVisible, stepCommit]);
 
   return (
     <div data-testid="app-root" className="flex h-screen flex-col overflow-hidden bg-background text-[13px] text-foreground">
@@ -418,7 +432,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
             <DropdownMenu>
               <DropdownMenuTrigger
                 aria-label="Diff mode"
-                className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-input bg-muted/40 pl-2.5 pr-2 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus:bg-background data-[state=open]:bg-background"
+                className="ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-input bg-muted/40 pl-2.5 pr-2 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-1 focus-visible:ring-ring data-[state=open]:bg-muted"
               >
                 {inCommitMode
                   ? <>Commit <span className="font-mono font-normal text-muted-foreground">{commits[commitIndex]?.shortOid ?? "…"}</span></>
@@ -449,25 +463,26 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 </DropdownMenuSub>
               </DropdownMenuContent>
             </DropdownMenu>
-            {inCommitMode && (
-              <div className="ml-1 flex items-center gap-1.5" data-testid="commit-stepper">
-                <div className="flex gap-0.5 rounded-md bg-muted/70 p-0.5">
+            {stepperVisible && (
+              <div className="ml-1 flex items-center" data-testid="commit-stepper">
+                <div className="inline-flex h-7 items-center rounded-md border border-input bg-muted/40">
                   <button
-                    type="button" aria-label="Previous commit" title="Previous commit ([)" disabled={commitIndex <= 0}
+                    type="button" aria-label="Previous commit" title="Previous commit ([)" disabled={stepIndex <= 0}
                     onClick={() => stepCommit(-1)}
-                    className="grid size-6 place-items-center rounded-[5px] bg-card text-foreground shadow-sm transition-opacity disabled:opacity-40 disabled:shadow-none"
+                    className="flex h-full w-7 items-center justify-center rounded-l-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                   >
                     <ChevronLeft className="size-3.5" />
                   </button>
+                  <span className="h-3.5 w-px bg-border" />
                   <button
-                    type="button" aria-label="Next commit" title="Next commit (])" disabled={commitIndex < 0 || commitIndex >= commits.length - 1}
+                    type="button" aria-label="Next commit" title="Next commit (])" disabled={stepIndex < 0 || stepIndex >= commits.length - 1}
                     onClick={() => stepCommit(1)}
-                    className="grid size-6 place-items-center rounded-[5px] bg-card text-foreground shadow-sm transition-opacity disabled:opacity-40 disabled:shadow-none"
+                    className="flex h-full w-7 items-center justify-center rounded-r-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
                   >
                     <ChevronRight className="size-3.5" />
                   </button>
                 </div>
-                <span className="font-mono tabular-nums text-[11px] text-muted-foreground">{commitIndex + 1} / {commits.length}</span>
+                <span className="ml-2 font-mono tabular-nums text-[11px] text-muted-foreground">{stepIndex + 1}/{commits.length}</span>
               </div>
             )}
             <div className="ml-auto flex items-center gap-3">
