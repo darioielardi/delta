@@ -25,8 +25,11 @@ export function worktreeIdentity(repoName: string, path: string, branch: string)
   const wt = worktreeName(path);
   const isMain = wt === repoName;
   return (
-    <>
-      <Folder className="size-4 shrink-0 self-center text-muted-foreground" />
+    // items-start so the folder icon tracks the title line (its top), not the vertical
+    // center of the whole two-line block — the icon's height matches the title line, so
+    // its center lands on the title regardless of the row's height.
+    <div className="flex min-w-0 flex-1 items-start gap-2.5">
+      <Folder className="size-4 shrink-0 text-muted-foreground" />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex min-w-0 items-baseline text-[13px] leading-tight">
           {!isMain && <span className="shrink-0 text-muted-foreground">{repoName}&nbsp;/&nbsp;</span>}
@@ -37,7 +40,7 @@ export function worktreeIdentity(repoName: string, path: string, branch: string)
           <span className="truncate">{branch}</span>
         </div>
       </div>
-    </>
+    </div>
   );
 }
 
