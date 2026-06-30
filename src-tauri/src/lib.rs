@@ -1,4 +1,5 @@
 mod anchor;
+mod cli;
 mod commands;
 mod export;
 mod git;
@@ -13,6 +14,8 @@ mod watch;
 mod devbridge;
 
 use tauri::Manager;
+
+pub use cli::{cli_main, invoked_as_cli};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
