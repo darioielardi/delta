@@ -718,7 +718,13 @@ const VFileSection = memo(function VFileSection({
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => onAddFileComment(entry.path, "")}
+          onClick={() => {
+            // A deleted file hides its content behind a reveal, and the file-comment
+            // form renders inside the (model-built) body — so reveal first, else the
+            // comment this click creates would sit hidden behind the placeholder. (#11)
+            if (isDeleted && !revealed) { setRevealed(true); void cache.load(entry.path); }
+            onAddFileComment(entry.path, "");
+          }}
           aria-label={`comment on ${entry.path}`}
           title="Comment on file"
           className="relative h-6 shrink-0 px-2 text-muted-foreground hover:text-foreground"
