@@ -129,6 +129,7 @@ mod tests {
             worktree: None,
             mode: DiffMode::Uncommitted,
             base: None,
+            commit: None,
         };
         Review::new(
             "id".into(),

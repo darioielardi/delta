@@ -71,7 +71,7 @@ mod tests {
     use crate::review::model::{Anchor, CommentScope, Snapshot};
 
     fn review_with(comments: Vec<Comment>) -> Review {
-        let target = Target { repo_path: "/r".into(), worktree: Some("feat/auth".into()), mode: DiffMode::BranchVsBase, base: Some("main".into()) };
+        let target = Target { repo_path: "/r".into(), worktree: Some("feat/auth".into()), mode: DiffMode::BranchVsBase, base: Some("main".into()), commit: None };
         let mut r = Review::new("id".into(), target, Snapshot { base_oid: "a1b2c3d".into(), head_oid: Some("e4f5g6h".into()), captured_at: "2026-06-25T18:54:00Z".into() }, "t".into());
         r.comments = comments;
         r

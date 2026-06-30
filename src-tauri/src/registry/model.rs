@@ -122,6 +122,7 @@ mod tests {
             worktree: Some("main".into()),
             mode: DiffMode::AllChanges,
             base: None,
+            commit: None,
         };
         let mut r = Review::new(
             "0123456789abcdef".into(),

@@ -401,7 +401,7 @@ mod tests {
         let recents = vec![ReviewEntry {
             id: "x".into(),
             repo_name: "demo".into(),
-            target: Target { repo_path: "/r/demo".into(), worktree: Some("feat/a".into()), mode: DiffMode::AllChanges, base: None },
+            target: Target { repo_path: "/r/demo".into(), worktree: Some("feat/a".into()), mode: DiffMode::AllChanges, base: None, commit: None },
             last_opened_at: "t".into(),
             comment_count: 0, stale_count: 0, resolved_count: 0, viewed_count: 0, file_count: 1,
         }];
@@ -431,7 +431,7 @@ mod tests {
         reg.upsert_review(ReviewEntry {
             id: "rev1".into(),
             repo_name: repo_name.clone(),
-            target: Target { repo_path: root.clone(), worktree: Some("main".into()), mode: DiffMode::AllChanges, base: None },
+            target: Target { repo_path: root.clone(), worktree: Some("main".into()), mode: DiffMode::AllChanges, base: None, commit: None },
             last_opened_at: "t".into(),
             comment_count: 0, stale_count: 0, resolved_count: 0, viewed_count: 0, file_count: 1,
         });
@@ -455,6 +455,7 @@ mod tests {
             worktree: None,
             mode: DiffMode::Uncommitted,
             base: None,
+            commit: None,
         })
         .unwrap();
         assert_eq!(summary.files.len(), 1);
@@ -469,7 +470,7 @@ mod tests {
         let store_dir = tempfile::TempDir::new().unwrap();
         let storage = JsonStorage::new(store_dir.path().join("reviews"));
 
-        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
         let session = open_review_impl(&storage, target).unwrap();
 
         assert!(session.summary.files.iter().any(|f| f.path == "file.txt"));
@@ -487,7 +488,7 @@ mod tests {
         let storage = JsonStorage::new(store_dir.path().join("reviews"));
         let now = chrono::Utc::now().to_rfc3339();
 
-        let target = Target { repo_path: "/repo".into(), worktree: Some("main".into()), mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: "/repo".into(), worktree: Some("main".into()), mode: DiffMode::Uncommitted, base: None, commit: None };
         let snapshot = Snapshot { base_oid: "abc123".into(), head_oid: None, captured_at: now.clone() };
         let review = Review::new("0123456789abcdef".into(), target, snapshot, now);
 
@@ -506,7 +507,7 @@ mod tests {
         let store_dir = tempfile::TempDir::new().unwrap();
         let storage = JsonStorage::new(store_dir.path().join("reviews"));
 
-        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
         let session = open_review_impl(&storage, target).unwrap();
 
         let refreshed = refresh_review_impl(&storage, session.review.clone()).unwrap();
@@ -521,7 +522,7 @@ mod tests {
         write(repo_dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
         let store_dir = tempfile::TempDir::new().unwrap();
         let (storage, reg_store) = stores(store_dir.path());
-        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
 
         let session = open_review_impl_with_registry(&storage, &reg_store, target).unwrap();
 
@@ -537,7 +538,7 @@ mod tests {
         write(repo_dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
         let store_dir = tempfile::TempDir::new().unwrap();
         let (storage, reg_store) = stores(store_dir.path());
-        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
         let session = open_review_impl_with_registry(&storage, &reg_store, target).unwrap();
         let original_file_count = session.summary.files.len() as u32;
 
@@ -579,7 +580,7 @@ mod tests {
         write(repo_dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
         let store_dir = tempfile::TempDir::new().unwrap();
         let (storage, reg_store) = stores(store_dir.path());
-        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None };
+        let target = Target { repo_path: repo_dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
         let session = open_review_impl_with_registry(&storage, &reg_store, target).unwrap();
 
         delete_review_impl(&storage, &reg_store, &session.review.id).unwrap();

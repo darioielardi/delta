@@ -77,6 +77,30 @@ pub fn resolve_endpoints(repo: &Repository, target: &Target) -> Result<Endpoints
                 head_label: short_oid(head_commit.id()),
             })
         }
+        DiffMode::Commit => {
+            let oid = target
+                .commit
+                .as_deref()
+                .ok_or_else(|| "commit mode requires a commit oid".to_string())?;
+            let commit = repo
+                .revparse_single(oid)
+                .and_then(|o| o.peel_to_commit())
+                .map_err(|e| format!("commit {oid}: {e}"))?;
+            // Isolated diff: parent(0) → commit. Root commit → empty left tree.
+            let from_tree = match commit.parent(0) {
+                Ok(parent) => Some(tree_of(repo, parent.id())?.id()),
+                Err(_) => None,
+            };
+            Ok(Endpoints {
+                from_tree,
+                right: RightSide::Tree(tree_of(repo, commit.id())?.id()),
+                base_label: commit
+                    .parent(0)
+                    .map(|p| short_oid(p.id()))
+                    .unwrap_or_else(|_| "∅".into()),
+                head_label: short_oid(commit.id()),
+            })
+        }
         DiffMode::AllChanges | DiffMode::BranchVsBase => {
             let (base_label, base_oid) = resolve_base(repo, target.base.as_deref())?;
             let mb = repo
@@ -186,5 +210,41 @@ mod tests {
     fn resolve_worktree_returns_branch_name() {
         let (_dir, repo) = repo_with_commit();
         assert_eq!(resolve_worktree(&repo).unwrap(), "main");
+    }
+
+    #[test]
+    fn commit_mode_diffs_parent_to_commit() {
+        use crate::git::diff::compute_diff;
+        let (dir, repo) = repo_with_commit(); // main: file.txt = "line1\nline2\n"
+        write(dir.path(), "file.txt", "line1\nADDED\nline2\n");
+        let oid = commit_all(&repo, "second");
+        let summary = compute_diff(&Target {
+            repo_path: dir.path().to_str().unwrap().into(),
+            worktree: None,
+            mode: DiffMode::Commit,
+            base: None,
+            commit: Some(oid.to_string()),
+        })
+        .unwrap();
+        assert_eq!(summary.files.len(), 1);
+        assert_eq!(summary.files[0].path, "file.txt");
+        assert_eq!(summary.files[0].additions, 1);
+    }
+
+    #[test]
+    fn commit_mode_root_commit_is_all_additions() {
+        use crate::git::diff::{compute_diff, FileStatus};
+        let (dir, repo) = repo_with_commit(); // the initial commit IS the root
+        let root = repo.head().unwrap().peel_to_commit().unwrap().id();
+        let summary = compute_diff(&Target {
+            repo_path: dir.path().to_str().unwrap().into(),
+            worktree: None,
+            mode: DiffMode::Commit,
+            base: None,
+            commit: Some(root.to_string()),
+        })
+        .unwrap();
+        let f = summary.files.iter().find(|f| f.path == "file.txt").unwrap();
+        assert_eq!(f.status, FileStatus::Added);
     }
 }
