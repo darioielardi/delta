@@ -17,7 +17,7 @@
 // Supports unified + split, line/range/file comments, word-level intra-line diff,
 // jump-to-comment, and the viewed toggle.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { Check, ChevronDown, ChevronRight, ChevronUp, ExternalLink, Eye, FileQuestion, FileX, MessageSquarePlus, Plus } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ChevronUp, Copy, ExternalLink, Eye, FileQuestion, FileX, MessageSquarePlus, Plus } from "lucide-react";
 import { getSyntaxLineTemplate } from "@git-diff-view/file";
 import { SplitSide } from "@git-diff-view/react";
 import { Button } from "@/components/ui/button";
@@ -606,6 +606,20 @@ const VFileSection = memo(function VFileSection({
   const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : "";
   const base = slash >= 0 ? entry.path.slice(slash + 1) : entry.path;
 
+  // Copy the file name (basename) to the clipboard, flashing a ✓ on the button.
+  // Selection is disabled app-wide for a native feel, so this is the quick way to
+  // grab a name without selecting it. (#copyname)
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef(0);
+  const copyName = useCallback(() => {
+    void navigator.clipboard.writeText(base).then(() => {
+      setCopied(true);
+      window.clearTimeout(copyTimer.current);
+      copyTimer.current = window.setTimeout(() => setCopied(false), 1200);
+    }).catch((e) => console.error("copy file name:", e));
+  }, [base]);
+  useEffect(() => () => window.clearTimeout(copyTimer.current), []);
+
   // Visible visual rows for the window (visualRowTop is monotonic; binary-search).
   const renderVisual: number[] = [];
   if (model && view) {
@@ -670,9 +684,21 @@ const VFileSection = memo(function VFileSection({
         <span className="pointer-events-none relative flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors peer-hover/col:bg-foreground/[0.06] peer-hover/col:text-foreground">
           <ChevronRight className={`size-4 transition-transform duration-200 ${collapsed ? "" : "rotate-90"}`} />
         </span>
-        <span className={`pointer-events-none relative min-w-0 flex-1 truncate text-[13px] ${viewed ? "opacity-55 group-hover/h:opacity-100" : ""}`}>
-          {dir && <span className="text-muted-foreground">{dir}</span>}
-          <span className="font-medium text-foreground">{base}</span>
+        <span className={`pointer-events-none relative flex min-w-0 flex-1 items-center gap-1 ${viewed ? "opacity-55 group-hover/h:opacity-100" : ""}`}>
+          <span className="min-w-0 truncate text-[13px]">
+            {dir && <span className="text-muted-foreground">{dir}</span>}
+            <span className="font-medium text-foreground">{base}</span>
+          </span>
+          {/* Reveals on header hover (and keyboard focus); ✓ flashes after a copy. */}
+          <button
+            type="button"
+            onClick={copyName}
+            aria-label={`copy file name ${base}`}
+            title={copied ? "Copied" : "Copy file name"}
+            className="pointer-events-auto relative ml-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-[color,background-color,opacity] hover:bg-foreground/[0.06] hover:text-foreground focus-visible:opacity-100 group-hover/h:opacity-100"
+          >
+            {copied ? <Check className="size-3 text-emerald-500" strokeWidth={3} /> : <Copy className="size-3" />}
+          </button>
         </span>
         <span className={`pointer-events-none relative shrink-0 text-[12px] tabular-nums ${viewed ? "opacity-55 group-hover/h:opacity-100" : ""}`}>
           {entry.additions > 0 && <span className="text-emerald-500">+{entry.additions}</span>}{" "}
