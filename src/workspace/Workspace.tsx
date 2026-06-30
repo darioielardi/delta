@@ -440,23 +440,21 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 aria-label="Diff mode"
                 className="ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-input bg-muted/40 pl-2.5 pr-2 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-muted data-[state=open]:bg-muted"
               >
-                {stepperVisible ? (
-                  // Reserve a constant width across the last-commit ↔ commit boundary
-                  // (hidden reservers size to the widest of the two labels) so the
-                  // trigger doesn't resize and shift the stepper while stepping.
-                  <span className="grid">
-                    <span aria-hidden className="invisible col-start-1 row-start-1 whitespace-nowrap">Last commit</span>
-                    <span aria-hidden className="invisible col-start-1 row-start-1 whitespace-nowrap">Commit <span className="font-mono">0000000</span></span>
-                    <span className="col-start-1 row-start-1 whitespace-nowrap">
-                      {inCommitMode
-                        ? <>Commit <span className="font-mono font-normal text-muted-foreground">{commits[commitIndex]?.shortOid ?? "…"}</span></>
-                        : "Last commit"}
-                    </span>
+                {/* Hidden reservers size the trigger to the widest possible label, so
+                    its width is constant across every mode; the visible label overlays,
+                    left-aligned (the chevron stays put → the stepper never shifts). */}
+                <span className="grid justify-items-start">
+                  {MODES.map((m) => (
+                    <span key={m.id} aria-hidden className="invisible col-start-1 row-start-1 whitespace-nowrap">{m.label}</span>
+                  ))}
+                  <span aria-hidden className="invisible col-start-1 row-start-1 whitespace-nowrap">Commit <span className="font-mono">0000000</span></span>
+                  <span className="col-start-1 row-start-1 whitespace-nowrap">
+                    {inCommitMode
+                      ? <>Commit <span className="font-mono font-normal text-muted-foreground">{commits[commitIndex]?.shortOid ?? "…"}</span></>
+                      : (MODES.find((m) => m.id === diffMode)?.label ?? diffMode)}
                   </span>
-                ) : (
-                  MODES.find((m) => m.id === diffMode)?.label ?? diffMode
-                )}
-                <ChevronDown className="size-3.5 text-muted-foreground" />
+                </span>
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 {MODES.map((m) => (
