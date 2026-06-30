@@ -156,7 +156,7 @@ mod tests {
     use tempfile::TempDir;
 
     fn sample() -> Review {
-        let target = Target { repo_path: "/r".into(), worktree: Some("main".into()), mode: DiffMode::AllChanges, base: None };
+        let target = Target { repo_path: "/r".into(), worktree: Some("main".into()), mode: DiffMode::AllChanges, base: None, commit: None };
         Review::new("0123456789abcdef".into(), target, Snapshot { base_oid: "b".into(), head_oid: None, captured_at: "t".into() }, "t".into())
     }
 

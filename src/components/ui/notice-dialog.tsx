@@ -44,11 +44,11 @@ export function NoticeDialog({
         role="alertdialog"
         aria-modal="true"
         aria-label={title}
-        className="w-80 max-w-[92vw] rounded-xl border border-border/50 bg-popover/90 p-5 shadow-2xl backdrop-blur-xl duration-150 data-[open]:animate-in data-[open]:fade-in-0 data-[open]:zoom-in-95"
+        className="w-80 max-w-[92vw] rounded-xl border border-border bg-popover p-5 shadow-2xl ring-1 ring-foreground/5 duration-150 data-[open]:animate-in data-[open]:fade-in-0 data-[open]:zoom-in-95 dark:ring-foreground/10"
         data-open
       >
-        <h2 className="text-[13px] font-semibold leading-snug text-foreground">{title}</h2>
-        {message && <p className="mt-1 text-[12px] leading-snug text-muted-foreground">{message}</p>}
+        <h2 className="font-heading text-[15px] font-semibold leading-snug text-foreground">{title}</h2>
+        {message && <p className="mt-1.5 text-[13px] leading-normal text-muted-foreground">{message}</p>}
         <div className="mt-5 flex justify-end">
           <button
             type="button"

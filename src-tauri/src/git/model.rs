@@ -7,6 +7,7 @@ pub enum DiffMode {
     Uncommitted,
     LastCommit,
     BranchVsBase,
+    Commit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,6 +19,8 @@ pub struct Target {
     pub mode: DiffMode,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
 }
 
 impl DiffMode {
@@ -27,6 +30,7 @@ impl DiffMode {
             DiffMode::Uncommitted => "uncommitted",
             DiffMode::LastCommit => "last-commit",
             DiffMode::BranchVsBase => "branch-vs-base",
+            DiffMode::Commit => "commit",
         }
     }
 
@@ -37,6 +41,9 @@ impl DiffMode {
             DiffMode::Uncommitted => "--uncommitted",
             DiffMode::LastCommit => "--last-commit",
             DiffMode::BranchVsBase => "--branch",
+            // Commit is a display overlay with no launch flag; fall back to its
+            // canonical branch-vs-base mode. (The CLI never emits Commit.)
+            DiffMode::Commit => "--branch",
         }
     }
 }

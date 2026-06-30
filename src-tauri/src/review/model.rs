@@ -43,6 +43,8 @@ pub struct Comment {
     pub stale: bool,
     #[serde(default)]
     pub resolved: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }

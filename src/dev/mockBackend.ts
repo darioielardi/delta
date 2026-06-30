@@ -22,6 +22,19 @@ const SUMMARY: DiffSummary = {
   ],
 };
 
+// Commit fixtures for `?view=review&repo=demo` commit-by-commit review. Each commit
+// "touches" a subset of SUMMARY's files (COMMIT_FILES), so stepping changes the file set.
+const COMMITS = [
+  { oid: "e4f1a2b0000000000000000000000000000000aa", shortOid: "e4f1a2b", subject: "wire login form into the page", author: "Dario", time: 1782700000 },
+  { oid: "c9a30d40000000000000000000000000000000bb", shortOid: "c9a30d4", subject: "add session store", author: "Dario", time: 1782600000 },
+  { oid: "a1b2c3d0000000000000000000000000000000cc", shortOid: "a1b2c3d", subject: "add auth guard to protected routes", author: "Dario", time: 1782500000 },
+];
+const COMMIT_FILES: Record<string, string[]> = {
+  e4f1a2b0000000000000000000000000000000aa: ["src/auth/login.ts"],
+  c9a30d40000000000000000000000000000000bb: ["src/auth/session.ts"],
+  a1b2c3d0000000000000000000000000000000cc: ["src/api/routes.ts", "src/auth/session.ts"],
+};
+
 // A deliberately wide file: several lines far exceed the pane width so the diff
 // renders a horizontal scrollbar. Used to verify wheel behavior (item 1) — that
 // vertical scroll still works while the cursor is over a horizontally-scrollable
@@ -302,10 +315,18 @@ export function installMockBackend(): void {
       : { summary: SUMMARY, files: FILES, review: REVIEW };
   __setInvokeForDev(async <T>(cmd: string, args?: Record<string, unknown>): Promise<T> => {
     switch (cmd) {
-      case "compute_diff":
+      case "compute_diff": {
+        const t = args?.target as { mode?: string; commit?: string } | undefined;
+        if (t?.mode === "commit" && t.commit) {
+          const set = new Set(COMMIT_FILES[t.commit] ?? []);
+          return { ...ds.summary, files: ds.summary.files.filter((f) => set.has(f.path)) } as T;
+        }
         return ds.summary as T;
+      }
       case "get_file_diff":
         return ds.files[(args?.path as string) ?? ""] as T;
+      case "list_commits":
+        return COMMITS as T;
       case "open_review":
       case "refresh_review": {
         const session: ReviewSession = { review: ds.review, summary: ds.summary, repoName: "demo" };

@@ -107,8 +107,11 @@ export function useFileDiffCache(target: Target | null): FileDiffStore {
   // fire asynchronously, well after this effect, so `target` is always set.
   useEffect(() => {
     store.reset(target);
+    // `commit` matters too: stepping commit→commit keeps mode === "commit", so without
+    // it the store would keep the previous commit's target and fetch every new file
+    // against the wrong diff (→ "file not in diff" → blank sections). (#commit-by-commit)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store, target?.repoPath, target?.worktree, target?.mode]);
+  }, [store, target?.repoPath, target?.worktree, target?.mode, target?.commit]);
 
   return store;
 }

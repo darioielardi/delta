@@ -1,10 +1,20 @@
-export type DiffMode = "all-changes" | "uncommitted" | "last-commit" | "branch-vs-base";
+export type DiffMode = "all-changes" | "uncommitted" | "last-commit" | "branch-vs-base" | "commit";
 
 export interface Target {
   repoPath: string;
   mode: DiffMode;
   base?: string;
   worktree?: string;
+  /** Pinned commit oid, set iff mode === "commit". */
+  commit?: string;
+}
+
+export interface CommitMeta {
+  oid: string;
+  shortOid: string;
+  subject: string;
+  author: string;
+  time: number;
 }
 
 export type FileStatus = "added" | "modified" | "deleted" | "renamed";
@@ -53,6 +63,8 @@ export interface Comment {
   body: string;
   stale: boolean;
   resolved: boolean;
+  /** Full oid of the commit this comment was authored against (commit mode). */
+  commit?: string | null;
   createdAt: string;
   updatedAt: string;
 }

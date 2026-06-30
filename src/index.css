@@ -338,10 +338,12 @@
   .diff-tailwindcss-wrapper .delta-comment-ui { color: var(--foreground); }
   .diff-tailwindcss-wrapper .delta-comment-ui * { color: inherit; }
 
-  /* Code is selectable; line numbers stay unselectable for clean copy. Single
-     class keeps this below the library's drag-time `.diff-multi-selecting
-     .diff-line-content { user-select: none }` so range-drag still works. */
-  .diff-line-content {
+  /* Code is selectable + copyable. The virtual renderer draws its own rows, so
+     this targets its code cell (`.diff-line-syntax-raw`) — the app-wide
+     `body { user-select: none }` (native feel) otherwise leaves diff text
+     unselectable. Line-number gutters + the +/− marker keep their `select-none`
+     (set in the row markup) so a copy never picks them up. */
+  .diff-line-syntax-raw {
     -webkit-user-select: text;
     user-select: text;
     cursor: text;

@@ -45,7 +45,11 @@ pub fn export_markdown(review: &Review) -> String {
                 _ => a.start_line.map(|s| format!("#### L{s}")).unwrap_or_else(|| "#### File-level".to_string()),
             };
             let side_note = if a.side == Side::Old { " · old-side" } else { "" };
-            out.push_str(&format!("{header}{side_note}{}\n", stale_suffix(c)));
+            let commit_note = match &c.commit {
+                Some(oid) => format!(" · commit {}", oid.chars().take(7).collect::<String>()),
+                None => String::new(),
+            };
+            out.push_str(&format!("{header}{side_note}{commit_note}{}\n", stale_suffix(c)));
             if let Some(snippet) = &a.snippet {
                 out.push_str(&format!("```{lang}\n{}\n```\n", snippet.trim_end()));
             }
@@ -71,14 +75,14 @@ mod tests {
     use crate::review::model::{Anchor, CommentScope, Snapshot};
 
     fn review_with(comments: Vec<Comment>) -> Review {
-        let target = Target { repo_path: "/r".into(), worktree: Some("feat/auth".into()), mode: DiffMode::BranchVsBase, base: Some("main".into()) };
+        let target = Target { repo_path: "/r".into(), worktree: Some("feat/auth".into()), mode: DiffMode::BranchVsBase, base: Some("main".into()), commit: None };
         let mut r = Review::new("id".into(), target, Snapshot { base_oid: "a1b2c3d".into(), head_oid: Some("e4f5g6h".into()), captured_at: "2026-06-25T18:54:00Z".into() }, "t".into());
         r.comments = comments;
         r
     }
 
     fn cmt(scope: CommentScope, anchor: Option<Anchor>, body: &str, stale: bool, resolved: bool) -> Comment {
-        Comment { id: "x".into(), scope, anchor, body: body.into(), stale, resolved, created_at: "t".into(), updated_at: "t".into() }
+        Comment { id: "x".into(), scope, anchor, body: body.into(), stale, resolved, commit: None, created_at: "t".into(), updated_at: "t".into() }
     }
 
     #[test]
@@ -122,5 +126,19 @@ mod tests {
         ]));
         assert!(md.contains("keep me"));
         assert!(!md.contains("resolved away"));
+    }
+
+    #[test]
+    fn commit_tag_is_rendered() {
+        let mut c = cmt(
+            CommentScope::Line,
+            Some(Anchor { file: "src/a.ts".into(), side: Side::New, start_line: Some(40), end_line: None, snippet: Some("export const TTL = 3600".into()) }),
+            "make configurable",
+            false,
+            false,
+        );
+        c.commit = Some("a1b2c3d4e5f6a7b8c9d0".into());
+        let md = export_markdown(&review_with(vec![c]));
+        assert!(md.contains("commit a1b2c3d"), "expected short commit marker, got:\n{md}");
     }
 }
