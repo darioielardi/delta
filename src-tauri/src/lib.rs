@@ -8,6 +8,7 @@ mod launch;
 mod registry;
 mod review;
 mod storage;
+mod walkthrough;
 mod watch;
 
 #[cfg(debug_assertions)]
