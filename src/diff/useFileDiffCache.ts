@@ -28,19 +28,30 @@ function createStore(): InternalStore {
   const inflight = new Set<string>();
   const listeners = new Map<string, Set<() => void>>();
   let target: Target | null = null;
+  // Bumped every time the whole cache is dropped (target/base shifted). A load
+  // started under an older generation must NOT write its result: the target it
+  // fetched against is gone, so its diff is stale — and when the old target was a
+  // single commit the file may not be in it at all ("not in diff" → blank). React
+  // runs a section's load effect *before* the parent's reset effect, so the first
+  // load after a mode switch fires against the previous target; the guard discards
+  // it when it lands. (#stale)
+  let generation = 0;
 
   const notify = (path: string) => listeners.get(path)?.forEach((cb) => cb());
   const notifyAll = () => listeners.forEach((set) => set.forEach((cb) => cb()));
 
   async function load(path: string) {
     if (!target || cache.has(path) || inflight.has(path)) return;
+    const gen = generation;
+    const t = target;
     inflight.add(path);
     try {
-      const fd = await api.getFileDiff(target, path);
+      const fd = await api.getFileDiff(t, path);
+      if (gen !== generation) return; // store was reset mid-flight — drop the stale result
       cache.set(path, fd);
       notify(path); // wake only this path's subscriber
     } finally {
-      inflight.delete(path);
+      if (gen === generation) inflight.delete(path); // a newer generation owns its own inflight entry
     }
   }
 
@@ -57,8 +68,12 @@ function createStore(): InternalStore {
     }
   }
 
-  // Base/HEAD shifted: drop everything and re-fetch all mounted files.
-  function refreshAll() {
+  // Drop the whole cache (target or base shifted) and immediately re-fetch every
+  // mounted file against the *current* target, so visible sections refill in place
+  // instead of getting stuck blank. Bumping the generation discards any load still
+  // in flight from the previous target. (#stale)
+  function reload() {
+    generation++;
     cache.clear();
     inflight.clear();
     notifyAll();
@@ -80,17 +95,20 @@ function createStore(): InternalStore {
     },
     load,
     clear() {
+      generation++;
       cache.clear();
       inflight.clear();
       notifyAll();
     },
     invalidate,
-    refreshAll,
+    refreshAll: reload,
     reset(t) {
+      // Re-point first so the re-driven loads fetch against the new target. Unlike
+      // the old clear-only reset, this re-fetches mounted files now: a section that
+      // never left the viewport across a mode switch gets no IntersectionObserver
+      // event, so without this it would keep its blank (or stale) body. (#stale)
       target = t;
-      cache.clear();
-      inflight.clear();
-      notifyAll();
+      reload();
     },
   };
 }
@@ -101,10 +119,11 @@ export function useFileDiffCache(target: Target | null): FileDiffStore {
   // child's subscription. Lazy init avoids a ref read during render.
   const [store] = useState<InternalStore>(createStore);
 
-  // Re-point + clear when the target changes (new review / mode). Mirrors the
-  // old clear-on-change, but notifies subscribers per-path instead of forcing a
-  // global re-render. Loads are driven by IntersectionObserver callbacks that
-  // fire asynchronously, well after this effect, so `target` is always set.
+  // Re-point + clear when the target changes (new review / mode). Notifies
+  // subscribers per-path instead of forcing a global re-render, and re-fetches
+  // every mounted file against the new target (a section that never leaves the
+  // viewport across a mode switch gets no IntersectionObserver event, so it can't
+  // rely on one to refill). Off-screen files still load lazily on scroll. (#stale)
   useEffect(() => {
     store.reset(target);
     // `commit` matters too: stepping commit→commit keeps mode === "commit", so without
