@@ -87,6 +87,8 @@ export interface Review {
   snapshot: Snapshot;
   comments: Comment[];
   viewed: ViewedEntry[];
+  /** Cached AI walkthrough, tagged with the diff signature it was generated against. (#guide) */
+  walkthrough?: CachedWalkthrough | null;
   createdAt: string;
   lastOpenedAt: string;
 }
@@ -210,6 +212,20 @@ export interface Walkthrough {
   ignored: IgnoredFile[];
   /** True when the diff was too large to read in full (summarized from structure). */
   degraded?: boolean;
+}
+
+/** A walkthrough cached on the review, tagged with the diff signature it was
+ *  generated against so staleness is a cheap comparison. (#guide) */
+export interface CachedWalkthrough {
+  walkthrough: Walkthrough;
+  diffSig: string;
+  generatedAt: string;
+}
+
+/** Presence of the local `claude` CLI — pre-flight gate for the walkthrough button. */
+export interface ClaudeStatus {
+  installed: boolean;
+  path?: string | null;
 }
 
 export interface CliStatus {

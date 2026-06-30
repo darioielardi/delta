@@ -576,6 +576,10 @@ export function installMockBackend(): void {
         await new Promise((r) => setTimeout(r, 450));
         return (largeParam ? genLargeWalkthrough(ds.summary) : WALKTHROUGH) as T;
       }
+      case "claude_status":
+        return { installed: true, path: "/usr/local/bin/claude" } as T;
+      case "cancel_walkthrough":
+        return undefined as T;
       case "list_worktrees": {
         // Varied timestamps + dirty flags exercise the recency sort and the
         // enriched worktree picker (#1/#6).
