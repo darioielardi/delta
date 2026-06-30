@@ -19,36 +19,11 @@ pub use cli::{cli_main, invoked_as_cli};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // CLI guard: a terminal invocation pointed at a path that isn't a git repo should
-    // warn on stderr and exit without opening any window — instead of silently falling
-    // back to the launcher. This runs in EVERY process: the primary's cold start and
-    // each single-instance secondary, which re-runs run() top-to-bottom before the
-    // plugin forwards argv. So the warning reaches the terminal that typed the command,
-    // and a non-repo is never forwarded to the running instance. Gated on stderr being
-    // a TTY so GUI launches (Finder/dock) — no terminal, cwd typically "/" — are
-    // unaffected and still open the launcher.
-    {
-        use std::io::IsTerminal;
-        if std::io::stderr().is_terminal() {
-            let args: Vec<String> = std::env::args().skip(1).collect();
-            let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-            let launch = crate::launch::parse_launch(&args, &cwd);
-            if crate::launch::launch_targets_non_repo(&launch) {
-                eprintln!("delta: not a git repository: {}", launch.repo_path.display());
-                std::process::exit(1);
-            }
-        }
-    }
+    // Single-instance and the non-repo CLI guard now live in the `delta` shim
+    // (`cli`/`ipc`): a CLI invocation forwards over the socket or `open -b`s the
+    // bundle, which Launch Services single-instances. The app is only entered via
+    // LS/dock/dev, so the old in-process TTY guard is gone.
     let builder = tauri::Builder::default();
-    // single-instance MUST be the first plugin registered. Release only: a debug
-    // build must NOT share the lock with the installed release, or a `delta` open
-    // gets forwarded into the running debug instance (which, with no dev server,
-    // paints blank). The debug build (`delta-dev`) runs standalone.
-    #[cfg(not(debug_assertions))]
-    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-        let args: Vec<String> = argv.into_iter().skip(1).collect();
-        crate::launch::route_launch(app, &args, std::path::Path::new(&cwd));
-    }));
     builder
         // Restore size/position but NOT visibility — windows are created hidden
         // and shown by the frontend after first paint (cold-start flash fix), so
