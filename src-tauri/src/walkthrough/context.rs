@@ -5,6 +5,10 @@ use crate::git::diff::{build_diff, DiffSummary, FileStatus};
 use crate::git::model::Target;
 use crate::git::{open_repo, resolve_endpoints, GitError};
 use sha2::{Digest, Sha256};
+use std::path::Path;
+
+/// Cap on the assembled project-context block (CLAUDE.md + resolved imports).
+pub const CONTEXT_BUDGET: usize = 32 * 1024;
 
 /// Above this many bytes of unified patch, fall back to a name-status summary and
 /// mark the walkthrough `degraded` — the model orients from structure, not full text.
@@ -90,6 +94,54 @@ pub fn diff_payload(target: &Target, summary: &DiffSummary) -> Result<(String, b
     Ok((String::from_utf8_lossy(&buf).into_owned(), false))
 }
 
+/// Read the worktree's CLAUDE.md and inline its `@path` imports (one level deep,
+/// bounded, never escaping the repo root). Returns "" when there's no CLAUDE.md.
+/// This is the ONLY project context the model sees — `--safe-mode` disables Claude's
+/// own auto-discovery, so we assemble it deliberately and auditably. (#guide)
+pub fn repo_context(worktree_root: &Path) -> String {
+    let Ok(text) = std::fs::read_to_string(worktree_root.join("CLAUDE.md")) else {
+        return String::new();
+    };
+    let canon_root = worktree_root.canonicalize().ok();
+    let mut out = String::new();
+    for line in text.lines() {
+        if let Some(rel) = line.trim().strip_prefix('@') {
+            let rel = rel.trim();
+            if let Some(body) = read_import(worktree_root, canon_root.as_deref(), rel) {
+                out.push_str(&format!("\n--- {rel} ---\n{body}\n"));
+            }
+            // unreadable / escaping import → silently skipped
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+        if out.len() > CONTEXT_BUDGET {
+            break;
+        }
+    }
+    if out.len() > CONTEXT_BUDGET {
+        let mut cut = CONTEXT_BUDGET;
+        while cut > 0 && !out.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        out.truncate(cut);
+    }
+    out
+}
+
+/// Read one import file iff it resolves inside the repo root. One level only —
+/// imports within imports are not followed (bounds cost + cycles).
+fn read_import(root: &Path, canon_root: Option<&Path>, rel: &str) -> Option<String> {
+    let canon = root.join(rel).canonicalize().ok()?;
+    if let Some(cr) = canon_root {
+        if !canon.starts_with(cr) {
+            return None; // escapes the repo root
+        }
+    }
+    let body = std::fs::read_to_string(&canon).ok()?;
+    Some(body.chars().take(CONTEXT_BUDGET).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +189,23 @@ mod tests {
         let (payload, degraded) = diff_payload(&target, &summary).unwrap();
         assert!(!degraded);
         assert!(payload.contains("CHANGED"), "patch should contain the changed line, got: {payload}");
+    }
+
+    #[test]
+    fn repo_context_inlines_imports_and_blocks_escape() {
+        let d = tempfile::TempDir::new().unwrap();
+        std::fs::write(d.path().join("CLAUDE.md"), "Root rules.\n@docs/a.md\n@../escape.md\n").unwrap();
+        std::fs::create_dir_all(d.path().join("docs")).unwrap();
+        std::fs::write(d.path().join("docs/a.md"), "Doc A body.").unwrap();
+        let out = repo_context(d.path());
+        assert!(out.contains("Root rules."));
+        assert!(out.contains("Doc A body."));
+        assert!(!out.contains("escape"), "escaping import must not be read");
+    }
+
+    #[test]
+    fn repo_context_empty_when_absent() {
+        let d = tempfile::TempDir::new().unwrap();
+        assert_eq!(repo_context(d.path()), "");
     }
 }
