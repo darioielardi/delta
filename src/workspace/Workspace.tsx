@@ -395,15 +395,20 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
             const isMain = !!repoName && wt === repoName;
             return (
               <span className="flex min-w-0 items-center">
-                {repoName && !isMain && <span className="shrink-0 font-normal text-muted-foreground">{repoName}&nbsp;/&nbsp;</span>}
-                <span className="truncate">{isMain ? repoName : wt}</span>
+                {repoName && !isMain && (
+                  <span className="flex shrink-0 items-center font-normal text-muted-foreground">
+                    <span className="max-w-[14ch] truncate">{repoName}</span>
+                    <span>&nbsp;/&nbsp;</span>
+                  </span>
+                )}
+                <span className="max-w-[20ch] truncate">{isMain ? repoName : wt}</span>
               </span>
             );
           })()}
           {review?.target.worktree ? (
             <span className="ml-1 flex min-w-0 items-center gap-1 border-l border-border/70 pl-2 font-normal text-muted-foreground">
               <GitBranch className="size-3 shrink-0" />
-              <span className="truncate">{review.target.worktree}</span>
+              <span className="max-w-[20ch] truncate">{review.target.worktree}</span>
             </span>
           ) : null}
           <Kbd keys="⌘P" className="ml-1" />
@@ -433,7 +438,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                     <DropdownMenuCheck checked={inCommitMode} />
                     Commit
                   </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="max-h-72 overflow-y-auto">
+                  <DropdownMenuSubContent className="max-h-72 max-w-[22rem] overflow-y-auto">
                     {commits.map((c) => (
                       <DropdownMenuItem key={c.oid} onSelect={() => pickCommit(c.oid)} className="gap-2.5">
                         <span className="font-mono text-muted-foreground">{c.shortOid}</span>
