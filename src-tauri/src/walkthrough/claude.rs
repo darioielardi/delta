@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Default model alias — a fast, capable tier for orientation. Tracks "latest" via
 /// the alias rather than a pinned id; configurable here.
@@ -20,6 +20,36 @@ const DISALLOWED_TOOLS: &str = "Bash Edit Write Read Glob Grep WebFetch WebSearc
 
 /// Default wall-clock budget before the child is killed.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(90);
+
+/// Effort levels the `claude` CLI accepts; an env override is validated against this.
+const EFFORT_LEVELS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// Verbose invocation logging gate (`DELTA_WALKTHROUGH_DEBUG=1`). Logs the exact
+/// argv, dumps stdin + system prompt to temp files, and prints a repro command.
+fn debug_enabled() -> bool {
+    std::env::var_os("DELTA_WALKTHROUGH_DEBUG").is_some_and(|v| !v.is_empty())
+}
+
+/// Per-run timeout, overridable via `DELTA_WALKTHROUGH_TIMEOUT_SECS` so you can tell
+/// "wedged" from "just slow" without recompiling.
+fn resolve_timeout() -> Duration {
+    std::env::var("DELTA_WALKTHROUGH_TIMEOUT_SECS")
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .filter(|&n| n > 0)
+        .map(Duration::from_secs)
+        .unwrap_or(DEFAULT_TIMEOUT)
+}
+
+/// Optional effort override (`DELTA_WALKTHROUGH_EFFORT=low|medium|high|xhigh|max`).
+/// Unset → the CLI default (`xhigh` in Claude Code). A live lever for tuning latency
+/// while debugging timeouts.
+fn effort_override() -> Option<String> {
+    std::env::var("DELTA_WALKTHROUGH_EFFORT")
+        .ok()
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| EFFORT_LEVELS.contains(&s.as_str()))
+}
 
 /// Hard ceiling on reading groups — kills the over-fragmented case (the floor of 2
 /// kills the one-step case).
@@ -246,7 +276,7 @@ pub fn generate_with_runner(
 /// repo's CLAUDE.md/docs ourselves via stdin. Auth stays on keychain/OAuth, so the
 /// run bills the user's Claude plan. (#guide)
 pub fn claude_argv(system: &str) -> Vec<String> {
-    vec![
+    let mut argv = vec![
         "-p".into(),
         "--safe-mode".into(),
         "--output-format".into(),
@@ -257,7 +287,14 @@ pub fn claude_argv(system: &str) -> Vec<String> {
         DISALLOWED_TOOLS.into(),
         "--append-system-prompt".into(),
         system.into(),
-    ]
+    ];
+    // Effort defaults to the CLI's own (`xhigh` in Claude Code) — heavy for a bounded
+    // orientation task. An env override lets you dial it down without recompiling.
+    if let Some(effort) = effort_override() {
+        argv.push("--effort".into());
+        argv.push(effort);
+    }
+    argv
 }
 
 /// Real runner: spawns `claude`, feeds the payload on stdin, waits with a timeout,
@@ -272,14 +309,59 @@ pub struct RealClaude {
 
 impl RealClaude {
     pub fn new(path: PathBuf, registry: ChildRegistry, review_id: String) -> Self {
-        RealClaude { path, timeout: DEFAULT_TIMEOUT, registry, review_id }
+        RealClaude { path, timeout: resolve_timeout(), registry, review_id }
+    }
+
+    /// Dump the exact argv + stdin + system prompt to temp files and print a
+    /// ready-to-run reproduction command. Gated on `DELTA_WALKTHROUGH_DEBUG`. (#guide)
+    fn log_invocation(&self, argv: &[String], system: &str, stdin: &str) {
+        let dir = std::env::temp_dir();
+        let base = format!("delta-walkthrough-{}", self.review_id);
+        let stdin_path = dir.join(format!("{base}.stdin.txt"));
+        let sys_path = dir.join(format!("{base}.system.txt"));
+        let _ = std::fs::write(&stdin_path, stdin);
+        let _ = std::fs::write(&sys_path, system);
+        // Elide the giant system-prompt arg so the argv line stays readable.
+        let pretty: Vec<String> = argv
+            .iter()
+            .map(|a| {
+                if a == system {
+                    "<system-prompt>".into()
+                } else if a.contains(' ') {
+                    format!("'{a}'")
+                } else {
+                    a.clone()
+                }
+            })
+            .collect();
+        eprintln!("[delta/walkthrough] claude  = {}", self.path.display());
+        eprintln!("[delta/walkthrough] cwd     = {:?}", std::env::current_dir().ok());
+        eprintln!("[delta/walkthrough] timeout = {}s", self.timeout.as_secs());
+        eprintln!("[delta/walkthrough] argv    = {}", pretty.join(" "));
+        eprintln!("[delta/walkthrough] stdin   = {} bytes -> {}", stdin.len(), stdin_path.display());
+        eprintln!("[delta/walkthrough] system  = {} bytes -> {}", system.len(), sys_path.display());
+        eprintln!(
+            "[delta/walkthrough] reproduce (streams progress + debug):\n  cat '{}' | '{}' -p --safe-mode --output-format stream-json --include-partial-messages --verbose --model {} --disallowedTools '{}' --append-system-prompt \"$(cat '{}')\" --debug",
+            stdin_path.display(),
+            self.path.display(),
+            WALKTHROUGH_MODEL,
+            DISALLOWED_TOOLS,
+            sys_path.display(),
+        );
     }
 }
 
 impl ClaudeRunner for RealClaude {
     fn run(&self, system: &str, stdin: &str) -> Result<String, WalkthroughError> {
+        let debug = debug_enabled();
+        let start = debug.then(Instant::now);
+        let argv = claude_argv(system);
+        if debug {
+            self.log_invocation(&argv, system, stdin);
+        }
+
         let mut child = Command::new(&self.path)
-            .args(claude_argv(system))
+            .args(&argv)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -305,6 +387,9 @@ impl ClaudeRunner for RealClaude {
 
         let result = match rx.recv_timeout(self.timeout) {
             Ok(Ok(output)) => {
+                if debug && !output.stderr.is_empty() {
+                    eprintln!("[delta/walkthrough] claude stderr:\n{}", String::from_utf8_lossy(&output.stderr));
+                }
                 if output.status.success() {
                     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
                 } else if output.status.code().is_none() {
@@ -327,6 +412,14 @@ impl ClaudeRunner for RealClaude {
             }
         };
         self.registry.remove(&self.review_id, pid);
+
+        if let Some(start) = start {
+            let secs = start.elapsed().as_secs_f32();
+            match &result {
+                Ok(out) => eprintln!("[delta/walkthrough] completed in {secs:.1}s ({} bytes stdout)", out.len()),
+                Err(e) => eprintln!("[delta/walkthrough] failed in {secs:.1}s: {e:?}"),
+            }
+        }
         result
     }
 }
