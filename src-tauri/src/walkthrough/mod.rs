@@ -4,3 +4,4 @@
 // invariants. Results are cached on the review by diff signature. (#guide)
 pub mod context;
 pub mod model;
+pub mod prompt;
