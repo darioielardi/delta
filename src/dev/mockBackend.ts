@@ -284,12 +284,12 @@ const WALKTHROUGH: Walkthrough = {
   version: 1,
   title: "Persistent auth session store",
   summary:
-    "Migrates auth sessions from the in-memory cache to a persistent store, adds JWT issue/refresh, and guards routes with session middleware. The src/auth + src/store work is the core; tests, config, and docs follow.",
+    "Migrates auth sessions from the in-memory cache to a persistent store, adds JWT issue/refresh, and guards routes with session middleware. The `src/auth` + `src/store` work is the core; tests, config, and docs follow.",
   groups: [
     {
       id: "session-store-migration",
       title: "Session store migration",
-      summary: "getSession()/putSession() now read and write the persistent store; the legacy cache + memstore are deleted and TTL doubles to 7200.",
+      summary: "`getSession()`/`putSession()` now read and write the persistent store; the legacy cache + memstore are deleted and TTL doubles to `7200`.",
       order: 1,
       importance: "core",
       files: [
@@ -306,7 +306,7 @@ const WALKTHROUGH: Walkthrough = {
     {
       id: "tokens",
       title: "Token issue & refresh",
-      summary: "Adds JWT issue/rotate and a requireSession guard; login() gains clock tolerance.",
+      summary: "Adds JWT issue/rotate and a `requireSession` guard; `login()` gains clock tolerance.",
       order: 2,
       importance: "supporting",
       files: [
@@ -322,7 +322,7 @@ const WALKTHROUGH: Walkthrough = {
     {
       id: "session-api",
       title: "Session API surface",
-      summary: "New create/refresh/revoke handlers behind the session routes; routes gain includeRevoked + geoHint params.",
+      summary: "New create/refresh/revoke handlers behind the session routes; `src/api/routes.ts` gains `includeRevoked` + `geoHint` params.",
       order: 3,
       importance: "supporting",
       files: [
@@ -334,7 +334,7 @@ const WALKTHROUGH: Walkthrough = {
     {
       id: "config-deps",
       title: "Config & deps",
-      summary: "New env vars (JWT_SECRET, SESSION_TTL_MS), limit bumps, and the jsonwebtoken dependency.",
+      summary: "New env vars (`JWT_SECRET`, `SESSION_TTL_MS`), limit bumps, and the `jsonwebtoken` dependency.",
       order: 4,
       importance: "skim",
       files: [
@@ -359,7 +359,7 @@ const WALKTHROUGH: Walkthrough = {
     {
       id: "docs",
       title: "Docs",
-      summary: "Session-flow write-up and a README pointer.",
+      summary: "Session-flow write-up and a `README.md` pointer.",
       order: 6,
       importance: "skim",
       files: [
