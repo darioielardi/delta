@@ -59,8 +59,13 @@ Make this configurable.
 
 ## 🚀 Installation
 
-You can download the latest release from the [releases](https://github.com/darioielardi/delta/releases) page, brew coming soon!
-macOS only for now.
+On macOS (Apple Silicon):
+
+```sh
+brew install --cask darioielardi/tap/delta
+```
+
+Or grab the latest `.dmg` from the [releases](https://github.com/darioielardi/delta/releases) page. macOS, Apple Silicon (arm64) only.
 
 ## 💻 Open from your terminal
 
