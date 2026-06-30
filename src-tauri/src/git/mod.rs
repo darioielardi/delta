@@ -1,5 +1,6 @@
 pub mod diff;
 pub mod lang;
+pub mod log;
 pub mod model;
 
 use git2::{Oid, Repository, Tree};

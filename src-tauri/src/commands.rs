@@ -1,5 +1,6 @@
 use crate::export::export_markdown;
 use crate::git::diff::{compute_diff as engine_compute, get_file_diff as engine_file, DiffSummary, FileDiff};
+use crate::git::log::{list_commits as engine_list_commits, CommitMeta};
 use crate::git::model::{DiffMode, Target};
 use crate::git::{open_repo, resolve_worktree};
 use crate::launch::{
@@ -21,6 +22,10 @@ pub fn compute_diff_impl(target: Target) -> Result<DiffSummary, String> {
 
 pub fn get_file_diff_impl(target: Target, path: String) -> Result<FileDiff, String> {
     engine_file(&target, &path)
+}
+
+pub fn list_commits_impl(target: Target) -> Result<Vec<CommitMeta>, String> {
+    engine_list_commits(&target)
 }
 
 fn reviews_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -160,6 +165,13 @@ pub async fn get_file_diff(target: Target, path: String) -> Result<FileDiff, Str
     tauri::async_runtime::spawn_blocking(move || get_file_diff_impl(target, path))
         .await
         .map_err(|e| format!("get_file_diff task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn list_commits(target: Target) -> Result<Vec<CommitMeta>, String> {
+    tauri::async_runtime::spawn_blocking(move || list_commits_impl(target))
+        .await
+        .map_err(|e| format!("list_commits task: {e}"))?
 }
 
 #[tauri::command]

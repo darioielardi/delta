@@ -63,6 +63,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::compute_diff,
             commands::get_file_diff,
+            commands::list_commits,
             commands::open_review,
             commands::refresh_review,
             commands::save_review,
