@@ -11,6 +11,7 @@ import { NoticeDialog } from "@/components/ui/notice-dialog";
 import { onNotice, type Notice } from "./lib/notify";
 import { useApplyTheme } from "./theme";
 import { useApplyCodeFont } from "./codeFont";
+import { DevBadge } from "@/components/DevBadge";
 
 function readLabel(): string | null {
   if (import.meta.env.VITE_MOCK_IPC) return null;
@@ -111,6 +112,7 @@ export default function App() {
         message={notice?.message}
         onClose={() => setNotice(null)}
       />
+      <DevBadge />
     </>
   );
 }

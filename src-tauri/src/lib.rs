@@ -35,12 +35,17 @@ pub fn run() {
             }
         }
     }
-    tauri::Builder::default()
-        // single-instance MUST be the first plugin registered.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-            let args: Vec<String> = argv.into_iter().skip(1).collect();
-            crate::launch::route_launch(app, &args, std::path::Path::new(&cwd));
-        }))
+    let builder = tauri::Builder::default();
+    // single-instance MUST be the first plugin registered. Release only: a debug
+    // build must NOT share the lock with the installed release, or a `delta` open
+    // gets forwarded into the running debug instance (which, with no dev server,
+    // paints blank). The debug build (`delta-dev`) runs standalone.
+    #[cfg(not(debug_assertions))]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+        let args: Vec<String> = argv.into_iter().skip(1).collect();
+        crate::launch::route_launch(app, &args, std::path::Path::new(&cwd));
+    }));
+    builder
         // Restore size/position but NOT visibility — windows are created hidden
         // and shown by the frontend after first paint (cold-start flash fix), so
         // the plugin must not re-show them early.

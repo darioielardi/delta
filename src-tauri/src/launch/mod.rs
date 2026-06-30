@@ -8,6 +8,20 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 
+/// CLI shim name. The debug build installs as `delta-dev` so it never clobbers the
+/// installed release's `delta`; the two coexist on PATH and never hijack each other.
+#[cfg(debug_assertions)]
+pub const CLI_NAME: &str = "delta-dev";
+#[cfg(not(debug_assertions))]
+pub const CLI_NAME: &str = "delta";
+
+/// Window title — suffixed in dev builds so the debug app is visually distinct from
+/// the installed release in the title bar and window switcher.
+#[cfg(debug_assertions)]
+const WINDOW_TITLE: &str = "Delta (dev)";
+#[cfg(not(debug_assertions))]
+const WINDOW_TITLE: &str = "Delta";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Launch {
     /// The repo/worktree path to open. A bare invocation (no path arg) resolves to
@@ -193,7 +207,7 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
     }
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::App(url.into()))
-        .title("Delta")
+        .title(WINDOW_TITLE)
         .visible(false) // shown via show()+setFocus() after first paint so the window orders front
         .inner_size(1440.0, 900.0)
         .min_inner_size(900.0, 600.0);
@@ -237,7 +251,7 @@ pub fn open_home_window(app: &AppHandle) -> Result<(), String> {
     }
     #[allow(unused_mut)]
     let mut builder = WebviewWindowBuilder::new(app, "home", WebviewUrl::App("index.html".into()))
-        .title("Delta")
+        .title(WINDOW_TITLE)
         .visible(false) // shown via show()+setFocus() after first paint so the window orders front
         .inner_size(1000.0, 680.0)
         .min_inner_size(800.0, 560.0)
@@ -310,7 +324,7 @@ fn dir_is_writable(dir: &Path) -> bool {
 }
 
 fn link_into(dir: &Path, exe: &Path) -> Result<InstallOutcome, String> {
-    let link = dir.join("delta");
+    let link = dir.join(CLI_NAME);
     if fs::symlink_metadata(&link).is_ok() {
         let _ = fs::remove_file(&link); // replace stale link/file
     }
@@ -353,7 +367,7 @@ pub fn install_cli() -> Result<InstallOutcome, String> {
         let local_bin = home.join(".local/bin");
         if fs::create_dir_all(&local_bin).is_ok() && dir_is_writable(&local_bin) {
             link_into(&local_bin, &exe)?; // the symlink itself succeeded
-            let path = local_bin.join("delta").display().to_string();
+            let path = local_bin.join(CLI_NAME).display().to_string();
             if path_dirs.iter().any(|d| d == &local_bin) {
                 return Ok(InstallOutcome::Linked { path });
             }
@@ -363,7 +377,7 @@ pub fn install_cli() -> Result<InstallOutcome, String> {
     }
 
     Ok(InstallOutcome::ManualNeeded {
-        command: format!("sudo ln -sf '{}' /usr/local/bin/delta", exe.display()),
+        command: format!("sudo ln -sf '{}' /usr/local/bin/{}", exe.display(), CLI_NAME),
         reason: "No writable directory found on your PATH.".into(),
     })
 }
@@ -379,7 +393,7 @@ pub fn cli_status() -> CliStatus {
         dirs.extend(std::env::split_paths(&path_var));
     }
     for dir in dirs {
-        let link = dir.join("delta");
+        let link = dir.join(CLI_NAME);
         if fs::symlink_metadata(&link).is_ok() {
             return CliStatus { installed: true, path: Some(link.display().to_string()) };
         }
