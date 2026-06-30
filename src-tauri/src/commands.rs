@@ -12,6 +12,9 @@ use crate::registry::model::{Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
 use crate::review::reconcile::{reconcile, ReviewSession};
 use crate::storage::{JsonRegistryStore, JsonStorage, RegistryStore, Storage};
+use crate::walkthrough::claude::{ClaudeRunner, RealClaude};
+use crate::walkthrough::model::{ClaudeStatus, Walkthrough, WalkthroughError};
+use crate::walkthrough::{claude_status_impl, generate_walkthrough_impl, resolve_claude, ChildRegistry};
 use std::path::PathBuf;
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
@@ -345,6 +348,42 @@ pub fn install_cli() -> Result<InstallOutcome, String> {
 #[tauri::command]
 pub fn cli_status() -> CliStatus {
     launch_cli_status()
+}
+
+// AI walkthrough: presence gate, generation, cancellation. (#guide)
+#[tauri::command]
+pub fn claude_status() -> ClaudeStatus {
+    claude_status_impl()
+}
+
+#[tauri::command]
+pub async fn generate_walkthrough(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, ChildRegistry>,
+    target: Target,
+    force: Option<bool>,
+) -> Result<Walkthrough, String> {
+    let reviews = reviews_dir(&app)?;
+    let registry = registry.inner().clone();
+    let force = force.unwrap_or(false);
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = JsonStorage::new(reviews);
+        // The runner is built only on a cache miss; it registers the child PID under
+        // the review id so `cancel_walkthrough` can kill it.
+        let make_runner = move |review_id: &str| -> Result<Box<dyn ClaudeRunner>, WalkthroughError> {
+            let path = resolve_claude().ok_or(WalkthroughError::NotInstalled)?;
+            Ok(Box::new(RealClaude::new(path, registry, review_id.to_string())))
+        };
+        generate_walkthrough_impl(&storage, target, force, make_runner).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| format!("generate_walkthrough task: {e}"))?
+}
+
+#[tauri::command]
+pub fn cancel_walkthrough(registry: tauri::State<'_, ChildRegistry>, review_id: String) -> Result<(), String> {
+    registry.kill(&review_id);
+    Ok(())
 }
 
 // "Open in your editor" (#editor). Each curated editor maps to a CLI; where the

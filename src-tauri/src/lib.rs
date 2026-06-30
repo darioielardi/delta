@@ -40,6 +40,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .manage(crate::watch::Watchers::default())
+        .manage(crate::walkthrough::ChildRegistry::default())
         .invoke_handler(tauri::generate_handler![
             commands::compute_diff,
             commands::get_file_diff,
@@ -58,6 +59,9 @@ pub fn run() {
             commands::delete_review,
             commands::install_cli,
             commands::cli_status,
+            commands::claude_status,
+            commands::generate_walkthrough,
+            commands::cancel_walkthrough,
             commands::open_in_editor
         ])
         .setup(|app| {
