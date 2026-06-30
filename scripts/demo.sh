@@ -27,6 +27,7 @@ BRANCH="feat/auth-ui"
 WT="keen-mendel-9c41a7"            # Claude-style worktree name
 WT_PATH="$ROOT/.claude/worktrees/$WT"
 REVIEWS_DIR="$HOME/Library/Application Support/com.darioielardi.delta/reviews"
+REVIEWS_DIR_DEV="$HOME/Library/Application Support/com.darioielardi.delta.dev/reviews"
 
 die() { printf 'demo: %s\n' "$*" >&2; exit 1; }
 
@@ -638,6 +639,9 @@ print(f'{review["id"]} {len(comments)}')
 PY
 )"
 ID="${SEED%% *}"; NC="${SEED##* }"
+# Mirror the sidecar into the dev build's store too (release and dev have separate
+# data dirs), so the seeded comments show whichever build opens the demo.
+mkdir -p "$REVIEWS_DIR_DEV" && cp "$REVIEWS_DIR/$ID.json" "$REVIEWS_DIR_DEV/" 2>/dev/null || true
 
 # ---------------------------------------------------------------------------
 printf '\n✅ demo ready: %s\n' "$WT_PATH"

@@ -27,6 +27,7 @@ BRANCH="feat/stress"
 WT="vibrant-galois-3d8f1a"
 WT_PATH="$ROOT/.claude/worktrees/$WT"
 REVIEWS_DIR="$HOME/Library/Application Support/com.darioielardi.delta/reviews"
+REVIEWS_DIR_DEV="$HOME/Library/Application Support/com.darioielardi.delta.dev/reviews"
 
 die() { printf 'demo-stress: %s\n' "$*" >&2; exit 1; }
 
@@ -217,6 +218,9 @@ git commit -q -m "feat: sessions, rate limiting, audit log across the service"
 
 SEED="$(python3 "$GEN" sidecar "$REVIEWS_DIR" "$WT_PATH" "$BRANCH")"
 ID="${SEED%% *}"; NCOMMENTS_WRITTEN="${SEED##* }"
+# Mirror the sidecar into the dev build's store too (release and dev have separate
+# data dirs), so the seeded comments show whichever build opens the demo.
+mkdir -p "$REVIEWS_DIR_DEV" && cp "$REVIEWS_DIR/$ID.json" "$REVIEWS_DIR_DEV/" 2>/dev/null || true
 
 printf '\n✅ stress demo ready: %s\n' "$WT_PATH"
 printf '   '; git diff --shortstat main...HEAD
