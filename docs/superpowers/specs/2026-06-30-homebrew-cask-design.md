@@ -61,6 +61,38 @@ works, and keeps it current automatically on each release.
 - `depends_on macos:` floor — omitted until we confirm the real minimum, rather
   than guess a version that wrongly blocks valid installs.
 
+## Future direction: premium / self-updater coexistence (out of scope)
+
+If Delta later adds a landing-page download and an in-app updater and demotes brew to
+a second-class install method, the cask does **not** conflict — the change is additive.
+Captured here so the reasoning survives:
+
+- **One update owner per installed copy.** The only footgun is brew *and* an in-app
+  updater both managing the same install (the app self-updates, brew's recorded version
+  drifts, `brew upgrade` fights it). The switch that resolves it is `auto_updates true`
+  in the cask: brew then does the initial install only and stops managing upgrades —
+  the standard posture for self-updating casks (VS Code, Slack, etc.).
+- **"brew second-class" = brew install-only, app self-updates.** Keeping brew a real
+  update channel *and* self-updating the same copy is contradictory; the only way to
+  keep both is to suppress the updater for brew-installed copies, which needs unreliable
+  runtime provenance detection (a cask drops `Delta.app` in `/Applications` like any
+  DMG). Don't — go install-only + `auto_updates true`.
+- **Artifacts coexist in one GitHub release:** the notarized `*.dmg` (cask + landing
+  page) alongside `*.app.tar.gz` + `.sig` + `latest.json` (the updater). The Tauri
+  updater needs its **own** ed25519 signing key, separate from Apple notarization.
+- **Single source of truth = the GitHub release.** Cask `livecheck`, the updater
+  manifest, and the landing-page link all derive from it so they can't disagree.
+- **Deferrable, staged migration — not a flag day:** ship an updater-enabled build
+  first (keep bumping the cask via `update-cask.sh`), then flip `auto_updates true`
+  once users are on updater-capable versions. **Do not** set `auto_updates true` before
+  the updater ships — it would strand users on an app brew no longer upgrades.
+- **Caveat:** a Tauri updater only trusts updates signed by a key compiled into the app,
+  so self-update works from the first updater-enabled release forward. Pre-updater
+  installs (incl. today's v0.3.0) need one manual hop (`brew upgrade` / re-download) to
+  reach it, then self-update from there — same cost whenever introduced.
+- `update-cask.sh` stays useful even then: fresh `brew install` and `brew upgrade
+  --greedy` still use the cask version, so keep bumping it.
+
 ## The tap repo — `darioielardi/homebrew-tap`
 
 Contents:
