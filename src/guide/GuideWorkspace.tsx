@@ -7,6 +7,7 @@
 // annotating — but a local "viewed" toggle is kept so the tree/diff feel live.
 import { useCallback, useEffect, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { ErrorStrip } from "@/components/ui/error-strip";
 import { ArrowRight, Columns2, GitBranch, Rows2, Sparkles } from "lucide-react";
 import { api } from "../api";
 import { flattenTreeFiles } from "../files/buildTree";
@@ -119,9 +120,7 @@ export function GuideWorkspace({ target }: { target: Target }) {
           </>
         )}
       </header>
-      {error && (
-        <div className="shrink-0 border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-[12px] text-destructive">{error}</div>
-      )}
+      {error && <ErrorStrip message={error} onDismiss={() => setError(null)} />}
       <div className="flex min-h-0 flex-1">
         {summary && reviewTarget ? (
           <>
