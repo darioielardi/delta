@@ -208,6 +208,29 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // A CLI invocation that targets this already-open window with an explicit
+  // --mode forwards it here, so we switch in place — focusing alone would ignore
+  // the requested mode. Reuses the same path as the toolbar mode switcher.
+  useEffect(() => {
+    if (import.meta.env.VITE_MOCK_IPC) return;
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const un = await listen<DiffMode>("cli:set-mode", (e) => setDiffMode(e.payload));
+        if (cancelled) un();
+        else unlisten = un;
+      } catch {
+        /* not running under Tauri */
+      }
+    })();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function flashCopy(state: "ok" | "err") {
     setCopyState(state);
     if (copyTimer.current) clearTimeout(copyTimer.current);
