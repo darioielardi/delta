@@ -746,12 +746,12 @@ const VFileSection = memo(function VFileSection({
           onPointerDown={onGutterPointerDown}
         >
           {isBinary ? (
-            <div className="flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
+            <div className="delta-ui-font flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
               <FileQuestion className="size-4 shrink-0 opacity-70" />
               <span>Unsupported file — binary or non-text content.</span>
             </div>
           ) : isDeleted && !revealed ? (
-            <div className="flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
+            <div className="delta-ui-font flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
               <FileX className="size-4 shrink-0 text-rose-500/80" />
               <span>File deleted</span>
               <button
