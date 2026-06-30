@@ -9,8 +9,8 @@
 //     at everything. The guide reorders and de-emphasizes; it never hides a file.
 //
 // Prototype note: the walkthrough is handed in (mock-served today, `claude` CLI later).
-import { useEffect, useRef, useState } from "react";
-import { Sparkles, RefreshCw, ChevronDown, ChevronRight, EyeOff, Eye, Layers, FileText, TriangleAlert, CircleHelp, Check } from "lucide-react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Sparkles, RefreshCw, ChevronLeft, ChevronDown, ChevronRight, EyeOff, Eye, Layers, FileText, TriangleAlert, CircleHelp, Check } from "lucide-react";
 import { FilesPanel } from "../files/FilesPanel";
 import { FileGlyph } from "../files/fileGlyph";
 import type { Walkthrough, WalkGroup, WalkImportance, RiskSeverity, FileEntry } from "../types";
@@ -71,7 +71,7 @@ function RichText({ text, resolvePath, onJump }: {
 }
 
 export function GuidePanel({
-  walkthrough, loading, activeFile, files, viewedFiles, onToggleViewed, onRegenerate, onJump,
+  walkthrough, loading, activeFile, files, viewedFiles, onToggleViewed, onRegenerate, onJump, onExit, stale,
 }: {
   walkthrough: Walkthrough | null;
   loading: boolean;
@@ -81,6 +81,12 @@ export function GuidePanel({
   onToggleViewed: (file: string) => void;
   onRegenerate: () => void;
   onJump: (path: string, line?: number | null) => void;
+  // When provided, the panel is embedded in the review (in-place walkthrough mode):
+  // the header shows a "back to review" control instead of the Guided/Files toggle. (#guide)
+  onExit?: () => void;
+  // The diff changed under the walkthrough, so it's out of date — the header swaps
+  // reading-progress for a small "update" (regenerate) action. (#guide)
+  stale?: boolean;
 }) {
   const [mode, setMode] = useState<Mode>("guided");
 
@@ -158,19 +164,37 @@ export function GuidePanel({
   }, [viewedFiles]);
 
   return (
-    <aside className="flex h-full w-[28rem] min-h-0 shrink-0 flex-col">
+    <div className="flex h-full w-full min-h-0 shrink-0 flex-col">
       <div className="flex h-11 shrink-0 items-center gap-2 px-4 pt-3.5">
-        <ModeToggle mode={mode} onChange={setMode} />
-        <button
-          type="button"
-          onClick={onRegenerate}
-          disabled={loading}
-          title="Regenerate walkthrough"
-          aria-label="Regenerate walkthrough"
-          className="ml-auto inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-50"
-        >
-          <RefreshCw className={`size-4 ${loading ? "animate-spin" : ""}`} />
-        </button>
+        {onExit ? (
+          <button
+            type="button"
+            onClick={onExit}
+            title="Back to review"
+            className="-ml-1.5 inline-flex h-7 items-center gap-1 rounded-md pl-1.5 pr-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <ChevronLeft className="size-4" /> Review
+          </button>
+        ) : (
+          <ModeToggle mode={mode} onChange={setMode} />
+        )}
+        {groups.length > 0 && (
+          <div className="ml-auto flex items-center">
+            {stale ? (
+              <button
+                type="button"
+                onClick={onRegenerate}
+                disabled={loading}
+                title="The diff changed — regenerate the walkthrough"
+                className="inline-flex h-7 items-center gap-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-2.5 text-[12px] font-medium text-amber-600 transition-colors hover:bg-amber-500/20 disabled:opacity-50 dark:text-amber-400"
+              >
+                <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} /> Update
+              </button>
+            ) : (
+              <StepProgress groups={groups} viewedFiles={viewedFiles} activeGroupId={activeGroupId} />
+            )}
+          </div>
+        )}
       </div>
 
       {mode === "files" ? (
@@ -205,7 +229,7 @@ export function GuidePanel({
           )}
         </div>
       )}
-    </aside>
+    </div>
   );
 }
 
@@ -416,19 +440,115 @@ function IgnoredSection({ ignored, ...row }: { ignored: Walkthrough["ignored"] }
   );
 }
 
-function LoadingState() {
+// Reading progress — one segment per step, filled when all of that step's files
+// are viewed, with the current step (scroll-spy) dimly lit so you can see where you
+// are. Collapses to a single bar when there are too many steps to segment cleanly.
+function StepProgress({ groups, viewedFiles, activeGroupId }: { groups: WalkGroup[]; viewedFiles: Set<string>; activeGroupId?: string }) {
+  const isDone = (g: WalkGroup) => g.files.length > 0 && g.files.every((f) => viewedFiles.has(f.path));
+  const doneCount = groups.filter(isDone).length;
+  const total = groups.length;
+  const label = `${doneCount} of ${total} step${total === 1 ? "" : "s"} reviewed`;
   return (
-    <div className="flex flex-col gap-3.5 pt-1">
-      <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
-        <Sparkles className="size-3.5 animate-pulse text-primary" />
-        Reading the diff…
-      </div>
-      {[0, 1, 2].map((i) => (
-        <div key={i} className="rounded-xl border border-border bg-card p-4">
-          <div className="mb-2.5 h-3.5 w-1/2 rounded bg-muted [animation:delta-indeterminate_1.1s_ease-in-out_infinite]" />
-          <div className="h-2.5 w-full rounded bg-muted/60" />
+    <div className="flex items-center gap-2" title={label} aria-label={label}>
+      {total <= 12 ? (
+        <div className="flex items-center gap-1">
+          {groups.map((g) => (
+            <span
+              key={g.id}
+              className={`h-1.5 w-3.5 rounded-full transition-colors ${isDone(g) ? "bg-primary" : g.id === activeGroupId ? "bg-primary/35" : "bg-muted"}`}
+            />
+          ))}
         </div>
-      ))}
+      ) : (
+        <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${total ? (doneCount / total) * 100 : 0}%` }} />
+        </div>
+      )}
+      <span className="text-[11px] tabular-nums text-muted-foreground">{doneCount}/{total}</span>
+    </div>
+  );
+}
+
+// Loading state — a shimmer skeleton that mirrors the real guide (overview →
+// numbered steps → file rows) so the hand-off to content doesn't jump, topped by a
+// sparkle and a caption that cycles through the phases the AI works through.
+const LOAD_PHASES = ["Reading the diff", "Grouping the changes", "Flagging the risks"];
+
+// Title/summary/file-row widths per step — fixed (not random) so the skeleton is
+// stable across renders, but uneven so it reads as content rather than a grid.
+const STEP_SKELETONS = [
+  { title: "56%", summary: "72%", files: ["52%", "64%"] },
+  { title: "64%", summary: "60%", files: ["58%", "46%", "61%"] },
+  { title: "48%", summary: "78%", files: ["55%"] },
+];
+
+// One shimmer block. `--skel-delay` staggers each block's sweep (set per element)
+// so the panel shimmers like a wave instead of in lockstep.
+function Skel({ className = "", w, delay = 0 }: { className?: string; w?: string; delay?: number }) {
+  const style = { "--skel-delay": `${delay}ms`, ...(w ? { width: w } : null) } as CSSProperties;
+  return <span className={`delta-skel block rounded ${className}`} style={style} />;
+}
+
+function StepSkeleton({ idx, spec }: { idx: number; spec: (typeof STEP_SKELETONS)[number] }) {
+  const base = idx * 140;
+  return (
+    <li className="border-t border-border/60 py-6 first:border-t-0 first:pt-0">
+      <Skel className="h-3" w="2.5rem" delay={base} />
+      <div className="mt-2.5 flex items-center gap-2.5">
+        <Skel className="h-[18px] flex-1" w={spec.title} delay={base + 60} />
+        <Skel className="h-[18px] w-14 rounded-md" delay={base + 120} />
+      </div>
+      <div className="mt-3.5 flex flex-col gap-2">
+        <Skel className="h-3" w="100%" delay={base + 100} />
+        <Skel className="h-3" w={spec.summary} delay={base + 160} />
+      </div>
+      <div className="mt-5 flex flex-col gap-2">
+        {spec.files.map((w, j) => (
+          <div key={j} className="flex h-[26px] items-center gap-2">
+            <Skel className="size-3.5 shrink-0 rounded-[4px]" delay={base + 200 + j * 70} />
+            <Skel className="h-3" w={w} delay={base + 240 + j * 70} />
+            <span className="flex-1" />
+            <Skel className="h-3 w-7 shrink-0" delay={base + 280 + j * 70} />
+          </div>
+        ))}
+      </div>
+    </li>
+  );
+}
+
+function LoadingState() {
+  const [phase, setPhase] = useState(0);
+  useEffect(() => {
+    if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
+    const id = window.setInterval(() => setPhase((p) => (p + 1) % LOAD_PHASES.length), 1800);
+    return () => window.clearInterval(id);
+  }, []);
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-2 text-[12px] font-medium text-muted-foreground">
+        <Sparkles className="size-3.5 animate-pulse text-primary" />
+        <span key={phase} style={{ animation: "delta-fadein 500ms ease-out" }}>{LOAD_PHASES[phase]}…</span>
+      </div>
+
+      <div className="mt-6 flex flex-col gap-3 px-0.5">
+        <Skel className="h-5" w="60%" />
+        <div className="flex flex-col gap-2">
+          <Skel className="h-3" w="100%" delay={80} />
+          <Skel className="h-3" w="82%" delay={140} />
+        </div>
+        <div className="mt-0.5 flex gap-3">
+          <Skel className="h-3 w-16" delay={200} />
+          <Skel className="h-3 w-14" delay={260} />
+          <Skel className="h-3 w-12" delay={320} />
+        </div>
+      </div>
+
+      <ol className="mt-9 flex flex-col">
+        {STEP_SKELETONS.map((spec, i) => (
+          <StepSkeleton key={i} idx={i} spec={spec} />
+        ))}
+      </ol>
     </div>
   );
 }

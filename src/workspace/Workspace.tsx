@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Kbd } from "@/components/ui/kbd";
+import { NoticeDialog } from "@/components/ui/notice-dialog";
 import { DeltaMark } from "@/components/DeltaMark";
 import { CliInstallButton } from "./CliInstallButton";
 import { NothingToReview } from "./NothingToReview";
@@ -12,6 +13,9 @@ import { FilesPanel } from "../files/FilesPanel";
 import { flattenTreeFiles } from "../files/buildTree";
 import { VirtualDiffPane } from "../diff/VirtualDiffPane";
 import { CommentIndex } from "../review/CommentIndex";
+import { GuidePanel } from "../guide/GuidePanel";
+import { orderFilesForDiff } from "../guide/orderFiles";
+import { WalkthroughDialog } from "../guide/WalkthroughDialog";
 import { prefetchPicker } from "../picker/pickerData";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
@@ -24,7 +28,7 @@ import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
   DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuCheck,
 } from "@/components/ui/dropdown-menu";
-import type { Anchor, Comment, CommitMeta, DiffMode, DiffSummary, Review, ReviewSession, Target } from "../types";
+import type { Anchor, Comment, CommitMeta, DiffMode, DiffSummary, Review, ReviewSession, Target, Walkthrough } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
   { id: "all-changes", label: "All changes" },
@@ -32,6 +36,11 @@ const MODES: { id: DiffMode; label: string }[] = [
   { id: "last-commit", label: "Last commit" },
   { id: "branch-vs-base", label: "Branch vs base" },
 ];
+
+// The walkthrough reviews the committed branch against its base — nothing else. When
+// the pill is tapped from an ineligible state, a notice explains the scope. (#guide)
+const GUIDE_DIRTY_MSG = "It covers committed work only, so uncommitted changes aren’t included. Commit or stash them, then try again.";
+const GUIDE_MODE_MSG = "It runs on your whole branch against its base — not single commits or other views. Switch to “All changes” or “Branch vs base” to generate one.";
 
 // Keep the URL's `mode` param in sync so a window reload restores the current
 // mode. (Fresh opens from the picker restore the review's persisted last mode.)
@@ -82,6 +91,8 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   const [commitSummary, setCommitSummary] = useState<DiffSummary | null>(null);
   const [summary, setSummary] = useState<DiffSummary | null>(null);
   const [repoName, setRepoName] = useState("");
+  // Worktree has uncommitted changes (from the review session) — gates the walkthrough.
+  const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [indexOpen, setIndexOpen] = useState(false);
   // Jump target for the diff pane. `n` is a nonce so re-selecting the same
@@ -92,6 +103,21 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   const [visibleFile, setVisibleFile] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // AI walkthrough ("Guide") — an in-place left-pane mode over the same review: the
+  // guide replaces the file tree, the diff reflows to its reading order, and
+  // commenting stays live. Experimental + dev-gated for now. (#guide)
+  const [guideMode, setGuideMode] = useState(false);
+  const [walkthrough, setWalkthrough] = useState<Walkthrough | null>(null);
+  const [guiding, setGuiding] = useState(false);
+  const [guideConfirmOpen, setGuideConfirmOpen] = useState(false);
+  // Set to an explainer message when the pill is tapped from an ineligible state.
+  const [guideBlockedMsg, setGuideBlockedMsg] = useState<string | null>(null);
+  // Signature of the diff the current walkthrough was generated for; when the live
+  // diff drifts from it the guide goes stale. State (not a ref) so the header
+  // re-derives when it changes; `guideDiffSigRef` mirrors the live sig so the async
+  // generator can record it without a stale closure. (#guide)
+  const [guideGenSig, setGuideGenSig] = useState<string | null>(null);
+  const guideDiffSigRef = useRef<string | null>(null);
 
   const { review, setReview, addComment, updateCommentBody, deleteComment, toggleViewed, toggleResolved } = useReview(null);
 
@@ -129,6 +155,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
       setReview(session.review);
       setSummary(session.summary);
       setRepoName(session.repoName);
+      setDirty(session.dirty ?? false);
       sigRef.current = reviewSig(session.summary, session.review);
       pendingRef.current = null;
       setPendingRefresh(false);
@@ -213,6 +240,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     setReview(p.session.review);
     setSummary(p.session.summary);
     setRepoName(p.session.repoName);
+    setDirty(p.session.dirty ?? false);
     setDiffInval({ paths: p.paths, n: ++invalNonce.current });
     pendingRef.current = null;
     setPendingRefresh(false);
@@ -229,6 +257,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
       setReview(session.review);
       setSummary(session.summary);
       setRepoName(session.repoName);
+      setDirty(session.dirty ?? false);
       setDiffInval({ paths: null, n: ++invalNonce.current });
       pendingRef.current = null;
       setPendingRefresh(false);
@@ -324,15 +353,6 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     if (c.anchor?.file) setJump({ file: c.anchor.file, commentId: c.id, n: Date.now() });
   }, []);
 
-  // Dev-only: open the AI-guidance ("Guide") experience on fixtures. The backend
-  // opens a `guide-mock` window at the guide route with `?mock=1`, which makes
-  // that window self-install the mock IPC (see main.tsx) so the whole guided UX
-  // renders on demo data even inside the real `tauri dev` shell — before the
-  // backend `generate_walkthrough` command exists. (#guide-dev)
-  const openWalkthrough = useCallback(() => {
-    void api.openGuide().catch((e) => setError(String(e)));
-  }, []);
-
   // Commit-mode navigation. "Last commit" is the same diff as the newest commit, so
   // it steps too (from HEAD / index 0); stepping back to the top returns to last-commit.
   const stepCommit = useCallback((delta: 1 | -1) => {
@@ -402,6 +422,61 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   // One canonical order — the tree's depth-first order — so the files list and
   // the diff pane match the tree instead of raw git order. (#3)
   const orderedFiles = flattenTreeFiles(viewSummary?.files ?? []);
+
+  // Generate (or regenerate) the walkthrough for the current view and enter guide
+  // mode. The panel shows its loading state while this runs; on failure we drop back
+  // to the normal review with the error surfaced. (#guide)
+  const startWalkthrough = useCallback(async () => {
+    if (!viewTarget) return;
+    setGuideMode(true);
+    setWalkthrough(null);
+    setGuiding(true);
+    try {
+      setWalkthrough(await api.generateWalkthrough(viewTarget));
+      setGuideGenSig(guideDiffSigRef.current);
+    } catch (e) {
+      setError(String(e));
+      setGuideMode(false);
+    }
+    // setGuiding(false) sits after the try/catch (not a `finally`) so the React
+    // Compiler can memoize this callback — it can't lower try/finally. The catch
+    // doesn't rethrow, so this always runs either way. (#guide)
+    setGuiding(false);
+  }, [viewTarget]);
+  // First click shows a one-time confirm (it spends Claude credits); after that it
+  // goes straight in.
+  const requestWalkthrough = useCallback(() => {
+    // The walkthrough only runs on a clean branch-vs-base diff. Anything else gets an
+    // explainer instead of a generation. (#guide)
+    if (dirty) { setGuideBlockedMsg(GUIDE_DIRTY_MSG); return; }
+    if (inCommitMode || !(diffMode === "all-changes" || diffMode === "branch-vs-base")) { setGuideBlockedMsg(GUIDE_MODE_MSG); return; }
+    if (localStorage.getItem("delta.guide.confirmed") === "1") void startWalkthrough();
+    else setGuideConfirmOpen(true);
+  }, [dirty, inCommitMode, diffMode, startWalkthrough]);
+  const confirmWalkthrough = useCallback(() => {
+    localStorage.setItem("delta.guide.confirmed", "1");
+    setGuideConfirmOpen(false);
+    void startWalkthrough();
+  }, [startWalkthrough]);
+  const exitGuide = useCallback(() => setGuideMode(false), []);
+  // In guide mode the diff follows the walkthrough's reading order; otherwise the
+  // canonical tree order. (#guide)
+  const diffFiles = guideMode && walkthrough ? orderFilesForDiff(orderedFiles, walkthrough) : orderedFiles;
+  // Staleness: the walkthrough describes one snapshot of the diff (its target + the
+  // file/stat set). When that drifts — a refresh applied, mode/commit switched — the
+  // guide header swaps reading-progress for an "update" action. (#guide)
+  const guideDiffSig = JSON.stringify({
+    mode: viewTarget?.mode,
+    commit: viewTarget?.commit,
+    base: viewTarget?.base,
+    files: orderedFiles.map((f) => `${f.path}:${f.additions}:${f.deletions}:${f.status}`),
+  });
+  // Mirror the live diff sig into a ref so startWalkthrough can record it at
+  // generation time (its closure would otherwise capture a stale value).
+  useEffect(() => {
+    guideDiffSigRef.current = guideDiffSig;
+  }, [guideDiffSig]);
+  const guideStale = guideMode && walkthrough != null && guideGenSig != null && guideGenSig !== guideDiffSig;
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -539,16 +614,6 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
               </div>
             )}
             <div className="ml-auto flex items-center gap-3">
-              {import.meta.env.DEV && (
-                <button
-                  type="button"
-                  onClick={openWalkthrough}
-                  title="Open the AI Guidance walkthrough (dev only — mocked data)"
-                  className="group inline-flex h-7 items-center gap-1.5 rounded-md bg-gradient-to-br from-primary to-primary/70 px-2.5 text-[13px] font-medium text-primary-foreground shadow-sm shadow-primary/25 transition hover:brightness-110 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <Sparkles className="size-3.5 transition-transform group-hover:rotate-12" /> Walkthrough
-                </button>
-              )}
               <CliInstallButton />
               {pendingRefresh && (
                 <Button
@@ -636,20 +701,52 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
           ) : (
           <>
             <aside style={{ width: sidebarWidth }} className="relative flex min-h-0 shrink-0 flex-col">
-              <FilesPanel
-                files={orderedFiles}
-                selected={visibleFile}
-                onSelect={onSelectFile}
-                viewedFiles={viewedFiles}
-                onToggleViewed={onToggleViewedFile}
-                commentCounts={commentCountsByFile}
-              />
+              {guideMode ? (
+                <GuidePanel
+                  walkthrough={walkthrough}
+                  loading={guiding}
+                  activeFile={visibleFile}
+                  files={orderedFiles}
+                  viewedFiles={viewedFiles}
+                  onToggleViewed={onToggleViewedFile}
+                  onRegenerate={requestWalkthrough}
+                  onJump={onSelectFile}
+                  onExit={exitGuide}
+                  stale={guideStale}
+                />
+              ) : (
+                <>
+                  <FilesPanel
+                    files={orderedFiles}
+                    selected={visibleFile}
+                    onSelect={onSelectFile}
+                    viewedFiles={viewedFiles}
+                    onToggleViewed={onToggleViewedFile}
+                    commentCounts={commentCountsByFile}
+                    padBottom={!!import.meta.env.VITE_MOCK_IPC}
+                  />
+                  {import.meta.env.VITE_MOCK_IPC && (
+                    <>
+                      {/* Scrim so file rows dissolve under the pill instead of hard-clipping. */}
+                      <div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background via-background/85 to-transparent" />
+                      <button
+                        type="button"
+                        onClick={requestWalkthrough}
+                        title="Generate an AI walkthrough of this diff"
+                        className="group absolute bottom-3 left-3 inline-flex h-9 items-center gap-1.5 rounded-full bg-primary pl-3 pr-3.5 text-[13px] font-medium text-primary-foreground shadow-lg shadow-primary/25 ring-1 ring-primary/25 transition hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring [animation:delta-pill-in_360ms_ease-out]"
+                      >
+                        <Sparkles className="size-4 transition-transform group-hover:rotate-12" /> Walkthrough
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
               <PaneResizer edge="right" label="Resize file panel" {...fileResize} />
             </aside>
             <main className="min-h-0 min-w-0 flex-1 -ml-1.5">
               <VirtualDiffPane
                 target={viewTarget!}
-                files={orderedFiles}
+                files={diffFiles}
                 theme={theme}
                 layout={layout}
                 viewedFiles={viewedFiles}
@@ -694,6 +791,17 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
           </div>
         )}
       </div>
+      <WalkthroughDialog
+        open={guideConfirmOpen}
+        onConfirm={confirmWalkthrough}
+        onCancel={() => setGuideConfirmOpen(false)}
+      />
+      <NoticeDialog
+        open={guideBlockedMsg != null}
+        title="Walkthrough reviews your branch vs base"
+        message={guideBlockedMsg ?? undefined}
+        onClose={() => setGuideBlockedMsg(null)}
+      />
     </div>
   );
 }

@@ -12,33 +12,13 @@ import { api } from "../api";
 import { flattenTreeFiles } from "../files/buildTree";
 import { VirtualDiffPane } from "../diff/VirtualDiffPane";
 import { GuidePanel } from "./GuidePanel";
+import { orderFilesForDiff } from "./orderFiles";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
-import type { DiffSummary, FileEntry, Target, Walkthrough } from "../types";
+import type { DiffSummary, Target, Walkthrough } from "../types";
 
 const NO_COMMENTS: never[] = [];
 const noop = () => {};
-
-// Order the diff's files to follow the walkthrough's reading sequence — each group's
-// files in group order, then anything unplaced, then ignored (noise) last — so
-// scrolling the diff advances through the guide's steps. Natural order until the
-// walkthrough arrives.
-function orderFilesForDiff(all: FileEntry[], walkthrough: Walkthrough | null): FileEntry[] {
-  if (!walkthrough) return all;
-  const byPath = new Map(all.map((f) => [f.path, f]));
-  const seen = new Set<string>();
-  const out: FileEntry[] = [];
-  for (const g of [...walkthrough.groups].sort((a, b) => a.order - b.order)) {
-    for (const wf of g.files) {
-      const e = byPath.get(wf.path);
-      if (e && !seen.has(wf.path)) { seen.add(wf.path); out.push(e); }
-    }
-  }
-  const ignored = new Set(walkthrough.ignored.map((i) => i.path));
-  for (const f of all) if (!seen.has(f.path) && !ignored.has(f.path)) { seen.add(f.path); out.push(f); }
-  for (const f of all) if (!seen.has(f.path)) { out.push(f); }
-  return out;
-}
 
 export function GuideWorkspace({ target }: { target: Target }) {
   const theme = useResolvedTheme();
@@ -145,16 +125,18 @@ export function GuideWorkspace({ target }: { target: Target }) {
       <div className="flex min-h-0 flex-1">
         {summary && reviewTarget ? (
           <>
-            <GuidePanel
-              walkthrough={walkthrough}
-              loading={guiding}
-              activeFile={visibleFile}
-              files={orderedFiles}
-              viewedFiles={viewed}
-              onToggleViewed={toggleViewed}
-              onRegenerate={onRegenerate}
-              onJump={onJump}
-            />
+            <aside className="flex w-[28rem] min-h-0 shrink-0 flex-col">
+              <GuidePanel
+                walkthrough={walkthrough}
+                loading={guiding}
+                activeFile={visibleFile}
+                files={orderedFiles}
+                viewedFiles={viewed}
+                onToggleViewed={toggleViewed}
+                onRegenerate={onRegenerate}
+                onJump={onJump}
+              />
+            </aside>
             <main className="-ml-3 min-h-0 min-w-0 flex-1">
               <VirtualDiffPane
                 target={reviewTarget}

@@ -24,6 +24,31 @@
   100% { transform: translateX(360%); }
 }
 
+/* Skeleton — a muted block that gently breathes (opacity only, no moving
+   highlight/sheen). `--skel-delay` offsets each block so the panel pulses like a
+   soft wave instead of blinking in lockstep. Rests opaque under reduced-motion. (#guide-load) */
+@keyframes delta-skel-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+.delta-skel {
+  background: var(--muted);
+  animation: delta-skel-pulse 1.8s ease-in-out infinite;
+  animation-delay: var(--skel-delay, 0ms);
+}
+
+/* Crossfade for the loading caption as it cycles through phases. */
+@keyframes delta-fadein {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Floating "walkthrough" pill easing up into the file pane when a review opens. */
+@keyframes delta-pill-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 @theme inline {
     --font-heading: var(--font-sans);
     --color-sidebar-ring: var(--sidebar-ring);

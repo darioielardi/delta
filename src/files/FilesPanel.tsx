@@ -107,7 +107,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
 }
 
 export function FilesPanel({
-  files, selected, onSelect, onPrefetch, viewedFiles, onToggleViewed, commentCounts,
+  files, selected, onSelect, onPrefetch, viewedFiles, onToggleViewed, commentCounts, padBottom,
 }: {
   files: FileEntry[];
   selected: string | null;
@@ -118,6 +118,9 @@ export function FilesPanel({
   onToggleViewed: (file: string) => void;
   // Per-file comment counts → a small badge on rows that have any. (#1)
   commentCounts?: Map<string, number>;
+  // Reserve space at the bottom of the scroll list so a floating control (the
+  // walkthrough pill) never hides the last file. (#guide)
+  padBottom?: boolean;
 }) {
   const [mode, setMode] = useState<"tree" | "list">("tree");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -380,7 +383,7 @@ export function FilesPanel({
         data-testid="files-tree"
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className="min-h-0 flex-1 overflow-auto pl-2 pr-1.5 py-1.5 outline-none"
+        className={`min-h-0 flex-1 overflow-auto pl-2 pr-1.5 pt-1.5 outline-none ${padBottom ? "pb-16" : "pb-1.5"}`}
       >
         {searching && roots.length === 0 ? (
           <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">No files match “{query}”.</div>

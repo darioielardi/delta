@@ -95,6 +95,9 @@ export interface ReviewSession {
   review: Review;
   summary: DiffSummary;
   repoName: string;
+  /** True when the worktree has uncommitted changes (staged or unstaged). Gates the
+   *  AI walkthrough, which reviews committed branch-vs-base only. (#guide) */
+  dirty?: boolean;
 }
 
 export interface WorktreeEntry {

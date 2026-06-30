@@ -536,6 +536,7 @@ export function installMockBackend(): void {
   // shows instead. `?empty=many` → many siblings, to exercise the 5-row scroll cap.
   const emptyKind = params.get("empty"); // "1" | "solo" | "many" | null
   const emptyParam = emptyKind === "1" || emptyKind === "solo" || emptyKind === "many";
+  const dirtyParam = params.get("dirty") === "1"; // simulate uncommitted changes → gates the walkthrough (#guide)
   const ds = emptyParam
     ? { summary: { ...SUMMARY, files: [] }, files: {}, review: { ...REVIEW, comments: [], viewed: [] } }
     : largeParam
@@ -557,7 +558,7 @@ export function installMockBackend(): void {
         return COMMITS as T;
       case "open_review":
       case "refresh_review": {
-        const session: ReviewSession = { review: ds.review, summary: ds.summary, repoName: "demo" };
+        const session: ReviewSession = { review: ds.review, summary: ds.summary, repoName: "demo", dirty: dirtyParam };
         return structuredClone(session) as T;
       }
       case "save_review":
