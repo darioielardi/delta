@@ -143,6 +143,7 @@ mod tests {
             body: "b".into(),
             stale,
             resolved,
+            commit: None,
             created_at: "t".into(),
             updated_at: "t".into(),
         }

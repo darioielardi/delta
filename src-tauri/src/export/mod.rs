@@ -78,7 +78,7 @@ mod tests {
     }
 
     fn cmt(scope: CommentScope, anchor: Option<Anchor>, body: &str, stale: bool, resolved: bool) -> Comment {
-        Comment { id: "x".into(), scope, anchor, body: body.into(), stale, resolved, created_at: "t".into(), updated_at: "t".into() }
+        Comment { id: "x".into(), scope, anchor, body: body.into(), stale, resolved, commit: None, created_at: "t".into(), updated_at: "t".into() }
     }
 
     #[test]
