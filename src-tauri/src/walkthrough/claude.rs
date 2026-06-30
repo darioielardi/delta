@@ -3,7 +3,23 @@
 // A violation feeds the one-shot repair loop; a second miss is a hard failure.
 // (#guide)
 use crate::walkthrough::model::{Walkthrough, WalkImportance, WalkthroughError};
+use crate::walkthrough::ChildRegistry;
 use std::collections::HashSet;
+use std::io::Write;
+use std::path::PathBuf;
+use std::process::{Command, Stdio};
+use std::time::Duration;
+
+/// Default model alias — a fast, capable tier for orientation. Tracks "latest" via
+/// the alias rather than a pinned id; configurable here.
+pub const WALKTHROUGH_MODEL: &str = "sonnet";
+
+/// Built-in tools to deny: the task is pure text → JSON, no tool use, fully
+/// deterministic. (Belt-and-suspenders alongside `--safe-mode`.)
+const DISALLOWED_TOOLS: &str = "Bash Edit Write Read Glob Grep WebFetch WebSearch NotebookEdit Task";
+
+/// Default wall-clock budget before the child is killed.
+pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// Hard ceiling on reading groups — kills the over-fragmented case (the floor of 2
 /// kills the one-step case).
@@ -225,6 +241,96 @@ pub fn generate_with_runner(
     parse_and_validate(&json, diff_paths)
 }
 
+/// The isolated, headless `claude` invocation. `--safe-mode` firewalls all
+/// customizations (hooks/MCP/skills/plugins/global+project CLAUDE.md); we inject the
+/// repo's CLAUDE.md/docs ourselves via stdin. Auth stays on keychain/OAuth, so the
+/// run bills the user's Claude plan. (#guide)
+pub fn claude_argv(system: &str) -> Vec<String> {
+    vec![
+        "-p".into(),
+        "--safe-mode".into(),
+        "--output-format".into(),
+        "json".into(),
+        "--model".into(),
+        WALKTHROUGH_MODEL.into(),
+        "--disallowedTools".into(),
+        DISALLOWED_TOOLS.into(),
+        "--append-system-prompt".into(),
+        system.into(),
+    ]
+}
+
+/// Real runner: spawns `claude`, feeds the payload on stdin, waits with a timeout,
+/// and registers its PID so a cancel can kill it. Distinguishes timeout, external
+/// cancel (signal-terminated), and a non-zero exit.
+pub struct RealClaude {
+    pub path: PathBuf,
+    pub timeout: Duration,
+    pub registry: ChildRegistry,
+    pub review_id: String,
+}
+
+impl RealClaude {
+    pub fn new(path: PathBuf, registry: ChildRegistry, review_id: String) -> Self {
+        RealClaude { path, timeout: DEFAULT_TIMEOUT, registry, review_id }
+    }
+}
+
+impl ClaudeRunner for RealClaude {
+    fn run(&self, system: &str, stdin: &str) -> Result<String, WalkthroughError> {
+        let mut child = Command::new(&self.path)
+            .args(claude_argv(system))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|e| WalkthroughError::Spawn(e.to_string()))?;
+
+        let pid = child.id();
+        self.registry.register(&self.review_id, pid);
+
+        // Feed stdin off-thread so a large payload can't deadlock against a full pipe.
+        if let Some(mut si) = child.stdin.take() {
+            let payload = stdin.to_string();
+            std::thread::spawn(move || {
+                let _ = si.write_all(payload.as_bytes());
+            });
+        }
+
+        // Wait off-thread; the main thread enforces the timeout via recv_timeout.
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(child.wait_with_output());
+        });
+
+        let result = match rx.recv_timeout(self.timeout) {
+            Ok(Ok(output)) => {
+                if output.status.success() {
+                    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+                } else if output.status.code().is_none() {
+                    // terminated by signal before our timeout → an external cancel
+                    Err(WalkthroughError::Cancelled)
+                } else {
+                    Err(WalkthroughError::Exit {
+                        code: output.status.code(),
+                        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                    })
+                }
+            }
+            Ok(Err(e)) => Err(WalkthroughError::Spawn(e.to_string())),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                crate::walkthrough::kill_pid(pid);
+                Err(WalkthroughError::Timeout)
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                Err(WalkthroughError::Spawn("claude worker disconnected".into()))
+            }
+        };
+        self.registry.remove(&self.review_id, pid);
+        result
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,5 +470,17 @@ mod tests {
         let f = Fake { outs: std::cell::RefCell::new(vec![envelope(one_group), envelope(GOOD)]) };
         let w = generate_with_runner(&f, "s", "p", &paths(&["a.ts", "b.ts"])).unwrap();
         assert_eq!(w.groups.len(), 2);
+    }
+
+    #[test]
+    fn argv_is_isolated_and_json() {
+        let a = claude_argv("SYS");
+        assert!(a.contains(&"-p".to_string()));
+        assert!(a.contains(&"--safe-mode".to_string()), "must isolate via safe-mode");
+        assert!(a.contains(&"--disallowedTools".to_string()), "no tool use");
+        let oi = a.iter().position(|x| x == "--output-format").unwrap();
+        assert_eq!(a[oi + 1], "json");
+        let si = a.iter().position(|x| x == "--append-system-prompt").unwrap();
+        assert_eq!(a[si + 1], "SYS");
     }
 }
