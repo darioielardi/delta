@@ -234,6 +234,9 @@ export function FilesPanel({
   // Cheap sums — React Compiler memoizes the render; no manual useMemo needed.
   const totalAdds = files.reduce((n, f) => n + f.additions, 0);
   const totalDels = files.reduce((n, f) => n + f.deletions, 0);
+  // Compact large totals so the header stays on one line: over 100k → drop the
+  // last three digits and append "k" (156048 → "156k"). Smaller counts stay exact.
+  const fmtCount = (n: number) => (n > 100_000 ? `${Math.floor(n / 1000)}k` : String(n));
   const allViewed = files.length > 0 && viewedFiles.size >= files.length;
 
   // All hooks must run unconditionally — keep the empty-state return below them.
@@ -320,17 +323,17 @@ export function FilesPanel({
     <div className="flex min-h-0 flex-1 flex-col pl-1.5 pt-3.5">
       <div className="flex h-7 shrink-0 items-center gap-2 px-2 text-[12px]">
         <span
-          className={`inline-block select-none rounded-md px-2 py-0.5 text-[13px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
+          className={`inline-block shrink-0 whitespace-nowrap select-none rounded-md px-2 py-0.5 text-[13px] tabular-nums ${allViewed ? "bg-primary/15 text-primary" : "bg-muted text-muted-foreground"}`}
           title="Files viewed"
         >
           <span className={`font-medium ${allViewed ? "" : "text-foreground"}`}>{viewedFiles.size}</span>
           <span className="opacity-80">{" / "}{files.length} viewed</span>
         </span>
-        <span className="ml-auto tabular-nums">
-          {totalAdds > 0 && <span className="text-emerald-500">+{totalAdds}</span>}{" "}
-          {totalDels > 0 && <span className="text-rose-500">−{totalDels}</span>}
+        <span className="ml-auto shrink-0 whitespace-nowrap tabular-nums">
+          {totalAdds > 0 && <span className="text-emerald-500">+{fmtCount(totalAdds)}</span>}{" "}
+          {totalDels > 0 && <span className="text-rose-500">−{fmtCount(totalDels)}</span>}
         </span>
-        <div className="flex items-center gap-1">
+        <div className="flex shrink-0 items-center gap-1">
           {mode === "tree" && !searching && (
             <button
               type="button"
