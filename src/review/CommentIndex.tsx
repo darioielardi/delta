@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
+import { useResizableWidth, usePaneResize, PaneResizer, COMMENTS_PANE } from "../lib/resizablePane";
 import type { Comment } from "../types";
 
 // Split so the dir can truncate while the filename (last segment) + line range
@@ -38,6 +39,12 @@ export function CommentIndex({
   // Content stays mounted through the close animation (via `render`) so it can
   // slide out before unmounting. Reduced-motion neutralizes the transition
   // app-wide, so open/close is then instant.
+  // Resizable, persisted comments panel; the divider lives on its left edge (the
+  // pane grows leftward). `resizing` suppresses the open/close width transition so
+  // the edge tracks the pointer instead of easing behind it.
+  const [commentsWidth, setCommentsWidth] = useResizableWidth(COMMENTS_PANE);
+  const { resizing, separatorProps } = usePaneResize(COMMENTS_PANE, commentsWidth, setCommentsWidth, "left");
+
   const [render, setRender] = useState(open);
   // Mount immediately on open by adjusting state during render (no effect cascade);
   // the effect only DEFERS unmount until the close animation finishes.
@@ -60,14 +67,18 @@ export function CommentIndex({
   return (
     <aside
       aria-hidden={!open}
-      className={`relative shrink-0 overflow-hidden transition-[width] duration-200 ease-out ${open ? "w-80" : "w-0"}`}
+      style={{ width: open ? commentsWidth : 0 }}
+      className={`relative shrink-0 ${resizing ? "" : "transition-[width] duration-200 ease-out"}`}
     >
+      {/* Clip only the sliding content — the resize divider (rendered after) sits in
+          the gutter to the panel's left and must NOT be clipped by the aside. */}
+      <div className="absolute inset-0 overflow-hidden">
       {visible && (
       // Floating layout (#pad): transparent panel, no borders, PAD inset; the comment
       // cards float on the canvas. Pinned to the right edge (absolute) so the widening
-      // aside reveals it in place — the slide — and the fixed w-80 keeps the content
+      // aside reveals it in place — the slide — and the fixed width keeps the content
       // from reflowing while the aside animates.
-      <div data-testid="comment-index" className="absolute right-0 top-0 flex h-full w-80 min-h-0 flex-col pt-3.5">
+      <div data-testid="comment-index" style={{ width: commentsWidth }} className="absolute right-0 top-0 flex h-full min-h-0 flex-col pt-3.5">
       <div className="flex h-8 shrink-0 items-center gap-2 pl-0 pr-3.5 text-[12px]">
         <span className="text-[15px] font-semibold text-foreground">Comments</span>
         <span className="text-muted-foreground/50">·</span>
@@ -126,6 +137,8 @@ export function CommentIndex({
       </div>
       </div>
       )}
+      </div>
+      {open && <PaneResizer edge="left" label="Resize comments panel" resizing={resizing} separatorProps={separatorProps} />}
     </aside>
   );
 }
