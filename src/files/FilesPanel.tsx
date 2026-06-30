@@ -23,6 +23,10 @@ const NO_COLLAPSE: Set<string> = new Set();
 // Stable empty map fallback when no comment counts are supplied. (#1)
 const EMPTY_COUNTS: Map<string, number> = new Map();
 
+// Compact large diff totals so the header stays on one line: over 100k → drop the
+// last three digits and append "k" (156048 → "156k"). Smaller counts stay exact.
+const fmtCount = (n: number) => (n > 100_000 ? `${Math.floor(n / 1000)}k` : String(n));
+
 function FileGlyph({ name, status }: { name: string; status: FileStatus }) {
   const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
   const Icon = ext === "json" ? FileJson : CODE_EXT.has(ext) ? FileCode : FileText;
@@ -234,9 +238,6 @@ export function FilesPanel({
   // Cheap sums — React Compiler memoizes the render; no manual useMemo needed.
   const totalAdds = files.reduce((n, f) => n + f.additions, 0);
   const totalDels = files.reduce((n, f) => n + f.deletions, 0);
-  // Compact large totals so the header stays on one line: over 100k → drop the
-  // last three digits and append "k" (156048 → "156k"). Smaller counts stay exact.
-  const fmtCount = (n: number) => (n > 100_000 ? `${Math.floor(n / 1000)}k` : String(n));
   const allViewed = files.length > 0 && viewedFiles.size >= files.length;
 
   // All hooks must run unconditionally — keep the empty-state return below them.
