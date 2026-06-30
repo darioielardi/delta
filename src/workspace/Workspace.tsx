@@ -16,10 +16,14 @@ import { prefetchPicker } from "../picker/pickerData";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
-import { Check, ChevronDown, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
 import { getEditorPref } from "../editor";
 import { worktreeName } from "../lib/utils";
-import type { Anchor, Comment, DiffMode, DiffSummary, Review, ReviewSession, Target } from "../types";
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuSubContent, DropdownMenuCheck,
+} from "@/components/ui/dropdown-menu";
+import type { Anchor, Comment, CommitMeta, DiffMode, DiffSummary, Review, ReviewSession, Target } from "../types";
 
 const MODES: { id: DiffMode; label: string }[] = [
   { id: "all-changes", label: "All changes" },
@@ -33,6 +37,15 @@ const MODES: { id: DiffMode; label: string }[] = [
 function syncModeParam(next: DiffMode) {
   const u = new URL(window.location.href);
   u.searchParams.set("mode", next);
+  window.history.replaceState(null, "", u);
+}
+
+// Commit mode is a display overlay on top of the canonical mode, so it carries its
+// own `commit` URL param (the canonical `mode` param stays put) — a reload restores it.
+function syncCommitParam(oid: string | null) {
+  const u = new URL(window.location.href);
+  if (oid) u.searchParams.set("commit", oid);
+  else u.searchParams.delete("commit");
   window.history.replaceState(null, "", u);
 }
 
@@ -57,7 +70,12 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   // syncModeParam keeps the URL in sync on every change, so target.mode never
   // diverges from diffMode — the stale-prop case this rule guards can't occur.
   // react-doctor-disable-next-line react-doctor/no-derived-useState
-  const [diffMode, setDiffMode] = useState<DiffMode>(target.mode);
+  const [diffMode, setDiffMode] = useState<DiffMode>(target.mode === "commit" ? "branch-vs-base" : target.mode);
+  // Commit mode overlay: `commitOid` pins a commit; the review stays on the canonical
+  // `diffMode`. `commits` powers the submenu + stepper; `commitSummary` is the pinned diff.
+  const [commitOid, setCommitOid] = useState<string | null>(target.commit ?? null);
+  const [commits, setCommits] = useState<CommitMeta[]>([]);
+  const [commitSummary, setCommitSummary] = useState<DiffSummary | null>(null);
   const [summary, setSummary] = useState<DiffSummary | null>(null);
   const [repoName, setRepoName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -124,6 +142,38 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     void open();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target.repoPath, diffMode, target.base]);
+
+  // The branch's commits power the "Commit ▸" submenu + the stepper. Reloaded on
+  // open/refresh (snapshot move) so new commits appear. Best-effort: failure empties it.
+  useEffect(() => {
+    if (!review) return;
+    let cancelled = false;
+    void api.listCommits(review.target).then(
+      (cs) => { if (!cancelled) setCommits(cs); },
+      () => { if (!cancelled) setCommits([]); },
+    );
+    return () => { cancelled = true; };
+    // capturedAt changes on every reconcile, so the submenu refreshes after a commit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [review?.target.repoPath, review?.target.base, review?.snapshot.capturedAt]);
+
+  // Commit mode is a display overlay: fetch the pinned commit's isolated diff without
+  // touching the persisted review (so untagged comments never re-anchor to one commit).
+  // Stepping re-fires via commitOid.
+  useEffect(() => {
+    // Only fetch when pinned. When not in commit mode `viewSummary` uses `summary`,
+    // so a leftover `commitSummary` is never shown — no need to reset it here (a
+    // synchronous reset would force an extra render with stale UI between commits).
+    if (!review || !commitOid) return;
+    let cancelled = false;
+    const vt: Target = { ...review.target, mode: "commit", commit: commitOid };
+    void api.computeDiff(vt).then(
+      (s) => { if (!cancelled) setCommitSummary(s); },
+      (e) => { if (!cancelled) setError(String(e)); },
+    );
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [commitOid, review?.target.repoPath, review?.target.base]);
 
   // A filesystem change fired: re-diff in the background but DON'T touch the
   // displayed diff. If the result differs from what's on screen (structure via
@@ -234,17 +284,44 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   const onVisibleFileChange = useCallback((p: string) => setVisibleFile(p), []);
   const onToggleViewedFile = useCallback((file: string) => toggleViewed(file, ""), [toggleViewed]);
   const onAddComment = useCallback(
-    (anchor: Anchor, body: string) => addComment(anchor.endLine != null ? "range" : "line", anchor, body),
-    [addComment],
+    (anchor: Anchor, body: string) => addComment(anchor.endLine != null ? "range" : "line", anchor, body, commitOid),
+    [addComment, commitOid],
   );
   const onAddFileComment = useCallback(
     (file: string, body: string) =>
-      addComment("file", { file, side: "new", startLine: null, endLine: null, snippet: null }, body),
-    [addComment],
+      addComment("file", { file, side: "new", startLine: null, endLine: null, snippet: null }, body, commitOid),
+    [addComment, commitOid],
   );
   // Inset panel stays open so the user can move between comments.
   const onJump = useCallback((c: Comment) => {
     if (c.anchor?.file) setJump({ file: c.anchor.file, commentId: c.id, n: Date.now() });
+  }, []);
+
+  // Commit-mode navigation. "Last commit" is the same diff as the newest commit, so
+  // it steps too (from HEAD / index 0); stepping back to the top returns to last-commit.
+  const stepCommit = useCallback((delta: 1 | -1) => {
+    const cur = commitOid != null
+      ? commits.findIndex((c) => c.oid === commitOid)
+      : (diffMode === "last-commit" ? 0 : -1);
+    const next = cur + delta;
+    if (next < 0 || next >= commits.length) return;
+    if (next === 0 && diffMode === "last-commit") {
+      setCommitOid(null);
+      syncCommitParam(null);
+    } else {
+      setCommitOid(commits[next].oid);
+      syncCommitParam(commits[next].oid);
+    }
+  }, [commits, commitOid, diffMode]);
+  const pickCommit = useCallback((oid: string) => {
+    setCommitOid(oid);
+    syncCommitParam(oid);
+  }, []);
+  const exitCommitMode = useCallback((mode: DiffMode) => {
+    setCommitOid(null);
+    syncCommitParam(null);
+    setDiffMode(mode);
+    syncModeParam(mode);
   }, []);
 
   // Stable across renders unless `viewed` actually changes — so toggling the
@@ -255,10 +332,29 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     () => new Set((review?.viewed ?? []).map((v) => v.file)),
     [review?.viewed],
   );
-  const comments = review?.comments ?? [];
-  // General notes were removed; ignore any legacy ones in the count/export gate.
-  const commentCount = comments.filter((c) => c.scope !== "general").length;
-  // Per-file comment counts for the tree/list badges. (#1)
+  const allComments = review?.comments ?? [];
+  const inCommitMode = commitOid != null;
+  const commitIndex = inCommitMode ? commits.findIndex((c) => c.oid === commitOid) : -1;
+  // The stepper also shows in "Last commit" mode — it's the newest commit (index 0).
+  const isLastCommit = diffMode === "last-commit";
+  const stepIndex = inCommitMode ? commitIndex : (isLastCommit ? 0 : -1);
+  const stepperVisible = commits.length > 0 && (inCommitMode || isLastCommit);
+  // Commit mode renders the pinned commit's isolated diff over the canonical review.
+  const viewTarget = useMemo<Target | undefined>(
+    () => (review ? (inCommitMode ? { ...review.target, mode: "commit", commit: commitOid! } : review.target) : undefined),
+    [review, inCommitMode, commitOid],
+  );
+  const viewSummary = inCommitMode ? commitSummary : summary;
+  // Each mode-context shows its own comments: the current commit's in commit mode, the
+  // untagged ones otherwise. The index + Copy still see everything (allComments).
+  const comments = useMemo(
+    () => (inCommitMode ? allComments.filter((c) => c.commit === commitOid) : allComments.filter((c) => !c.commit)),
+    [allComments, inCommitMode, commitOid],
+  );
+  // General notes were removed; ignore any legacy ones. Counted over ALL comments so
+  // "Copy for agents" (which exports everything) stays gated on the true total.
+  const commentCount = allComments.filter((c) => c.scope !== "general").length;
+  // Per-file comment counts for the tree/list badges, scoped to the visible context. (#1)
   const commentCountsByFile = useMemo(() => {
     const m = new Map<string, number>();
     for (const c of comments) {
@@ -269,7 +365,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   }, [comments]);
   // One canonical order — the tree's depth-first order — so the files list and
   // the diff pane match the tree instead of raw git order. (#3)
-  const orderedFiles = flattenTreeFiles(summary?.files ?? []);
+  const orderedFiles = flattenTreeFiles(viewSummary?.files ?? []);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -283,12 +379,24 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
         // ⌘⇧C copies the agent export, when there's something to copy. (#copy)
         e.preventDefault();
         if (commentCount > 0) void copyForClaude();
+      } else if (
+        stepperVisible && !e.metaKey && !e.ctrlKey && !e.altKey &&
+        // Match the physical key (e.code) so it works on non-US layouts where
+        // [ and ] aren't direct keys (e.key would be a different char); keep e.key
+        // as a fallback for webviews that don't report code. (#commit-by-commit)
+        (e.code === "BracketLeft" || e.code === "BracketRight" || e.key === "[" || e.key === "]")
+      ) {
+        // …but not while typing in a comment editor.
+        const el = e.target as HTMLElement | null;
+        if (el && (el.isContentEditable || el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+        e.preventDefault();
+        stepCommit(e.code === "BracketRight" || e.key === "]" ? 1 : -1);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [review]);
+  }, [review, stepperVisible, stepCommit]);
 
   return (
     <div data-testid="app-root" className="flex h-screen flex-col overflow-hidden bg-background text-[13px] text-foreground">
@@ -307,34 +415,93 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
             const isMain = !!repoName && wt === repoName;
             return (
               <span className="flex min-w-0 items-center">
-                {repoName && !isMain && <span className="shrink-0 font-normal text-muted-foreground">{repoName}&nbsp;/&nbsp;</span>}
-                <span className="truncate">{isMain ? repoName : wt}</span>
+                {repoName && !isMain && (
+                  <span className="flex shrink-0 items-center font-normal text-muted-foreground">
+                    <span className="max-w-[14ch] truncate">{repoName}</span>
+                    <span>&nbsp;/&nbsp;</span>
+                  </span>
+                )}
+                <span className="max-w-[20ch] truncate">{isMain ? repoName : wt}</span>
               </span>
             );
           })()}
           {review?.target.worktree ? (
             <span className="ml-1 flex min-w-0 items-center gap-1 border-l border-border/70 pl-2 font-normal text-muted-foreground">
               <GitBranch className="size-3 shrink-0" />
-              <span className="truncate">{review.target.worktree}</span>
+              <span className="max-w-[20ch] truncate">{review.target.worktree}</span>
             </span>
           ) : null}
           <Kbd keys="⌘P" className="ml-1" />
         </button>
         {summary && (
           <>
-            <div className="relative ml-1">
-              <select
+            <DropdownMenu>
+              <DropdownMenuTrigger
                 aria-label="Diff mode"
-                value={diffMode}
-                onChange={(e) => { const next = e.target.value as DiffMode; setDiffMode(next); syncModeParam(next); }}
-                className="h-7 appearance-none rounded-md border border-input bg-muted/40 pl-2.5 pr-7 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-muted focus:bg-background"
+                className="ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-input bg-muted/40 pl-2.5 pr-2 text-[12px] font-medium text-foreground outline-none transition-colors hover:bg-muted data-[state=open]:bg-muted"
               >
+                {/* Hidden reservers size the trigger to the widest possible label, so
+                    its width is constant across every mode; the visible label overlays,
+                    left-aligned (the chevron stays put → the stepper never shifts). */}
+                <span className="grid justify-items-start">
+                  {MODES.map((m) => (
+                    <span key={m.id} aria-hidden className="invisible col-start-1 row-start-1 whitespace-nowrap">{m.label}</span>
+                  ))}
+                  <span aria-hidden className="invisible col-start-1 row-start-1 whitespace-nowrap">Commit <span className="font-mono">0000000</span></span>
+                  <span className="col-start-1 row-start-1 whitespace-nowrap">
+                    {inCommitMode
+                      ? <>Commit <span className="font-mono font-normal text-muted-foreground">{commits[commitIndex]?.shortOid ?? "…"}</span></>
+                      : (MODES.find((m) => m.id === diffMode)?.label ?? diffMode)}
+                  </span>
+                </span>
+                <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
                 {MODES.map((m) => (
-                  <option key={m.id} value={m.id}>{m.label}</option>
+                  <DropdownMenuItem key={m.id} onSelect={() => exitCommitMode(m.id)}>
+                    <DropdownMenuCheck checked={!inCommitMode && diffMode === m.id} />
+                    {m.label}
+                  </DropdownMenuItem>
                 ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            </div>
+                <DropdownMenuSeparator />
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger disabled={commits.length === 0}>
+                    <DropdownMenuCheck checked={inCommitMode} />
+                    Commit
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="max-h-72 max-w-[22rem] overflow-y-auto">
+                    {commits.map((c) => (
+                      <DropdownMenuItem key={c.oid} onSelect={() => pickCommit(c.oid)} className="gap-2.5">
+                        <span className="font-mono text-muted-foreground">{c.shortOid}</span>
+                        <span className="min-w-0 truncate">{c.subject}</span>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            {stepperVisible && (
+              <div className="ml-1 flex items-center" data-testid="commit-stepper">
+                <div className="inline-flex h-7 items-center rounded-md border border-input bg-muted/40">
+                  <button
+                    type="button" aria-label="Previous commit" title="Previous commit ([)" disabled={stepIndex <= 0}
+                    onClick={() => stepCommit(-1)}
+                    className="flex h-full w-7 items-center justify-center rounded-l-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <ChevronLeft className="size-3.5" />
+                  </button>
+                  <span className="h-3.5 w-px bg-border" />
+                  <button
+                    type="button" aria-label="Next commit" title="Next commit (])" disabled={stepIndex < 0 || stepIndex >= commits.length - 1}
+                    onClick={() => stepCommit(1)}
+                    className="flex h-full w-7 items-center justify-center rounded-r-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+                  >
+                    <ChevronRight className="size-3.5" />
+                  </button>
+                </div>
+                <span className="ml-2 font-mono tabular-nums text-[11px] text-muted-foreground">{stepIndex + 1}/{commits.length}</span>
+              </div>
+            )}
             <div className="ml-auto flex items-center gap-3">
               <CliInstallButton />
               {pendingRefresh && (
@@ -413,12 +580,12 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
         <div className="shrink-0 border-b border-destructive/30 bg-destructive/10 px-3 py-1.5 text-[12px] text-destructive">{error}</div>
       )}
       <div className="flex min-h-0 flex-1">
-        {summary && review ? (
+        {viewSummary && review ? (
           orderedFiles.length === 0 ? (
             <NothingToReview
               target={review.target}
               repoName={repoName}
-              modeLabel={MODES.find((m) => m.id === diffMode)?.label ?? diffMode}
+              modeLabel={inCommitMode ? `commit ${commits[commitIndex]?.shortOid ?? ""}`.trim() : (MODES.find((m) => m.id === diffMode)?.label ?? diffMode)}
             />
           ) : (
           <>
@@ -434,7 +601,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
             </aside>
             <main className="min-h-0 min-w-0 flex-1 -ml-1.5">
               <VirtualDiffPane
-                target={review.target}
+                target={viewTarget!}
                 files={orderedFiles}
                 theme={theme}
                 layout={layout}
@@ -454,7 +621,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
             <CommentIndex
               open={indexOpen}
               onOpenChange={setIndexOpen}
-              comments={comments}
+              comments={allComments}
               onJump={onJump}
             />
           </>

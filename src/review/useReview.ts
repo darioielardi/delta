@@ -58,7 +58,7 @@ export function useReview(initial: Review | null) {
   // A new comment starts as an in-memory draft (no disk write) — it only
   // persists when the editor is explicitly saved (updateCommentBody). Cancelling
   // a never-saved draft just deletes it from memory. (#r2)
-  const addComment = useCallback((scope: CommentScope, anchor: Anchor | null, body: string) => {
+  const addComment = useCallback((scope: CommentScope, anchor: Anchor | null, body: string, commit?: string | null) => {
     const now = new Date().toISOString();
     const comment: Comment = {
       id: crypto.randomUUID(),
@@ -67,6 +67,7 @@ export function useReview(initial: Review | null) {
       body,
       stale: false,
       resolved: false,
+      commit: commit ?? undefined,
       createdAt: now,
       updatedAt: now,
     };

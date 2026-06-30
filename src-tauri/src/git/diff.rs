@@ -226,7 +226,7 @@ mod tests {
     use crate::git::test_support::*;
 
     fn target(repo_path: &str, mode: DiffMode) -> Target {
-        Target { repo_path: repo_path.into(), worktree: None, mode, base: None }
+        Target { repo_path: repo_path.into(), worktree: None, mode, base: None, commit: None }
     }
 
     #[test]
@@ -234,7 +234,7 @@ mod tests {
         let (dir, _repo) = repo_with_commit();
         write(dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
         let fd = get_file_diff(
-            &Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None },
+            &Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None },
             "file.txt",
         ).unwrap();
         assert_eq!(fd.old_content.as_deref(), Some("line1\nline2\n"));
