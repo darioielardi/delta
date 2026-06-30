@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { X } from "lucide-react";
+import { MessageSquareDashed, X } from "lucide-react";
 import { useResizableWidth, usePaneResize, PaneResizer, COMMENTS_PANE } from "../lib/resizablePane";
 import type { Comment } from "../types";
 
@@ -103,7 +103,13 @@ export function CommentIndex({
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-auto pl-0 pr-3.5 pb-3.5 pt-2">
         {anchored.length === 0 && (
-          <p className="py-8 text-center text-[13px] text-muted-foreground">No comments yet</p>
+          <div className="flex flex-col items-center px-4 py-12 text-center">
+            <span className="flex size-11 items-center justify-center rounded-2xl squircle bg-muted/60 text-muted-foreground/70">
+              <MessageSquareDashed className="size-[22px]" strokeWidth={1.5} />
+            </span>
+            <p className="mt-3 text-[13px] font-medium text-foreground">No comments yet</p>
+            <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground/70">Hover a line in the diff to add one.</p>
+          </div>
         )}
         {anchored.map((c) => (
           <button
