@@ -142,7 +142,7 @@ trap 'rm -f "$notes_file"' EXIT
   printf '```\n'
 } > "$notes_file"
 
-gh release create "$tag" "$dmg_path" --title "${product} ${tag}" --notes-file "$notes_file"
+gh release create "$tag" "$dmg_path" --title "$tag" --notes-file "$notes_file" --generate-notes
 
 printf '\nPublished %s.\n' "$tag"
 printf 'DMG: %s\n' "$dmg_path"
