@@ -12,6 +12,7 @@ import type {
   InstallOutcome,
   CliStatus,
   DiffMode,
+  CommitMeta,
 } from "./types";
 
 // Transport indirection: a dev-only fixture backend (VITE_MOCK_IPC) can replace
@@ -32,6 +33,8 @@ export const api = {
     invokeImpl("compute_diff", { target }),
   getFileDiff: (target: Target, path: string): Promise<FileDiff> =>
     invokeImpl("get_file_diff", { target, path }),
+  listCommits: (target: Target): Promise<CommitMeta[]> =>
+    invokeImpl("list_commits", { target }),
   openReview: (target: Target): Promise<ReviewSession> =>
     invokeImpl("open_review", { target }),
   refreshReview: (review: Review): Promise<ReviewSession> =>
