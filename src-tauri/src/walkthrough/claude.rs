@@ -197,6 +197,34 @@ pub fn enforce_invariants(
     Ok(())
 }
 
+/// Runs `claude` and returns the raw `--output-format json` envelope. Abstracted so
+/// the parse/validate/repair pipeline is testable without shelling out.
+pub trait ClaudeRunner {
+    fn run(&self, system: &str, stdin: &str) -> Result<String, WalkthroughError>;
+}
+
+/// One generation attempt plus one repair retry. On `Unparseable`/`QualityViolation`,
+/// re-run once with the specific failure appended to the payload; anything else
+/// (spawn/exit/timeout) is not repairable and propagates immediately.
+pub fn generate_with_runner(
+    runner: &dyn ClaudeRunner,
+    system: &str,
+    payload: &str,
+    diff_paths: &HashSet<String>,
+) -> Result<Walkthrough, WalkthroughError> {
+    let envelope = runner.run(system, payload)?;
+    let detail = match extract_result_json(&envelope).and_then(|j| parse_and_validate(&j, diff_paths)) {
+        Ok(w) => return Ok(w),
+        Err(WalkthroughError::Unparseable(s)) | Err(WalkthroughError::QualityViolation(s)) => s,
+        Err(other) => return Err(other),
+    };
+    // Repair retry: tell the model exactly what was wrong.
+    let repaired = format!("{payload}{}", crate::walkthrough::prompt::repair_note(&detail));
+    let envelope = runner.run(system, &repaired)?;
+    let json = extract_result_json(&envelope)?;
+    parse_and_validate(&json, diff_paths)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +325,44 @@ mod tests {
     fn extracts_when_result_is_raw_object() {
         let env = r#"{"version":1,"title":"t"}"#;
         assert_eq!(extract_result_json(env).unwrap(), env);
+    }
+
+    struct Fake {
+        outs: std::cell::RefCell<Vec<String>>,
+    }
+    impl ClaudeRunner for Fake {
+        fn run(&self, _system: &str, _stdin: &str) -> Result<String, WalkthroughError> {
+            Ok(self.outs.borrow_mut().remove(0))
+        }
+    }
+    fn envelope(result_json: &str) -> String {
+        serde_json::json!({"type":"result","result": result_json,"is_error":false}).to_string()
+    }
+    const GOOD: &str = r#"{"version":1,"title":"A good clear title","summary":"What changed and why.","groups":[
+        {"id":"g1","title":"Group one","summary":"Short summary.","order":1,"importance":"core","files":[{"path":"a.ts"}],"risks":[]},
+        {"id":"g2","title":"Group two","summary":"Short summary.","order":2,"importance":"skim","files":[{"path":"b.ts"}],"risks":[]}],"ignored":[]}"#;
+
+    #[test]
+    fn repairs_after_one_bad_then_good() {
+        let f = Fake { outs: std::cell::RefCell::new(vec![envelope("not json at all"), envelope(GOOD)]) };
+        let w = generate_with_runner(&f, "sys", "payload", &paths(&["a.ts", "b.ts"])).unwrap();
+        assert_eq!(w.groups.len(), 2);
+        assert!(f.outs.borrow().is_empty(), "both attempts consumed");
+    }
+
+    #[test]
+    fn fails_after_second_bad() {
+        let f = Fake { outs: std::cell::RefCell::new(vec![envelope("nope"), envelope("still nope")]) };
+        assert!(generate_with_runner(&f, "s", "p", &paths(&[])).is_err());
+    }
+
+    #[test]
+    fn quality_violation_triggers_repair_then_succeeds() {
+        // First a single-group (quality violation), then the good two-group result.
+        let one_group = r#"{"version":1,"title":"One group only","summary":"Just one.","groups":[
+            {"id":"g1","title":"Only group","summary":"Short summary.","order":1,"importance":"core","files":[{"path":"a.ts"},{"path":"b.ts"}],"risks":[]}],"ignored":[]}"#;
+        let f = Fake { outs: std::cell::RefCell::new(vec![envelope(one_group), envelope(GOOD)]) };
+        let w = generate_with_runner(&f, "s", "p", &paths(&["a.ts", "b.ts"])).unwrap();
+        assert_eq!(w.groups.len(), 2);
     }
 }
