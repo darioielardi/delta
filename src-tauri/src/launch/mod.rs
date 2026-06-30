@@ -28,20 +28,22 @@ pub struct Launch {
     /// the cwd; whether that opens a review or falls back to Home is a downstream
     /// repo-validity check (see `route_launch`).
     pub repo_path: PathBuf,
-    pub mode: DiffMode,
+    /// `None` when no mode flag was passed; `Some(_)` for an explicit `--all` /
+    /// `--uncommitted` / `--last-commit` / `--branch`.
+    pub mode: Option<DiffMode>,
 }
 
 /// Pure CLI parsing. `args` excludes the binary name. No filesystem access.
 pub fn parse_launch(args: &[String], cwd: &Path) -> Launch {
-    let mut mode = DiffMode::AllChanges;
+    let mut mode: Option<DiffMode> = None;
     let mut path_token: Option<&str> = None;
     for arg in args {
-        match arg.as_str() {
-            "--uncommitted" => mode = DiffMode::Uncommitted,
-            "--last-commit" => mode = DiffMode::LastCommit,
-            "--branch" => mode = DiffMode::BranchVsBase,
-            other if !other.starts_with("--") && path_token.is_none() => path_token = Some(other),
-            _ => {}
+        if let Some(m) = DiffMode::from_flag(arg) {
+            mode = Some(m);
+        } else if !arg.starts_with("--") && path_token.is_none() {
+            // A non-flag token is the path. Unknown `--flags` are ignored here
+            // (the CLI rejects them up front; the app stays lenient). (#help)
+            path_token = Some(arg.as_str());
         }
     }
     // A bare invocation (no path arg) or "." resolves to the cwd, so `delta` inside
@@ -186,8 +188,16 @@ pub fn enc(s: &str) -> String {
     out
 }
 
+/// Outcome of `open_target_window`: whether an existing window was focused or a
+/// new one created. The payload is the `review-{id}` window label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Opened {
+    Focused(String),
+    Created(String),
+}
+
 /// The single choke point for "open this target". Focus-or-create, ≤1 per target.
-pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base: Option<String>) -> Result<(), String> {
+pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base: Option<String>) -> Result<Opened, String> {
     let repo = open_repo(repo_path)?;
     let canonical = repo
         .workdir()
@@ -199,7 +209,7 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
     if let Some(w) = app.get_webview_window(&label) {
         let _ = w.show();
         let _ = w.set_focus();
-        return Ok(());
+        return Ok(Opened::Focused(label));
     }
     let mut url = format!("index.html?repo={}&mode={}", enc(&canonical), mode.as_str());
     if let Some(b) = base.as_deref() {
@@ -223,7 +233,7 @@ pub fn open_target_window(app: &AppHandle, repo_path: &str, mode: DiffMode, base
     builder.build().map_err(|e| format!("create window: {e}"))?;
     // Auto-refresh: watch this worktree and notify the window on change. (#9)
     crate::watch::start(app, &label, Path::new(&canonical));
-    Ok(())
+    Ok(Opened::Created(label))
 }
 
 /// Re-point an existing window's fs watcher at a different target's worktree.
@@ -274,7 +284,8 @@ pub fn open_home_window(app: &AppHandle) -> Result<(), String> {
 pub fn route_launch(app: &AppHandle, args: &[String], cwd: &Path) {
     let launch = parse_launch(args, cwd);
     let path = launch.repo_path.to_string_lossy().to_string();
-    let opened = open_repo(&path).is_ok() && open_target_window(app, &path, launch.mode, None).is_ok();
+    let mode = launch.mode.unwrap_or(DiffMode::AllChanges);
+    let opened = open_repo(&path).is_ok() && open_target_window(app, &path, mode, None).is_ok();
     if !opened {
         let _ = open_home_window(app);
     }
@@ -509,7 +520,15 @@ mod tests {
         // worktree; the home fallback is a downstream repo-validity check.
         let l = parse_launch(&[], Path::new("/home/me/proj"));
         assert_eq!(l.repo_path, PathBuf::from("/home/me/proj"));
-        assert_eq!(l.mode, DiffMode::AllChanges);
+        assert_eq!(l.mode, None);
+    }
+
+    #[test]
+    fn parse_launch_no_mode_flag_is_none_not_all_changes() {
+        // `None` is what lets the socket handler tell "no --mode given" (focus only)
+        // from an explicit `--all` (switch the open window to all-changes).
+        assert_eq!(parse_launch(&["/abs/repo".into()], Path::new("/c")).mode, None);
+        assert_eq!(parse_launch(&["--all".into()], Path::new("/c")).mode, Some(DiffMode::AllChanges));
     }
 
     #[test]
@@ -532,16 +551,17 @@ mod tests {
 
     #[test]
     fn parse_launch_mode_flags() {
-        assert_eq!(parse_launch(&["--uncommitted".into()], Path::new("/c")).mode, DiffMode::Uncommitted);
-        assert_eq!(parse_launch(&["--last-commit".into()], Path::new("/c")).mode, DiffMode::LastCommit);
-        assert_eq!(parse_launch(&["--branch".into()], Path::new("/c")).mode, DiffMode::BranchVsBase);
+        assert_eq!(parse_launch(&["--all".into()], Path::new("/c")).mode, Some(DiffMode::AllChanges));
+        assert_eq!(parse_launch(&["--uncommitted".into()], Path::new("/c")).mode, Some(DiffMode::Uncommitted));
+        assert_eq!(parse_launch(&["--last-commit".into()], Path::new("/c")).mode, Some(DiffMode::LastCommit));
+        assert_eq!(parse_launch(&["--branch".into()], Path::new("/c")).mode, Some(DiffMode::BranchVsBase));
     }
 
     #[test]
     fn parse_launch_flag_then_path() {
         let l = parse_launch(&["--uncommitted".into(), "/abs/repo".into()], Path::new("/c"));
         assert_eq!(l.repo_path, PathBuf::from("/abs/repo"));
-        assert_eq!(l.mode, DiffMode::Uncommitted);
+        assert_eq!(l.mode, Some(DiffMode::Uncommitted));
     }
 
     #[test]

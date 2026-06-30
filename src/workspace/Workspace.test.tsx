@@ -27,11 +27,13 @@ vi.mock("../api", () => ({
   },
 }));
 
-// Capture the "fs:changed" handler the Workspace registers so a test can fire it.
+// Capture the event handlers the Workspace registers so tests can fire them.
 let fsChanged: ((e: { payload: { paths: string[]; gitMeta: boolean } }) => void) | null = null;
+let setMode: ((e: { payload: string }) => void) | null = null;
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: (name: string, cb: (e: { payload: { paths: string[]; gitMeta: boolean } }) => void) => {
-    if (name === "fs:changed") fsChanged = cb;
+  listen: (name: string, cb: (e: { payload: never }) => void) => {
+    if (name === "fs:changed") fsChanged = cb as never;
+    if (name === "cli:set-mode") setMode = cb as never;
     return Promise.resolve(() => {});
   },
 }));
@@ -63,6 +65,7 @@ describe("Workspace", () => {
     listCommits.mockReset().mockResolvedValue([]);
     computeDiff.mockReset().mockResolvedValue({ files: [], baseLabel: "p", headLabel: "c" });
     fsChanged = null;
+    setMode = null;
   });
 
   it("opens the review for its target on mount", async () => {
@@ -79,6 +82,17 @@ describe("Workspace", () => {
     listCommits.mockResolvedValue(COMMITS);
     render(<Workspace target={commitTarget} />);
     await waitFor(() => expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "branch-vs-base", base: undefined }));
+    expect(openTarget).not.toHaveBeenCalled();
+  });
+
+  it("applies an explicit --mode forwarded from the CLI in place (cli:set-mode)", async () => {
+    openReview.mockResolvedValue(minimalSession);
+    render(<Workspace target={target} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /copy for agents/i })).toBeInTheDocument());
+    openReview.mockClear();
+
+    act(() => setMode?.({ payload: "uncommitted" }));
+    await waitFor(() => expect(openReview).toHaveBeenCalledWith({ repoPath: "/r", mode: "uncommitted", base: undefined }));
     expect(openTarget).not.toHaveBeenCalled();
   });
 

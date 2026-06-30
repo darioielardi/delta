@@ -320,7 +320,7 @@ pub async fn import_repo(app: tauri::AppHandle) -> Result<Option<RepoEntry>, Str
 
 #[tauri::command]
 pub fn open_target(app: tauri::AppHandle, repo_path: String, mode: DiffMode, base: Option<String>) -> Result<(), String> {
-    open_target_window(&app, &repo_path, mode, base)
+    open_target_window(&app, &repo_path, mode, base).map(|_| ())
 }
 
 /// Re-point the calling window's fs watcher at `repo_path`'s worktree — used when

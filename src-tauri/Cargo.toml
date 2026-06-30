@@ -30,7 +30,6 @@ git2 = { version = "0.19", features = ["vendored-openssl"] }
 sha2 = "0.10"
 similar = "2"
 chrono = { version = "0.4", features = ["clock"] }
-tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-window-state = "2"
 notify = "6"
