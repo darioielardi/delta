@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use tauri::{AppHandle, Emitter, Manager};
+
 use crate::git::model::DiffMode;
 
 /// Bundle identifier this binary talks to. The debug build is a separate app so
@@ -29,6 +31,64 @@ pub fn cli_socket_path(identifier: &str, home: &Path) -> PathBuf {
 pub struct CliRequest {
     pub repo: String,
     pub mode: Option<DiffMode>,
+}
+
+/// Bind the CLI socket and serve forwarded open-target requests. Best-effort:
+/// any failure (e.g. an over-long socket path) logs and disables forwarding —
+/// cold `open -b` still works, only warm forwarding degrades.
+pub fn start(app: &AppHandle) {
+    let home = match std::env::var_os("HOME") {
+        Some(h) => PathBuf::from(h),
+        None => return,
+    };
+    let sock = cli_socket_path(IDENTIFIER, &home);
+    if let Some(parent) = sock.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::remove_file(&sock); // clear a stale socket from a prior crash
+    // macOS caps sun_path at 104 bytes; bail cleanly rather than panic on bind.
+    if sock.as_os_str().len() >= 104 {
+        eprintln!("delta: cli socket path too long; CLI forwarding disabled");
+        return;
+    }
+    let listener = match std::os::unix::net::UnixListener::bind(&sock) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("delta: bind cli socket: {e}");
+            return;
+        }
+    };
+    let handle = app.clone();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut buf = String::new();
+            if std::io::Read::read_to_string(&mut stream, &mut buf).is_err() {
+                continue;
+            }
+            let Ok(req) = serde_json::from_str::<CliRequest>(buf.trim()) else { continue };
+            let h = handle.clone();
+            // Window create/focus must happen on the main thread.
+            let _ = handle.run_on_main_thread(move || handle_request(&h, req));
+        }
+    });
+}
+
+/// Open (or focus) the target window. If we focused an already-open window AND the
+/// request carried an explicit mode, forward it as `cli:set-mode` so the frontend
+/// switches in place instead of ignoring it.
+fn handle_request(app: &AppHandle, req: CliRequest) {
+    let explicit = req.mode;
+    let mode = req.mode.unwrap_or(DiffMode::AllChanges);
+    if let Ok(crate::launch::Opened::Focused(label)) =
+        crate::launch::open_target_window(app, &req.repo, mode, None)
+    {
+        if let Some(m) = explicit {
+            if let Some(w) = app.get_webview_window(&label) {
+                let _ = w.emit("cli:set-mode", m);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

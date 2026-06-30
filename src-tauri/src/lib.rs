@@ -86,6 +86,7 @@ pub fn run() {
             let args: Vec<String> = std::env::args().skip(1).collect();
             let cwd = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
             crate::launch::route_launch(app.handle(), &args, &cwd);
+            crate::ipc::start(app.handle());
             #[cfg(debug_assertions)]
             crate::devbridge::start(app.handle().clone());
             Ok(())
