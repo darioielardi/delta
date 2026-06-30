@@ -29,6 +29,7 @@ import { DiffFind } from "./DiffFind";
 import type { Anchor, Comment, FileDiff, FileEntry, Side, Target } from "../types";
 import type { DiffLayout } from "./useDiffLayout";
 import { useFileDiffCache } from "./useFileDiffCache";
+import { anchorScrollTopOnCollapse } from "./anchorScroll";
 import { useCodeFont, rowHeightFor } from "../codeFont";
 
 const HEADER_H = 40; // sticky file header (border-box); content is vertically centered. (#card)
@@ -965,6 +966,41 @@ export function VirtualDiffPane({
     return { offsets: offs, total: top - GAP + PAD }; // trailing gap → bottom padding
   }, [files, collapsedFor, bodyHeights, rowH]);
 
+  // Scroll anchoring on collapse (#viewed-anchor). Folding a file shut drops its body
+  // height; without this, any of that height above the viewport top yanks the visible
+  // content upward. Native overflow-anchor can't help — sections are absolutely
+  // positioned in a JS-sized container — so we compensate scrollTop manually, pre-paint
+  // (useLayoutEffect, before the shifted frame can show). We snapshot each file's
+  // collapse state per render and act only on a single file going expanded → collapsed;
+  // new already-collapsed files (async load / refresh) and bulk folds are left alone.
+  const prevCollapsed = useRef<Map<string, boolean> | null>(null);
+  useLayoutEffect(() => {
+    const curr = new Map<string, boolean>();
+    for (const f of files) curr.set(f.path, collapsedFor(f));
+    const prev = prevCollapsed.current;
+    prevCollapsed.current = curr;
+    if (prev === null) return; // first run only records the baseline
+    let fresh = -1;
+    for (let i = 0; i < files.length; i++) {
+      // Expanded last render, collapsed now — a genuine fold of an existing file.
+      if (curr.get(files[i].path) === true && prev.get(files[i].path) === false) {
+        if (fresh >= 0) return; // more than one folded this commit — don't fight it
+        fresh = i;
+      }
+    }
+    if (fresh < 0) return;
+    const pane = paneRef.current;
+    if (!pane) return;
+    const bodyHeight = bodyHeights[files[fresh].path] ?? estReserved(files[fresh], rowH);
+    const want = anchorScrollTopOnCollapse(pane.scrollTop, offsets[fresh], bodyHeight, HEADER_H, PAD);
+    if (want == null) return;
+    const next = Math.min(want, Math.max(0, pane.scrollHeight - pane.clientHeight));
+    if (Math.abs(next - pane.scrollTop) > 1) {
+      pane.scrollTop = next;
+      setScrollTop(next); // keep the row window in sync this frame (onScroll is rAF-gated)
+    }
+  }, [collapsedFor, files, offsets, bodyHeights, rowH]);
+
   // Flatten matches in file (tree) order → global next/prev list. (#find)
   const allMatches = useMemo(() => {
     const out: FindMatch[] = [];
@@ -1150,7 +1186,8 @@ export function VirtualDiffPane({
           inputRef={findInputRef}
         />
       )}
-      <div ref={paneRef} className="h-full overflow-auto" data-testid="diff-pane">
+      {/* overflow-anchor:none — we anchor the scroll manually on collapse (#viewed-anchor). */}
+      <div ref={paneRef} className="h-full overflow-auto [overflow-anchor:none]" data-testid="diff-pane">
       {/* diff-tailwindcss-wrapper + data-theme scope @git-diff-view's hljs token
           colors onto our rows; the gdv layer sits below `utilities`, so our layout wins. */}
       <div
