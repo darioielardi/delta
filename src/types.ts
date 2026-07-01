@@ -87,6 +87,8 @@ export interface Review {
   snapshot: Snapshot;
   comments: Comment[];
   viewed: ViewedEntry[];
+  /** Cached AI walkthrough, tagged with the diff signature it was generated against. (#guide) */
+  walkthrough?: CachedWalkthrough | null;
   createdAt: string;
   lastOpenedAt: string;
 }
@@ -95,6 +97,9 @@ export interface ReviewSession {
   review: Review;
   summary: DiffSummary;
   repoName: string;
+  /** True when the worktree has uncommitted changes (staged or unstaged). Gates the
+   *  AI walkthrough, which reviews committed branch-vs-base only. (#guide) */
+  dirty?: boolean;
 }
 
 export interface WorktreeEntry {
@@ -156,6 +161,72 @@ export type InstallOutcome =
   | { kind: "linked"; path: string }
   | { kind: "linkedPathUpdated"; path: string; shells: string[] }
   | { kind: "manualNeeded"; command: string; reason: string };
+
+// ---------------------------------------------------------------------------
+// AI guidance ("Guide") — a structured reading guide produced from the diff by
+// the local `claude` CLI. Orientation + lightweight risk flags, not a critique.
+// ---------------------------------------------------------------------------
+export type WalkImportance = "core" | "supporting" | "skim";
+export type RiskSeverity = "watch" | "caution";
+
+export interface WalkFile {
+  path: string;
+  /** One-liner: this file's role in the group. */
+  note?: string | null;
+  /** Default-fold this file in the diff (skim/noise). */
+  collapsed?: boolean;
+}
+
+export interface WalkRisk {
+  path: string;
+  /** New-side line to anchor/jump to, when known. */
+  line?: number | null;
+  severity: RiskSeverity;
+  /** Why to look here — attention-steering, not a verdict. */
+  note: string;
+}
+
+export interface WalkGroup {
+  id: string;
+  title: string;
+  summary: string;
+  /** Reading sequence, 1-based. */
+  order: number;
+  importance: WalkImportance;
+  files: WalkFile[];
+  risks: WalkRisk[];
+}
+
+export interface IgnoredFile {
+  path: string;
+  reason: string;
+}
+
+export interface Walkthrough {
+  version: number;
+  /** Short headline for the whole change — a PR-style title. */
+  title: string;
+  /** 1–3 sentences: what this change does and why, at a glance. */
+  summary: string;
+  groups: WalkGroup[];
+  ignored: IgnoredFile[];
+  /** True when the diff was too large to read in full (summarized from structure). */
+  degraded?: boolean;
+}
+
+/** A walkthrough cached on the review, tagged with the diff signature it was
+ *  generated against so staleness is a cheap comparison. (#guide) */
+export interface CachedWalkthrough {
+  walkthrough: Walkthrough;
+  diffSig: string;
+  generatedAt: string;
+}
+
+/** Presence of the local `claude` CLI — pre-flight gate for the walkthrough button. */
+export interface ClaudeStatus {
+  installed: boolean;
+  path?: string | null;
+}
 
 export interface CliStatus {
   installed: boolean;

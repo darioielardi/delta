@@ -279,6 +279,35 @@ pub fn open_home_window(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Dev affordance: open the AI-guidance ("Guide") experience on mock fixtures.
+/// Focus-or-create a singleton `guide-mock` window at the guide route with
+/// `?mock=1`, so the frontend self-installs the fixture IPC (see main.tsx) and
+/// the whole guided UX renders on demo data — before the real backend exists.
+/// (#guide-dev)
+pub fn open_guide_window(app: &AppHandle) -> Result<(), String> {
+    let label = "guide-mock";
+    if let Some(w) = app.get_webview_window(label) {
+        let _ = w.show();
+        let _ = w.set_focus();
+        return Ok(());
+    }
+    #[allow(unused_mut)]
+    let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html?view=guide&mock=1".into()))
+        .title("Delta — Walkthrough")
+        .visible(false) // shown via show()+setFocus() after first paint so the window orders front
+        .inner_size(1440.0, 900.0)
+        .min_inner_size(900.0, 600.0);
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder
+            .title_bar_style(tauri::TitleBarStyle::Overlay)
+            .hidden_title(true)
+            .traffic_light_position(tauri::LogicalPosition::new(16.0, 26.0));
+    }
+    builder.build().map_err(|e| format!("create guide window: {e}"))?;
+    Ok(())
+}
+
 /// First-launch + single-instance routing: open the target's review window when
 /// launched inside a repo, otherwise the home window (which shows the palette).
 pub fn route_launch(app: &AppHandle, args: &[String], cwd: &Path) {

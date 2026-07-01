@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { Workspace } from "./workspace/Workspace";
+import { GuideWorkspace } from "./guide/GuideWorkspace";
 import { Home } from "./Home";
 import { CommandPalette } from "./picker/CommandPalette";
 import { SettingsDialog } from "./settings/SettingsDialog";
@@ -25,6 +26,9 @@ function readLabel(): string | null {
 export default function App() {
   const route = resolveRoute(readLabel(), window.location.search);
   const isReview = route.kind === "review";
+  // The guide window behaves like a review window for lifecycle (show + close
+  // home); it just lacks the command palette.
+  const isWorkspace = route.kind !== "home";
   // Apply the theme preference at the root so BOTH windows (home + review) honor
   // it — previously only Workspace toggled `.dark`, so the launcher was stuck
   // light (#7).
@@ -83,7 +87,7 @@ export default function App() {
       try {
         await w.show();
         await w.setFocus();
-        if (isReview) {
+        if (isWorkspace) {
           const home = await WebviewWindow.getByLabel("home");
           if (home) await home.close();
         }
@@ -91,16 +95,18 @@ export default function App() {
         /* not in a Tauri window / not permitted — ignore */
       }
     })();
-  }, [isReview]);
+  }, [isWorkspace]);
 
   return (
     <>
-      {isReview ? (
+      {route.kind === "review" ? (
         <Workspace
           target={route.target}
           onOpenPalette={() => setPaletteOpen(true)}
           onOpenSettings={() => setSettingsOpen(true)}
         />
+      ) : route.kind === "guide" ? (
+        <GuideWorkspace target={route.target} />
       ) : (
         <Home onOpenSettings={() => setSettingsOpen(true)} />
       )}

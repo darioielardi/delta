@@ -701,6 +701,7 @@ dependencies = [
  "chrono",
  "git2",
  "ignore",
+ "libc",
  "notify",
  "serde",
  "serde_json",

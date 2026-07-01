@@ -11,7 +11,9 @@ import type {
   RepoEntry,
   InstallOutcome,
   CliStatus,
+  ClaudeStatus,
   DiffMode,
+  Walkthrough,
   CommitMeta,
 } from "./types";
 
@@ -43,6 +45,16 @@ export const api = {
     invokeImpl("save_review", { review }),
   exportReview: (review: Review): Promise<string> =>
     invokeImpl("export_review", { review }),
+  // AI guidance: analyze the target's committed diff with the local `claude` CLI
+  // (headless, --safe-mode) and return a structured walkthrough. Cached per diff
+  // signature on the review; pass `force` to regenerate. (#guide)
+  generateWalkthrough: (target: Target, force?: boolean): Promise<Walkthrough> =>
+    invokeImpl("generate_walkthrough", { target, force }),
+  // Presence of the local `claude` CLI — gates the walkthrough affordance.
+  claudeStatus: (): Promise<ClaudeStatus> => invokeImpl("claude_status"),
+  // Kill an in-flight walkthrough generation for this review (navigate-away / supersede).
+  cancelWalkthrough: (reviewId: string): Promise<void> =>
+    invokeImpl("cancel_walkthrough", { reviewId }),
   listRegistry: (): Promise<Registry> => invokeImpl("list_registry"),
   listPicker: (): Promise<PickerData> => invokeImpl("list_picker"),
   listWorktrees: (repoPath: string): Promise<WorktreeEntry[]> =>
@@ -56,6 +68,8 @@ export const api = {
   rewatchWindow: (repoPath: string): Promise<void> =>
     invokeImpl("rewatch_window", { repoPath }),
   deleteReview: (id: string): Promise<void> => invokeImpl("delete_review", { id }),
+  // Dev-only: open the Guide experience on mock fixtures in its own window. (#guide-dev)
+  openGuide: (): Promise<void> => invokeImpl("open_guide"),
   installCli: (): Promise<InstallOutcome> => invokeImpl("install_cli"),
   cliStatus: (): Promise<CliStatus> => invokeImpl("cli_status"),
   // Open a file (or the repo root, when `file` is omitted) in the user's editor;

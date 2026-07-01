@@ -5,19 +5,31 @@
 // Keep fixtures realistic but small. As Plan 2 adds commands (open_review,
 // refresh_review, save_review, export_review) extend the switch + fixtures here.
 import { __setInvokeForDev } from "../api";
-import type { DiffSummary, FileDiff, PickerData, Registry, Review, ReviewSession } from "../types";
+import type { DiffSummary, FileDiff, PickerData, Registry, Review, ReviewSession, Walkthrough } from "../types";
 
 const SUMMARY: DiffSummary = {
   baseLabel: "main",
   headLabel: "feat/auth",
   files: [
-    { path: "src/auth/session.ts", status: "modified", additions: 3, deletions: 2, binary: false },
-    { path: "src/auth/login.ts", status: "modified", additions: 1, deletions: 0, binary: false },
+    { path: "src/auth/session.ts", status: "modified", additions: 5, deletions: 3, binary: false },
+    { path: "src/auth/login.ts", status: "modified", additions: 1, deletions: 1, binary: false },
+    { path: "src/auth/tokens.ts", status: "added", additions: 17, deletions: 0, binary: false },
+    { path: "src/auth/middleware.ts", status: "added", additions: 11, deletions: 0, binary: false },
+    { path: "src/store/sessionStore.ts", status: "added", additions: 21, deletions: 0, binary: false },
+    { path: "src/store/index.ts", status: "added", additions: 2, deletions: 0, binary: false },
     { path: "src/api/routes.ts", status: "modified", additions: 2, deletions: 2, binary: false },
+    { path: "src/api/handlers/session.ts", status: "added", additions: 22, deletions: 0, binary: false },
     // Sparse changes far apart → a long unchanged middle that folds. (#10)
     { path: "src/config/limits.ts", status: "modified", additions: 2, deletions: 2, binary: false },
+    { path: "src/config/env.ts", status: "modified", additions: 2, deletions: 0, binary: false },
     { path: "src/legacy/cache.ts", status: "deleted", additions: 0, deletions: 9, binary: false },
-    { path: "README.md", status: "added", additions: 3, deletions: 0, binary: false },
+    { path: "src/legacy/memstore.ts", status: "deleted", additions: 0, deletions: 13, binary: false },
+    { path: "tests/auth/session.test.ts", status: "added", additions: 14, deletions: 0, binary: false },
+    { path: "tests/auth/login.test.ts", status: "added", additions: 7, deletions: 0, binary: false },
+    { path: "package.json", status: "modified", additions: 3, deletions: 1, binary: false },
+    { path: "pnpm-lock.yaml", status: "modified", additions: 3, deletions: 0, binary: false },
+    { path: "docs/auth-sessions.md", status: "added", additions: 12, deletions: 0, binary: false },
+    { path: "README.md", status: "added", additions: 6, deletions: 0, binary: false },
     { path: "assets/logo.png", status: "added", additions: 0, deletions: 0, binary: true },
   ],
 };
@@ -63,9 +75,9 @@ const FILES: Record<string, FileDiff> = {
     status: "modified",
     binary: false,
     oldContent:
-      "export function getSession(user) {\n  return cache.get(user.id)\n}\n\nexport const TTL = 3600\n",
+      `import { cache } from "../legacy/cache"\n\nexport function getSession(user) {\n  return cache.get(user.id)\n}\n\nexport function putSession(user, data) {\n  cache.set(user.id, data)\n}\n\nexport const TTL = 3600\n`,
     newContent:
-      "export function getSession(user) {\n  // read-through to the store\n  return store.read(user.id)\n}\n\nexport const TTL = 7200\n",
+      `import * as store from "../store/sessionStore"\n\nexport async function getSession(user) {\n  // read-through to the persistent store\n  return store.read(user.id)\n}\n\nexport async function putSession(user, data) {\n  await store.write(user.id, data)\n}\n\nexport const TTL = 7200\n`,
   },
   "src/auth/login.ts": {
     oldFileName: "src/auth/login.ts",
@@ -78,6 +90,33 @@ const FILES: Record<string, FileDiff> = {
     newContent:
       "export function login(token) {\n  if (!token) return null\n  return verify(token, { clockTolerance: 5 })\n}\n",
   },
+  "src/auth/tokens.ts": {
+    oldFileName: null, newFileName: "src/auth/tokens.ts",
+    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    oldContent: null,
+    newContent:
+      `import { sign, verify } from "jsonwebtoken"\nimport { env } from "../config/env"\n\nexport interface TokenPair {\n  access: string\n  refresh: string\n}\n\nexport function issue(userId: string): TokenPair {\n  const access = sign({ sub: userId }, env.JWT_SECRET, { expiresIn: "15m" })\n  const refresh = sign({ sub: userId, kind: "refresh" }, env.JWT_SECRET, { expiresIn: "30d" })\n  return { access, refresh }\n}\n\nexport function rotate(refresh: string): TokenPair {\n  const claims = verify(refresh, env.JWT_SECRET, { clockTolerance: 5 }) as { sub: string; kind?: string }\n  if (claims.kind !== "refresh") throw new Error("not a refresh token")\n  return issue(claims.sub)\n}\n`,
+  },
+  "src/auth/middleware.ts": {
+    oldFileName: null, newFileName: "src/auth/middleware.ts",
+    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    oldContent: null,
+    newContent:
+      `import type { Request, Response, NextFunction } from "express"\nimport { sessionStore } from "../store"\n\nexport async function requireSession(req: Request, res: Response, next: NextFunction) {\n  const userId = req.header("x-user-id")\n  if (!userId) return res.status(401).json({ error: "no session" })\n  const session = await sessionStore.read(userId)\n  if (!session) return res.status(401).json({ error: "session expired" })\n  req.session = session\n  next()\n}\n`,
+  },
+  "src/store/sessionStore.ts": {
+    oldFileName: null, newFileName: "src/store/sessionStore.ts",
+    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    oldContent: null,
+    newContent:
+      `import type { Session } from "../auth/types"\nimport { db } from "../db/client"\nimport { env } from "../config/env"\n\nexport async function read(userId: string): Promise<Session | null> {\n  const row = await db.sessions.findById(userId)\n  if (!row) return null\n  if (Date.now() - row.touchedAt > env.SESSION_TTL_MS) {\n    await db.sessions.delete(userId)\n    return null\n  }\n  return row.session\n}\n\nexport async function write(userId: string, session: Session): Promise<void> {\n  await db.sessions.upsert({ userId, session, touchedAt: Date.now() })\n}\n\nexport async function evict(userId: string): Promise<void> {\n  await db.sessions.delete(userId)\n}\n`,
+  },
+  "src/store/index.ts": {
+    oldFileName: null, newFileName: "src/store/index.ts",
+    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    oldContent: null,
+    newContent: `export * as sessionStore from "./sessionStore"\nexport { db } from "../db/client"\n`,
+  },
   "src/api/routes.ts": {
     oldFileName: "src/api/routes.ts",
     newFileName: "src/api/routes.ts",
@@ -87,6 +126,13 @@ const FILES: Record<string, FileDiff> = {
     binary: false,
     oldContent: ROUTES_OLD,
     newContent: ROUTES_NEW,
+  },
+  "src/api/handlers/session.ts": {
+    oldFileName: null, newFileName: "src/api/handlers/session.ts",
+    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    oldContent: null,
+    newContent:
+      `import type { Request, Response } from "express"\nimport { sessionStore } from "../../store"\nimport { issue, rotate } from "../../auth/tokens"\n\nexport async function create(req: Request, res: Response) {\n  const { userId } = req.body\n  const tokens = issue(userId)\n  await sessionStore.write(userId, { userId, createdAt: Date.now() })\n  res.json(tokens)\n}\n\nexport async function refresh(req: Request, res: Response) {\n  try {\n    res.json(rotate(req.body.refresh))\n  } catch {\n    res.status(401).json({ error: "invalid refresh token" })\n  }\n}\n\nexport async function revoke(req: Request, res: Response) {\n  await sessionStore.evict(req.params.userId)\n  res.status(204).end()\n}\n`,
   },
   // Two changes far apart (line 2 + the second-to-last line) with a long unchanged
   // middle, so the diff folds the gap — and it's big enough to expand 25-by-25. (#10/#2)
@@ -106,6 +152,12 @@ const FILES: Record<string, FileDiff> = {
       oldContent: file(3, 30_000), newContent: file(5, 45_000),
     };
   })(),
+  "src/config/env.ts": {
+    oldFileName: "src/config/env.ts", newFileName: "src/config/env.ts",
+    oldLang: "typescript", newLang: "typescript", status: "modified", binary: false,
+    oldContent: `export const env = {\n  PORT: Number(process.env.PORT ?? 3000),\n  DATABASE_URL: process.env.DATABASE_URL ?? "",\n}\n`,
+    newContent: `export const env = {\n  PORT: Number(process.env.PORT ?? 3000),\n  DATABASE_URL: process.env.DATABASE_URL ?? "",\n  JWT_SECRET: process.env.JWT_SECRET ?? "dev-secret",\n  SESSION_TTL_MS: Number(process.env.SESSION_TTL_MS ?? 7_200_000),\n}\n`,
+  },
   // Deleted file: only old content exists. Used to verify deleted files are
   // hidden behind a reveal (item 3) rather than rendered/collapsed like others.
   "src/legacy/cache.ts": {
@@ -119,6 +171,46 @@ const FILES: Record<string, FileDiff> = {
       "const store = new Map()\n\nexport function get(key) {\n  return store.get(key)\n}\n\nexport function set(key, value) {\n  store.set(key, value)\n}\n",
     newContent: null,
   },
+  "src/legacy/memstore.ts": {
+    oldFileName: "src/legacy/memstore.ts", newFileName: null,
+    oldLang: "typescript", newLang: null, status: "deleted", binary: false,
+    oldContent:
+      `const sessions = new Map()\n\nexport function get(key) {\n  return sessions.get(key)\n}\n\nexport function put(key, value) {\n  sessions.set(key, value)\n}\n\nexport function drop(key) {\n  sessions.delete(key)\n}\n`,
+    newContent: null,
+  },
+  "tests/auth/session.test.ts": {
+    oldFileName: null, newFileName: "tests/auth/session.test.ts",
+    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    oldContent: null,
+    newContent:
+      `import { describe, it, expect } from "vitest"\nimport { read, write, evict } from "../../src/store/sessionStore"\n\ndescribe("sessionStore", () => {\n  it("round-trips a session", async () => {\n    await write("u1", { userId: "u1", createdAt: Date.now() })\n    expect(await read("u1")).not.toBeNull()\n  })\n\n  it("evicts on demand", async () => {\n    await write("u2", { userId: "u2", createdAt: Date.now() })\n    await evict("u2")\n    expect(await read("u2")).toBeNull()\n  })\n})\n`,
+  },
+  "tests/auth/login.test.ts": {
+    oldFileName: null, newFileName: "tests/auth/login.test.ts",
+    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    oldContent: null,
+    newContent:
+      `import { describe, it, expect } from "vitest"\nimport { login } from "../../src/auth/login"\n\ndescribe("login", () => {\n  it("rejects an empty token", () => {\n    expect(login("")).toBeNull()\n  })\n})\n`,
+  },
+  "package.json": {
+    oldFileName: "package.json", newFileName: "package.json",
+    oldLang: "json", newLang: "json", status: "modified", binary: false,
+    oldContent: `{\n  "name": "delta-api",\n  "version": "0.3.0",\n  "dependencies": {\n    "express": "^4.19.0"\n  }\n}\n`,
+    newContent: `{\n  "name": "delta-api",\n  "version": "0.4.0",\n  "dependencies": {\n    "express": "^4.19.0",\n    "jsonwebtoken": "^9.0.2"\n  }\n}\n`,
+  },
+  "pnpm-lock.yaml": {
+    oldFileName: "pnpm-lock.yaml", newFileName: "pnpm-lock.yaml",
+    oldLang: "yaml", newLang: "yaml", status: "modified", binary: false,
+    oldContent: `lockfileVersion: '9.0'\n\nimporters:\n  .:\n    dependencies:\n      express:\n        specifier: ^4.19.0\n        version: 4.19.2\n`,
+    newContent: `lockfileVersion: '9.0'\n\nimporters:\n  .:\n    dependencies:\n      express:\n        specifier: ^4.19.0\n        version: 4.19.2\n      jsonwebtoken:\n        specifier: ^9.0.2\n        version: 9.0.2\n`,
+  },
+  "docs/auth-sessions.md": {
+    oldFileName: null, newFileName: "docs/auth-sessions.md",
+    oldLang: null, newLang: "markdown", status: "added", binary: false,
+    oldContent: null,
+    newContent:
+      `# Session handling\n\nSessions are persisted via src/store/sessionStore.ts and expire after\nSESSION_TTL_MS of inactivity.\n\n## Flow\n\n1. POST /sessions issues an access + refresh token pair.\n2. The access token lasts 15m; rotate it with the refresh token.\n3. The requireSession middleware guards protected routes.\n\nThe legacy in-memory cache under src/legacy/ is removed.\n`,
+  },
   "README.md": {
     oldFileName: null,
     newFileName: "README.md",
@@ -127,7 +219,7 @@ const FILES: Record<string, FileDiff> = {
     status: "added",
     binary: false,
     oldContent: null,
-    newContent: "# delta\n\nReview code diffs and leave structured comments for Claude.\n",
+    newContent: `# delta\n\nReview code diffs and leave structured comments for Claude.\n\n## Auth\n\nSessions now persist in a store; see docs/auth-sessions.md.\n`,
   },
   // Binary file: exercises the "Unsupported file" treatment in the diff view.
   "assets/logo.png": {
@@ -184,6 +276,142 @@ const REVIEW: Review = {
   createdAt: "2026-06-25T18:50:00Z",
   lastOpenedAt: "2026-06-25T18:54:00Z",
 };
+
+// Canned AI-guidance walkthrough for the small fixture — a realistic "feat/auth"
+// narrative spanning core/supporting/skim groups, both risk severities, and an
+// ignored (noise) bucket. Mirrors the files in SUMMARY.
+const WALKTHROUGH: Walkthrough = {
+  version: 1,
+  title: "Persistent auth session store",
+  summary:
+    "Migrates auth sessions from the in-memory cache to a persistent store, adds JWT issue/refresh, and guards routes with session middleware. The `src/auth` + `src/store` work is the core; tests, config, and docs follow.",
+  groups: [
+    {
+      id: "session-store-migration",
+      title: "Session store migration",
+      summary: "`getSession()`/`putSession()` now read and write the persistent store; the legacy cache + memstore are deleted and TTL doubles to `7200`.",
+      order: 1,
+      importance: "core",
+      files: [
+        { path: "src/store/sessionStore.ts", note: "the new store", collapsed: false },
+        { path: "src/store/index.ts", note: "barrel", collapsed: true },
+        { path: "src/auth/session.ts", note: "cache → store", collapsed: false },
+        { path: "src/legacy/cache.ts", note: "deleted", collapsed: true },
+        { path: "src/legacy/memstore.ts", note: "deleted", collapsed: true },
+      ],
+      risks: [
+        { path: "src/auth/session.ts", line: 5, severity: "caution", note: "Reads now hit the store and TTL doubles to 7200 — confirm it matches the cache’s eviction semantics." },
+      ],
+    },
+    {
+      id: "tokens",
+      title: "Token issue & refresh",
+      summary: "Adds JWT issue/rotate and a `requireSession` guard; `login()` gains clock tolerance.",
+      order: 2,
+      importance: "supporting",
+      files: [
+        { path: "src/auth/tokens.ts", note: "issue + rotate", collapsed: false },
+        { path: "src/auth/login.ts", note: "clockTolerance: 5", collapsed: false },
+        { path: "src/auth/middleware.ts", note: "requireSession guard", collapsed: false },
+      ],
+      risks: [
+        { path: "src/auth/login.ts", line: 3, severity: "watch", note: "Widening the JWT acceptance window (clockTolerance: 5) is security-relevant — intended?" },
+        { path: "src/auth/tokens.ts", line: 14, severity: "watch", note: "Refresh tokens live 30 days — make sure rotate() invalidates the previous one." },
+      ],
+    },
+    {
+      id: "session-api",
+      title: "Session API surface",
+      summary: "New create/refresh/revoke handlers behind the session routes; `src/api/routes.ts` gains `includeRevoked` + `geoHint` params.",
+      order: 3,
+      importance: "supporting",
+      files: [
+        { path: "src/api/handlers/session.ts", note: "create / refresh / revoke", collapsed: false },
+        { path: "src/api/routes.ts", note: "new query params", collapsed: false },
+      ],
+      risks: [],
+    },
+    {
+      id: "config-deps",
+      title: "Config & deps",
+      summary: "New env vars (`JWT_SECRET`, `SESSION_TTL_MS`), limit bumps, and the `jsonwebtoken` dependency.",
+      order: 4,
+      importance: "skim",
+      files: [
+        { path: "src/config/env.ts", note: "JWT_SECRET, SESSION_TTL_MS", collapsed: false },
+        { path: "src/config/limits.ts", note: "constant bumps", collapsed: true },
+        { path: "package.json", note: "+ jsonwebtoken", collapsed: true },
+      ],
+      risks: [],
+    },
+    {
+      id: "tests",
+      title: "Tests",
+      summary: "Coverage for the store round-trip and the login guard.",
+      order: 5,
+      importance: "skim",
+      files: [
+        { path: "tests/auth/session.test.ts", note: "store round-trip", collapsed: true },
+        { path: "tests/auth/login.test.ts", note: "empty-token guard", collapsed: true },
+      ],
+      risks: [],
+    },
+    {
+      id: "docs",
+      title: "Docs",
+      summary: "Session-flow write-up and a `README.md` pointer.",
+      order: 6,
+      importance: "skim",
+      files: [
+        { path: "docs/auth-sessions.md", note: "session flow", collapsed: true },
+        { path: "README.md", note: "auth section", collapsed: true },
+      ],
+      risks: [],
+    },
+  ],
+  ignored: [
+    { path: "pnpm-lock.yaml", reason: "lockfile" },
+    { path: "assets/logo.png", reason: "binary asset" },
+  ],
+};
+
+// Build a plausible walkthrough for the `?large=N` fixture so the panel isn't
+// empty there: bucket files by kind, push the giant auto-collapse files to the
+// ignored bin, and skim the css/md.
+function genLargeWalkthrough(summary: DiffSummary): Walkthrough {
+  const paths = summary.files.map((f) => f.path);
+  const giants = paths.filter((p) => /module\d+/.test(p) && /(008|025|042|059|076|093)\./.test(p));
+  const giantSet = new Set(giants);
+  const code = paths.filter((p) => /\.(ts|tsx)$/.test(p) && !giantSet.has(p));
+  const styleDocs = paths.filter((p) => /\.(css|md)$/.test(p) && !giantSet.has(p));
+  const cap = <T,>(a: T[], n: number) => a.slice(0, n);
+  return {
+    version: 1,
+    title: "Broad refactor across modules",
+    summary: `Broad change across ${summary.files.length} files. The bulk is mechanical edits to shared modules; a handful of large files and generated config are noise you can skip.`,
+    groups: [
+      {
+        id: "core-modules", title: "Core module edits", order: 1, importance: "core",
+        summary: "The substantive logic changes live in these shared modules.",
+        files: cap(code, 6).map((p, i) => ({ path: p, note: i === 0 ? "primary change" : undefined, collapsed: false })),
+        risks: code.length ? [{ path: code[0], line: 4, severity: "watch" as const, note: "Touches a shared compute() path used widely — verify call sites." }] : [],
+      },
+      {
+        id: "supporting", title: "Supporting edits", order: 2, importance: "supporting",
+        summary: "Smaller follow-on edits in the same direction.",
+        files: cap(code.slice(6), 8).map((p) => ({ path: p, collapsed: false })),
+        risks: [],
+      },
+      {
+        id: "styles-docs", title: "Styles & docs", order: 3, importance: "skim",
+        summary: "Stylesheet and markdown churn — safe to skim.",
+        files: cap(styleDocs, 8).map((p) => ({ path: p, collapsed: true })),
+        risks: [],
+      },
+    ],
+    ignored: giants.map((p) => ({ path: p, reason: "large file" })),
+  };
+}
 
 const REGISTRY: Registry = {
   version: 1,
@@ -308,6 +536,7 @@ export function installMockBackend(): void {
   // shows instead. `?empty=many` → many siblings, to exercise the 5-row scroll cap.
   const emptyKind = params.get("empty"); // "1" | "solo" | "many" | null
   const emptyParam = emptyKind === "1" || emptyKind === "solo" || emptyKind === "many";
+  const dirtyParam = params.get("dirty") === "1"; // simulate uncommitted changes → gates the walkthrough (#guide)
   const ds = emptyParam
     ? { summary: { ...SUMMARY, files: [] }, files: {}, review: { ...REVIEW, comments: [], viewed: [] } }
     : largeParam
@@ -329,7 +558,7 @@ export function installMockBackend(): void {
         return COMMITS as T;
       case "open_review":
       case "refresh_review": {
-        const session: ReviewSession = { review: ds.review, summary: ds.summary, repoName: "demo" };
+        const session: ReviewSession = { review: ds.review, summary: ds.summary, repoName: "demo", dirty: dirtyParam };
         return structuredClone(session) as T;
       }
       case "save_review":
@@ -342,6 +571,15 @@ export function installMockBackend(): void {
         });
         return `# Review — demo · feat/auth · All changes\n\n${lines.join("\n")}\n` as T;
       }
+      case "generate_walkthrough": {
+        // Simulate `claude` CLI latency so the panel's loading state is exercised.
+        await new Promise((r) => setTimeout(r, 450));
+        return (largeParam ? genLargeWalkthrough(ds.summary) : WALKTHROUGH) as T;
+      }
+      case "claude_status":
+        return { installed: true, path: "/usr/local/bin/claude" } as T;
+      case "cancel_walkthrough":
+        return undefined as T;
       case "list_worktrees": {
         // Varied timestamps + dirty flags exercise the recency sort and the
         // enriched worktree picker (#1/#6).
@@ -381,6 +619,10 @@ export function installMockBackend(): void {
         } as T;
       case "open_target":
         console.info("[delta mock] open_target", args);
+        return undefined as T;
+      case "open_guide":
+        // No Tauri windows in the browser — open the guide route in a new tab.
+        if (typeof window !== "undefined") window.open("?view=guide&mock=1", "_blank");
         return undefined as T;
       case "rewatch_window":
         // No real fs watcher in the browser mock — the in-place navigation does

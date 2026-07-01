@@ -7,6 +7,9 @@ const openTarget = vi.fn();
 const refreshReview = vi.fn();
 const listCommits = vi.fn();
 const computeDiff = vi.fn();
+const claudeStatus = vi.fn();
+const generateWalkthrough = vi.fn();
+const cancelWalkthrough = vi.fn();
 vi.mock("../api", () => ({
   api: {
     openReview: (...a: unknown[]) => openReview(...a),
@@ -24,6 +27,10 @@ vi.mock("../api", () => ({
     // Already-installed → the header CLI CTA hides itself, keeping these tests focused.
     cliStatus: vi.fn().mockResolvedValue({ installed: true, path: "/usr/local/bin/delta" }),
     installCli: vi.fn(),
+    // Walkthrough surface — hoisted fns so individual tests can vary install state.
+    claudeStatus: (...a: unknown[]) => claudeStatus(...a),
+    generateWalkthrough: (...a: unknown[]) => generateWalkthrough(...a),
+    cancelWalkthrough: (...a: unknown[]) => cancelWalkthrough(...a),
   },
 }));
 
@@ -64,6 +71,9 @@ describe("Workspace", () => {
     refreshReview.mockReset();
     listCommits.mockReset().mockResolvedValue([]);
     computeDiff.mockReset().mockResolvedValue({ files: [], baseLabel: "p", headLabel: "c" });
+    claudeStatus.mockReset().mockResolvedValue({ installed: true, path: "/usr/local/bin/claude" });
+    generateWalkthrough.mockReset();
+    cancelWalkthrough.mockReset().mockResolvedValue(undefined);
     fsChanged = null;
     setMode = null;
   });
@@ -126,6 +136,23 @@ describe("Workspace", () => {
     // Prev is disabled at HEAD; Next (older) is enabled.
     expect(screen.getByRole("button", { name: /previous commit/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /next commit/i })).toBeEnabled();
+  });
+
+  it("blocks the walkthrough on a too-small diff with a notice, without generating", async () => {
+    openReview.mockResolvedValue(fileSession); // 1 file, 1 line — below the ≥2 files / ≥20 lines floor
+    render(<Workspace target={target} />);
+    const pill = await screen.findByRole("button", { name: /walkthrough/i });
+    fireEvent.click(pill);
+    expect(await screen.findByText(/nothing to walk through/i)).toBeInTheDocument();
+    expect(generateWalkthrough).not.toHaveBeenCalled();
+  });
+
+  it("hides the walkthrough pill when the claude CLI is not installed", async () => {
+    openReview.mockResolvedValue(fileSession);
+    claudeStatus.mockResolvedValue({ installed: false, path: null });
+    render(<Workspace target={target} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /copy for agents/i })).toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("button", { name: /walkthrough/i })).toBeNull());
   });
 
   it("a filesystem change surfaces a Refresh button instead of updating the diff in place (#12)", async () => {

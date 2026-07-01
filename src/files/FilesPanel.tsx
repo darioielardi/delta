@@ -2,21 +2,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Kbd } from "@/components/ui/kbd";
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, FileCode, FileJson, FileText, Check, List, ListTree, MessageSquare, Search, X } from "lucide-react";
-import type { FileEntry, FileStatus } from "../types";
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, Check, List, ListTree, MessageSquare, Search, X } from "lucide-react";
+import type { FileEntry } from "../types";
 import { buildTree, type TreeNode } from "./buildTree";
-
-const STATUS_COLOR: Record<FileStatus, string> = {
-  added: "text-emerald-500",
-  modified: "text-amber-500",
-  deleted: "text-rose-500",
-  renamed: "text-sky-500",
-};
-
-const CODE_EXT = new Set([
-  "ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "go", "py", "rb", "java", "kt", "swift",
-  "c", "cc", "cpp", "h", "hpp", "css", "scss", "html", "vue", "svelte", "sh", "toml", "yml", "yaml",
-]);
+import { FileGlyph } from "./fileGlyph";
 
 // Stable empty set so search-mode (force-open) rendering doesn't allocate per render.
 const NO_COLLAPSE: Set<string> = new Set();
@@ -26,13 +15,6 @@ const EMPTY_COUNTS: Map<string, number> = new Map();
 // Compact large diff totals so the header stays on one line: over 100k → drop the
 // last three digits and append "k" (156048 → "156k"). Smaller counts stay exact.
 const fmtCount = (n: number) => (n > 100_000 ? `${Math.floor(n / 1000)}k` : String(n));
-
-function FileGlyph({ name, status }: { name: string; status: FileStatus }) {
-  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
-  const Icon = ext === "json" ? FileJson : CODE_EXT.has(ext) ? FileCode : FileText;
-  // Icon colored by git status — one glyph carries both file type and change kind.
-  return <Icon className={`size-3.5 shrink-0 ${STATUS_COLOR[status]}`} />;
-}
 
 interface RowHandlers {
   activePath: string | null;
@@ -125,7 +107,7 @@ function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
 }
 
 export function FilesPanel({
-  files, selected, onSelect, onPrefetch, viewedFiles, onToggleViewed, commentCounts,
+  files, selected, onSelect, onPrefetch, viewedFiles, onToggleViewed, commentCounts, padBottom,
 }: {
   files: FileEntry[];
   selected: string | null;
@@ -136,6 +118,9 @@ export function FilesPanel({
   onToggleViewed: (file: string) => void;
   // Per-file comment counts → a small badge on rows that have any. (#1)
   commentCounts?: Map<string, number>;
+  // Reserve space at the bottom of the scroll list so a floating control (the
+  // walkthrough pill) never hides the last file. (#guide)
+  padBottom?: boolean;
 }) {
   const [mode, setMode] = useState<"tree" | "list">("tree");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -398,7 +383,7 @@ export function FilesPanel({
         data-testid="files-tree"
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className="min-h-0 flex-1 overflow-auto pl-2 pr-1.5 py-1.5 outline-none"
+        className={`min-h-0 flex-1 overflow-auto pl-2 pr-1.5 pt-1.5 outline-none ${padBottom ? "pb-16" : "pb-1.5"}`}
       >
         {searching && roots.length === 0 ? (
           <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">No files match “{query}”.</div>
