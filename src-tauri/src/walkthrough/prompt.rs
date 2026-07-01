@@ -38,7 +38,7 @@ QUALITY RUBRIC (follow exactly)
 - Group by genuine concern. A group is a coherent unit of work, not one file each. Aim for 2-5 groups. NEVER produce a single group. NEVER fragment into many tiny groups.
 - Calibrated length. Respect every length hint above. No empty strings. No walls of text.
 - Balanced importance. Do not mark everything "core" or everything "skim". Reflect real signal; at least one group must be non-skim.
-- Full, honest coverage. Every changed file appears in exactly ONE group's files, OR in "ignored" (noise only). Never both. Never omit a file. Never reference a path that is not in the diff.
+- Honest coverage. Put every file that matters into exactly ONE group, or into "ignored" (noise only) — never both, and never reference a path that isn't in the diff. On a large change you don't have to place every single file: group the substantive ones and let peripheral/minor files fall through (the reader still sees them in the diff). Prefer a focused walkthrough over an exhaustive one.
 - Order the groups so reading them top-to-bottom tells the story of the change: core logic first, tests/config/docs later.
 
 FIREWALL

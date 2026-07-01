@@ -65,11 +65,11 @@ pub const MAX_GROUPS: usize = 7;
 const TITLE_MIN: usize = 3;
 const TITLE_MAX: usize = 80;
 const SUMMARY_MIN: usize = 5;
-const SUMMARY_MAX: usize = 400;
+const SUMMARY_MAX: usize = 500;
 const GTITLE_MIN: usize = 2;
 const GTITLE_MAX: usize = 60;
 const GSUMMARY_MIN: usize = 3;
-const GSUMMARY_MAX: usize = 300;
+const GSUMMARY_MAX: usize = 350;
 const NOTE_MAX: usize = 120;
 const RISK_MIN: usize = 1;
 const RISK_MAX: usize = 240;
@@ -85,14 +85,21 @@ fn trim_in_place(s: &mut String) {
     }
 }
 
-fn check_len(what: &str, n: usize, min: usize, max: usize) -> Result<(), WalkthroughError> {
+fn len_problem(what: &str, n: usize, min: usize, max: usize) -> Option<String> {
     if n < min {
-        return Err(qv(format!("{what} is too short ({n} chars)")));
+        Some(format!("{what} is too short ({n} chars)"))
+    } else if n > max {
+        Some(format!("{what} is too long ({n} chars)"))
+    } else {
+        None
     }
-    if n > max {
-        return Err(qv(format!("{what} is too long ({n} chars)")));
-    }
-    Ok(())
+}
+
+/// Debug-only: persist a model output for inspection when it's rejected.
+fn dump_output(tag: &str, json: &str) {
+    let path = std::env::temp_dir().join(format!("delta-walkthrough-{tag}.json"));
+    let _ = std::fs::write(&path, json);
+    eprintln!("[delta/walkthrough] {tag} model output ({} bytes) -> {}", json.len(), path.display());
 }
 
 /// Strip a `--output-format json` envelope down to the model's JSON object. Tolerates
@@ -145,15 +152,21 @@ pub fn parse_and_validate(
     Ok(w)
 }
 
-/// Auto-fix what's safe (trim, drop hallucinated paths, renumber order) and hard-fail
-/// on structural breaches (group count, coverage, empty group, all-skim, length).
+/// Auto-fix what's safe (trim, drop hallucinated paths, dedup files across groups,
+/// resolve grouped-vs-ignored conflicts, renumber order) and collect the remaining
+/// structural breaches (group count, empty group, all-skim, length).
+///
+/// Coverage is intentionally NOT required: on a large diff the model won't enumerate
+/// every path, and the frontend renders any unplaced file after the grouped ones
+/// (never hidden). We report ALL problems at once so the single repair retry can fix
+/// them together instead of one-at-a-time. (#guide)
 pub fn enforce_invariants(
     w: &mut Walkthrough,
     diff_paths: &HashSet<String>,
 ) -> Result<(), WalkthroughError> {
     w.version = 1;
 
-    // Trim everything; drop references to paths that aren't in the diff (hallucinations).
+    // Trim; drop references to paths that aren't in the diff (hallucinations).
     trim_in_place(&mut w.title);
     trim_in_place(&mut w.summary);
     for i in &mut w.ignored {
@@ -161,23 +174,29 @@ pub fn enforce_invariants(
         trim_in_place(&mut i.reason);
     }
     w.ignored.retain(|i| diff_paths.contains(&i.path));
+
+    // Keep only in-diff files, and only the first time a path appears — this both
+    // prunes hallucinations and dedups a file the model placed in two groups.
+    let mut grouped: HashSet<String> = HashSet::new();
     for g in &mut w.groups {
         trim_in_place(&mut g.id);
         trim_in_place(&mut g.title);
         trim_in_place(&mut g.summary);
         for f in &mut g.files {
             trim_in_place(&mut f.path);
-            if let Some(n) = &mut f.note {
-                trim_in_place(n);
+            if let Some(note) = &mut f.note {
+                trim_in_place(note);
             }
         }
-        g.files.retain(|f| diff_paths.contains(&f.path));
+        g.files.retain(|f| diff_paths.contains(&f.path) && grouped.insert(f.path.clone()));
         for r in &mut g.risks {
             trim_in_place(&mut r.path);
             trim_in_place(&mut r.note);
         }
         g.risks.retain(|r| diff_paths.contains(&r.path));
     }
+    // A file can't be both grouped and ignored — grouping wins.
+    w.ignored.retain(|i| !grouped.contains(&i.path));
 
     // Reading order: honor the model's intent, then normalize to a 1..N permutation.
     w.groups.sort_by_key(|g| g.order);
@@ -185,67 +204,61 @@ pub fn enforce_invariants(
         g.order = (i as u32) + 1;
     }
 
-    // Group count.
+    let mut problems: Vec<String> = Vec::new();
+
     let n = w.groups.len();
     if n < 2 {
-        return Err(qv(format!("need at least 2 reading groups, got {n}")));
+        problems.push(format!("need at least 2 reading groups, got {n}"));
+    } else if n > MAX_GROUPS {
+        problems.push(format!("too many groups ({n} > {MAX_GROUPS}); merge related ones"));
     }
-    if n > MAX_GROUPS {
-        return Err(qv(format!("too many groups ({n} > {MAX_GROUPS}); merge related ones")));
-    }
-
-    // No empty groups (e.g. all files were hallucinated).
     for g in &w.groups {
         if g.files.is_empty() {
-            return Err(qv(format!("group '{}' lists no files that are in the diff", g.id)));
+            problems.push(format!("group '{}' lists no files that are in the diff", g.id));
         }
     }
-
-    // Balance: not every group may be skim.
-    if w.groups.iter().all(|g| matches!(g.importance, WalkImportance::Skim)) {
-        return Err(qv("every group is 'skim'; mark the substantive work core/supporting"));
-    }
-
-    // Coverage: each diff file in exactly one group OR ignored, never both, none missing.
-    let grouped: Vec<String> = w
-        .groups
-        .iter()
-        .flat_map(|g| g.files.iter().map(|f| f.path.clone()))
-        .collect();
-    let grouped_count = grouped.len();
-    let grouped_set: HashSet<String> = grouped.into_iter().collect();
-    if grouped_set.len() != grouped_count {
-        return Err(qv("a file appears in more than one group"));
-    }
-    let ignored_set: HashSet<String> = w.ignored.iter().map(|i| i.path.clone()).collect();
-    if grouped_set.intersection(&ignored_set).next().is_some() {
-        return Err(qv("a file is both grouped and ignored"));
-    }
-    for p in diff_paths {
-        if !grouped_set.contains(p) && !ignored_set.contains(p) {
-            return Err(qv(format!("file not covered by any group or ignored: {p}")));
-        }
+    if !w.groups.is_empty() && w.groups.iter().all(|g| matches!(g.importance, WalkImportance::Skim)) {
+        problems.push("every group is 'skim'; mark the substantive work core/supporting".into());
     }
 
     // Length calibration.
-    check_len("title", w.title.chars().count(), TITLE_MIN, TITLE_MAX)?;
-    check_len("summary", w.summary.chars().count(), SUMMARY_MIN, SUMMARY_MAX)?;
+    if let Some(p) = len_problem("title", w.title.chars().count(), TITLE_MIN, TITLE_MAX) {
+        problems.push(p);
+    }
+    if let Some(p) = len_problem("summary", w.summary.chars().count(), SUMMARY_MIN, SUMMARY_MAX) {
+        problems.push(p);
+    }
     for g in &w.groups {
-        check_len("group title", g.title.chars().count(), GTITLE_MIN, GTITLE_MAX)?;
-        check_len("group summary", g.summary.chars().count(), GSUMMARY_MIN, GSUMMARY_MAX)?;
+        if let Some(p) = len_problem(&format!("group '{}' title", g.id), g.title.chars().count(), GTITLE_MIN, GTITLE_MAX) {
+            problems.push(p);
+        }
+        if let Some(p) = len_problem(&format!("group '{}' summary", g.id), g.summary.chars().count(), GSUMMARY_MIN, GSUMMARY_MAX) {
+            problems.push(p);
+        }
         for f in &g.files {
             if let Some(note) = &f.note {
                 if note.chars().count() > NOTE_MAX {
-                    return Err(qv(format!("file note too long ({} chars)", note.chars().count())));
+                    problems.push(format!("file note for {} too long ({} chars)", f.path, note.chars().count()));
                 }
             }
         }
         for r in &g.risks {
-            check_len("risk note", r.note.chars().count(), RISK_MIN, RISK_MAX)?;
+            if let Some(p) = len_problem(&format!("risk note for {}", r.path), r.note.chars().count(), RISK_MIN, RISK_MAX) {
+                problems.push(p);
+            }
         }
     }
 
-    Ok(())
+    if problems.is_empty() {
+        return Ok(());
+    }
+    // Cap the note so a pathological output doesn't produce a giant repair prompt.
+    let shown = problems.len().min(12);
+    let mut msg = problems[..shown].join("; ");
+    if problems.len() > shown {
+        msg.push_str(&format!("; (+{} more)", problems.len() - shown));
+    }
+    Err(qv(msg))
 }
 
 /// Runs `claude` and returns the raw `--output-format json` envelope. Abstracted so
@@ -263,17 +276,39 @@ pub fn generate_with_runner(
     payload: &str,
     diff_paths: &HashSet<String>,
 ) -> Result<Walkthrough, WalkthroughError> {
+    let debug = debug_enabled();
+
     let envelope = runner.run(system, payload)?;
-    let detail = match extract_result_json(&envelope).and_then(|j| parse_and_validate(&j, diff_paths)) {
+    let json = extract_result_json(&envelope);
+    if debug {
+        if let Ok(j) = &json {
+            dump_output("attempt1", j);
+        }
+    }
+    let detail = match json.and_then(|j| parse_and_validate(&j, diff_paths)) {
         Ok(w) => return Ok(w),
-        Err(WalkthroughError::Unparseable(s)) | Err(WalkthroughError::QualityViolation(s)) => s,
+        Err(WalkthroughError::Unparseable(s)) | Err(WalkthroughError::QualityViolation(s)) => {
+            if debug {
+                eprintln!("[delta/walkthrough] attempt 1 rejected: {s}");
+            }
+            s
+        }
         Err(other) => return Err(other),
     };
     // Repair retry: tell the model exactly what was wrong.
     let repaired = format!("{payload}{}", crate::walkthrough::prompt::repair_note(&detail));
     let envelope = runner.run(system, &repaired)?;
     let json = extract_result_json(&envelope)?;
-    parse_and_validate(&json, diff_paths)
+    if debug {
+        dump_output("attempt2", &json);
+    }
+    let result = parse_and_validate(&json, diff_paths);
+    if debug {
+        if let Err(e) = &result {
+            eprintln!("[delta/walkthrough] repair rejected: {e:?}");
+        }
+    }
+    result
 }
 
 /// The isolated, headless `claude` invocation. `--safe-mode` firewalls all
@@ -474,9 +509,25 @@ mod tests {
     }
 
     #[test]
-    fn rejects_uncovered_file() {
+    fn tolerates_uncovered_files() {
+        // c.ts is placed in no group — the frontend renders it after the grouped files,
+        // so an incomplete-but-valid walkthrough must NOT be rejected (large-diff case).
         let mut w = wt(vec![grp("g1", &["a.ts"], WalkImportance::Core), grp("g2", &["b.ts"], WalkImportance::Skim)]);
-        assert!(matches!(enforce_invariants(&mut w, &paths(&["a.ts", "b.ts", "c.ts"])), Err(WalkthroughError::QualityViolation(_))));
+        assert!(enforce_invariants(&mut w, &paths(&["a.ts", "b.ts", "c.ts"])).is_ok());
+    }
+
+    #[test]
+    fn dedups_files_across_groups_and_resolves_ignored_conflict() {
+        // b.ts appears in two groups; a.ts is both grouped and ignored.
+        let mut w = wt(vec![grp("g1", &["a.ts", "b.ts"], WalkImportance::Core), grp("g2", &["b.ts", "c.ts"], WalkImportance::Skim)]);
+        w.ignored.push(IgnoredFile { path: "a.ts".into(), reason: "noise".into() });
+        enforce_invariants(&mut w, &paths(&["a.ts", "b.ts", "c.ts"])).unwrap();
+        // b.ts kept only in the first group; g2 keeps its unique c.ts.
+        assert_eq!(w.groups.iter().flat_map(|g| &g.files).filter(|f| f.path == "b.ts").count(), 1);
+        assert!(w.groups[0].files.iter().any(|f| f.path == "b.ts"));
+        assert!(w.groups[1].files.iter().all(|f| f.path != "b.ts"));
+        // a.ts is grouped, so it's dropped from ignored.
+        assert!(w.ignored.iter().all(|i| i.path != "a.ts"));
     }
 
     #[test]
