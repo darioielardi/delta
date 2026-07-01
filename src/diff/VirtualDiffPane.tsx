@@ -187,19 +187,21 @@ function Row({ model, index, top, selected, highlighted, onComment, marks }: { m
   const accent = highlighted ? "var(--primary)" : kind === "add" ? ADD_ACCENT : kind === "del" ? DEL_ACCENT : undefined;
   return (
     <div data-row-index={index} className="group absolute left-0 flex items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height: "var(--code-lh,22px)", width: "var(--rw)", minWidth: "100%", background: tint ?? undefined }}>
-      {kind !== "hunk" && (
-        <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 ${addBtnCls}`}>
-          <Plus className="size-3.5" strokeWidth={2.5} />
-        </button>
-      )}
       {/* Sticky rail: pins the line-number gutters + marker to the left on
           horizontal scroll and masks the code scrolling under it. Opaque bg-code,
           or the row tint composited over it so the fill reaches the left edge.
-          The changed/commented accent rides the rail. (#2/#3) */}
+          The changed/commented accent rides the rail. The hover `+` comment button
+          lives here too so it stays pinned while the code scrolls under it — as an
+          absolute child of the row it otherwise translates with the code. (#2/#3/#hscroll) */}
       <div className="sticky left-0 z-[1] flex items-stretch bg-code" style={{ background: railBg(tint), boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
         <span data-gutter="old" className={gutterCls}>{hasOld ? line.oldLineNumber : ""}</span>
         <span data-gutter="new" className={gutterCls}>{hasNew ? line.newLineNumber : ""}</span>
         <span className={`w-4 shrink-0 select-none text-center ${markerColor}`}>{marker}</span>
+        {kind !== "hunk" && (
+          <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 ${addBtnCls}`}>
+            <Plus className="size-3.5" strokeWidth={2.5} />
+          </button>
+        )}
       </div>
       <Code html={html} range={kind === "hunk" ? undefined : range} changeBg={kind === "add" ? "bg-emerald-400/25" : "bg-rose-400/25"} marks={marks} />
     </div>
@@ -228,13 +230,13 @@ function SplitColCell({ model, side, index, top, changed, highlighted, selected,
   const accent = changed ? (side === "old" ? DEL_ACCENT : ADD_ACCENT) : highlighted ? "var(--primary)" : undefined;
   return (
     <div data-row-index={index} className="group absolute left-0 flex w-full items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height: "var(--code-lh,22px)", background: tint ?? undefined }}>
-      {has && (
-        <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-12 top-1/2 ${addBtnCls}`}>
-          <Plus className="size-3.5" strokeWidth={2.5} />
-        </button>
-      )}
       <div className="sticky left-0 z-[1] flex items-stretch bg-code" style={{ background: railBg(tint), boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
         <span data-gutter={side} className={gutterCls}>{has ? ln : ""}</span>
+        {has && (
+          <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-12 top-1/2 ${addBtnCls}`}>
+            <Plus className="size-3.5" strokeWidth={2.5} />
+          </button>
+        )}
       </div>
       {has ? <Code html={html} range={range} changeBg={side === "old" ? "bg-rose-400/25" : "bg-emerald-400/25"} marks={marks} /> : <span className="flex-1" />}
     </div>
