@@ -1,7 +1,7 @@
 {
   "name": "delta",
   "private": true,
-  "version": "0.11.1",
+  "version": "0.11.2",
   "description": "Fast, beautiful local-first desktop app for reviewing your agents work and leaving structured comments for them.",
   "author": "Dario Ielardi",
   "license": "MIT",
