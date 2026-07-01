@@ -750,7 +750,7 @@ const VFileSection = memo(function VFileSection({
       </div>
       {!collapsed && (
         <div
-          className={`relative rounded-b-lg border-x border-b border-border bg-code ${layout !== "split" && wide ? `overflow-x-auto overflow-y-hidden ${HIDE_SCROLLBAR}` : "overflow-hidden"}`}
+          className="relative overflow-hidden rounded-b-lg border-x border-b border-border bg-code"
           style={{ height: bodyH, overscrollBehaviorY: "auto" /* always chain a vertical wheel to the pane, not only over h-scrollable files — the app-wide overscroll-behavior:none otherwise traps it on every card (#hscroll) */, "--rw": rowWidthCss } as CSSProperties}
           onPointerDown={onGutterPointerDown}
         >
@@ -797,12 +797,21 @@ const VFileSection = memo(function VFileSection({
                   </div>
                 </>
               ) : (
-                renderVisual.map((v) => {
-                  const vr = visualRows[v];
-                  if (vr.kind !== "line") return null;
-                  const hl = rangeRows.has(vr.index);
-                  return <Row key={vr.index} model={model} index={vr.index} top={visualRowTop(v)} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} marks={rowMarks(vr.index)} />;
-                })
+                // Unified: only the code rows scroll horizontally, inside this inner
+                // layer. Fold rows + comment blocks live in the non-scrolling body
+                // below, so they stay put when the code scrolls sideways — mirrors how
+                // split renders them outside its scroll columns. (#hscroll)
+                <div
+                  className={`absolute inset-0 ${wide ? `overflow-x-auto overflow-y-hidden ${HIDE_SCROLLBAR}` : "overflow-hidden"}`}
+                  style={{ overscrollBehaviorY: "auto" }}
+                >
+                  {renderVisual.map((v) => {
+                    const vr = visualRows[v];
+                    if (vr.kind !== "line") return null;
+                    const hl = rangeRows.has(vr.index);
+                    return <Row key={vr.index} model={model} index={vr.index} top={visualRowTop(v)} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} marks={rowMarks(vr.index)} />;
+                  })}
+                </div>
               ))}
               {/* Folds (full row width) — shared by both layouts; in split the body
                   doesn't scroll, so the bg fills the visible card width. (#3/#4) */}
