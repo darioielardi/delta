@@ -14,10 +14,10 @@ use std::time::{Duration, Instant};
 /// the alias rather than a pinned id; configurable here.
 pub const WALKTHROUGH_MODEL: &str = "sonnet";
 
-/// Default reasoning effort. `high` is ample for bounded orientation; the CLI's own
-/// default (`xhigh`) is overkill and the main driver of slow runs. Override per-run
-/// with `DELTA_WALKTHROUGH_EFFORT`.
-pub const WALKTHROUGH_EFFORT: &str = "high";
+/// Default reasoning effort. `medium` is ample for bounded orientation and keeps runs
+/// fast; the CLI's own default (`xhigh`) is overkill. Override per-run with
+/// `DELTA_WALKTHROUGH_EFFORT`.
+pub const WALKTHROUGH_EFFORT: &str = "medium";
 
 /// Built-in tools to deny: the task is pure text → JSON, no tool use, fully
 /// deterministic. (Belt-and-suspenders alongside `--safe-mode`.)
@@ -328,8 +328,8 @@ pub fn claude_argv(system: &str) -> Vec<String> {
         "--append-system-prompt".into(),
         system.into(),
     ];
-    // Pin effort to `high` (the CLI default `xhigh` is overkill here and the main cause
-    // of slow runs); a valid `DELTA_WALKTHROUGH_EFFORT` override wins.
+    // Pin effort to `medium` (the CLI default `xhigh` is overkill here and the main
+    // cause of slow runs); a valid `DELTA_WALKTHROUGH_EFFORT` override wins.
     argv.push("--effort".into());
     argv.push(effort_override().unwrap_or_else(|| WALKTHROUGH_EFFORT.to_string()));
     argv
