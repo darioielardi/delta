@@ -248,11 +248,12 @@ type VisualRow = { kind: "line"; index: number } | { kind: "fold"; start: number
 // Stand-in for a folded run of unchanged lines. A single reveal control shows the
 // direction that has adjacent shown code to extend from — ↓ (down) when there's
 // code above the gap, ↑ (up) when there's code below; a gap anchored to both file
-// ends shows both. Clicking the label expands the whole gap. The blue tint reads
+// ends shows both. Clicking the label reveals the next step; alt-click reveals the
+// whole gap. The blue tint reads
 // as "collapsed, expandable" — clearly not code. The bg spans the full row width
 // (var(--rw)) so it never truncates on horizontal scroll, like changed rows.
 // (#3/#4)
-function FoldRow({ top, count, showDown, showUp, onDown, onUp, onAll }: { top: number; count: number; showDown: boolean; showUp: boolean; onDown: () => void; onUp: () => void; onAll: () => void }) {
+function FoldRow({ top, count, showDown, showUp, onDown, onUp, onExpand, onAll }: { top: number; count: number; showDown: boolean; showUp: boolean; onDown: () => void; onUp: () => void; onExpand: () => void; onAll: () => void }) {
   // Either direction reveals at most the remaining gap, so don't promise 25 when
   // fewer are left.
   const step = Math.min(EXPAND_STEP, count);
@@ -274,7 +275,7 @@ function FoldRow({ top, count, showDown, showUp, onDown, onUp, onAll }: { top: n
           </button>
         )}
       </div>
-      <button type="button" onClick={onAll} title="Expand all hidden lines" className="sticky left-24 flex flex-1 items-center px-3 text-left tabular-nums transition-colors hover:text-foreground">
+      <button type="button" onClick={(e) => (e.altKey ? onAll() : onExpand())} title={`Show ${step} more line${step === 1 ? "" : "s"} · alt-click to expand all`} className="sticky left-24 flex flex-1 items-center px-3 text-left tabular-nums transition-colors hover:text-foreground">
         {count} hidden line{count === 1 ? "" : "s"}
       </button>
     </div>
@@ -813,7 +814,10 @@ const VFileSection = memo(function VFileSection({
                 // a gap touching both file ends (no anchor) shows both. (#4)
                 const canDown = vr.start > 0, canUp = vr.end < rowCount - 1;
                 const both = !canDown && !canUp;
-                return <FoldRow key={`fold-${vr.start}`} top={visualRowTop(v)} count={vr.count} showDown={canDown || both} showUp={canUp || both} onDown={() => growFold(key, "top")} onUp={() => growFold(key, "bottom")} onAll={() => growFold(key, "all")} />;
+                // Plain label click reveals the next step in the primary direction —
+                // top-down where there's code above (matches ↓), else bottom-up (↑). (#2)
+                const primary = canDown ? "top" : "bottom";
+                return <FoldRow key={`fold-${vr.start}`} top={visualRowTop(v)} count={vr.count} showDown={canDown || both} showUp={canUp || both} onDown={() => growFold(key, "top")} onUp={() => growFold(key, "bottom")} onExpand={() => growFold(key, primary)} onAll={() => growFold(key, "all")} />;
               })}
               {model && blocks.map((b) => (
                 <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + rowH} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onToggleResolved={onToggleResolvedComment} onHeight={onHeight} />
