@@ -7,6 +7,8 @@ import { DeltaMark } from "@/components/DeltaMark";
 import { CliInstallButton } from "./CliInstallButton";
 import { NothingToReview } from "./NothingToReview";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { isTauri } from "@tauri-apps/api/core";
 import { api } from "../api";
 import { FilesPanel } from "../files/FilesPanel";
 import { flattenTreeFiles } from "../files/buildTree";
@@ -146,6 +148,20 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     void open();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target.repoPath, diffMode, target.base]);
+
+  // Update window title dynamically
+  useEffect(() => {
+    if (!repoName || !summary?.headLabel) return;
+
+    const wt = worktreeName(target.repoPath);
+    const title = `${repoName} - ${wt === repoName ? "local" : wt} - ${summary.headLabel}`;
+    
+    document.title = title;
+
+    if (isTauri()) {
+      getCurrentWindow().setTitle(title).catch(console.error);
+    }
+  }, [repoName, summary?.headLabel, target.repoPath]);
 
   // The branch's commits power the "Commit ▸" submenu + the stepper. Reloaded on
   // open/refresh (snapshot move) so new commits appear. Best-effort: failure empties it.
