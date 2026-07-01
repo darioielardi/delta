@@ -71,8 +71,9 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             match event {
-                // A window is gone: stop its watcher, and if the last review
-                // window just closed, return to the launcher. (#9 cleanup, #14)
+                // A window is gone: stop its watcher. When the last window closes we
+                // deliberately do NOT resurrect the launcher — the pop-up was unwanted.
+                // (#9 cleanup, #14)
                 tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } => {
                     crate::watch::stop(app_handle, &label);
                     let remaining = app_handle
@@ -80,8 +81,13 @@ pub fn run() {
                         .into_keys()
                         .filter(|l| l != &label)
                         .count();
-                    if remaining == 0 && label.starts_with("review-") {
-                        let _ = crate::launch::open_home_window(app_handle);
+                    if remaining == 0 {
+                        // macOS: stay alive so the `delta` shim socket-forwards warm (#23)
+                        // and a dock-click reopens home (Reopen handler below). Other
+                        // platforms have no dock/tray to recover a windowless process, so
+                        // exit to avoid an orphan.
+                        #[cfg(not(target_os = "macos"))]
+                        app_handle.exit(0);
                     }
                 }
                 // macOS: clicking the dock icon with no open windows reopens home.
