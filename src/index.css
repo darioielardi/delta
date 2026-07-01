@@ -4,6 +4,7 @@
    comment UI's color utilities by being unlayered. Layered, utilities win. */
 @layer theme, base, components, gdv, utilities;
 @import "tailwindcss";
+@plugin "@tailwindcss/typography";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@git-diff-view/react/styles/diff-view.css" layer(gdv);
@@ -319,6 +320,36 @@
   -webkit-user-select: text;
   user-select: text;
   cursor: auto;
+}
+
+/* Map @tailwindcss/typography's palette onto delta's theme tokens: its defaults
+   are a cool-tinted gray (clashes with delta's neutral oklch scale) and are
+   light-mode only. Driving every color off the theme-aware tokens makes both
+   themes correct from one set of vars, so the `prose-invert` variant is moot.
+   Unlayered, so it beats the plugin's layered var definitions. */
+.prose {
+  --tw-prose-body: var(--foreground);
+  --tw-prose-headings: var(--foreground);
+  --tw-prose-lead: var(--muted-foreground);
+  --tw-prose-links: var(--primary);
+  --tw-prose-bold: var(--foreground);
+  --tw-prose-counters: var(--muted-foreground);
+  --tw-prose-bullets: var(--muted-foreground);
+  --tw-prose-hr: var(--border);
+  --tw-prose-quotes: var(--muted-foreground);
+  --tw-prose-quote-borders: var(--border);
+  --tw-prose-captions: var(--muted-foreground);
+  --tw-prose-code: var(--foreground);
+  --tw-prose-pre-code: var(--foreground);
+  --tw-prose-pre-bg: var(--muted);
+  --tw-prose-th-borders: var(--border);
+  --tw-prose-td-borders: var(--border);
+}
+
+/* Typography wraps inline <code> in literal backtick glyphs; drop them. */
+.prose :where(code)::before,
+.prose :where(code)::after {
+  content: none;
 }
 
 /* git-diff-view's inline "add comment" (+) button ships as a near-circular
