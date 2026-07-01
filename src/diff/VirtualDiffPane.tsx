@@ -26,6 +26,7 @@ import { getEditorPref } from "../editor";
 import { toDiffFile } from "./toDiffFile";
 import { CommentThread } from "../review/CommentThread";
 import { DiffFind } from "./DiffFind";
+import { findPrefillFromSelection } from "./findSelection";
 import type { Anchor, Comment, FileDiff, FileEntry, Side, Target } from "../types";
 import type { DiffLayout } from "./useDiffLayout";
 import { useFileDiffCache } from "./useFileDiffCache";
@@ -907,7 +908,15 @@ export function VirtualDiffPane({
     function onKey(e: KeyboardEvent) {
       if ((e.key === "f" || e.key === "F") && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
         e.preventDefault();
+        // Seed the query from a selection made inside the diff pane (#find),
+        // like an editor's find box. Scoped to paneRef so a selection in a
+        // comment/tree doesn't leak in; multi-line selections are skipped.
+        const sel = window.getSelection();
+        const node = sel?.anchorNode ?? null;
+        const prefill =
+          node && paneRef.current?.contains(node) ? findPrefillFromSelection(sel!.toString()) : null;
         setFindOpen(true);
+        if (prefill != null) setQuery(prefill);
         requestAnimationFrame(() => { findInputRef.current?.focus(); findInputRef.current?.select(); });
       } else if (e.key === "Escape" && findOpen) {
         setFindOpen(false); setQuery("");
