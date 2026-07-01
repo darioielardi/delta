@@ -9,7 +9,9 @@ import { useCliInstall } from "./useCliInstall";
 export function CliInstallButton() {
   const { phase, detail, copied, install, dismiss, copyCommand } = useCliInstall();
 
-  if (phase === "checking" || phase === "hidden") return null;
+  // "installed" is a visible resting state only in the launcher empty-state promo;
+  // in the review header it stays hidden (showing it on every window would nag).
+  if (phase === "checking" || phase === "hidden" || phase === "installed") return null;
 
   const pill = "inline-flex h-7 shrink-0 items-center gap-1 rounded-md border text-[13px] shadow-sm transition-colors";
 

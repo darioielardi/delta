@@ -17,7 +17,7 @@ describe("FirstRun", () => {
   });
 
   it("shows the open-repository action and the ⌘O hint", () => {
-    mockCli(true); // CLI installed → promo hidden, keeps this test focused
+    mockCli(true); // CLI installed → promo shows the quiet ready state; ignored here
     render(<FirstRun onOpenRepo={() => {}} />);
     expect(screen.getByText("Open a repository")).toBeInTheDocument();
     // The Kbd splits the shortcut into per-key spans, so match the kbd's text.
@@ -39,11 +39,21 @@ describe("FirstRun", () => {
     expect(screen.getByRole("button", { name: /^install$/i })).toBeInTheDocument();
   });
 
-  it("hides the CLI promo once the CLI is installed", async () => {
+  it("shows a quiet ready affirmation once the CLI is installed", async () => {
     mockCli(true);
     render(<FirstRun onOpenRepo={() => {}} />);
-    // Give the status check a tick to resolve, then confirm the promo never shows.
-    await Promise.resolve();
-    expect(screen.queryByText(/review from your terminal/i)).toBeNull();
+    expect(await screen.findByText(/launch from your terminal/i)).toBeInTheDocument();
+    expect(screen.getByText("Ready")).toBeInTheDocument();
+    // No install CTA when `delta` is already on PATH.
+    expect(screen.queryByRole("button", { name: /^install$/i })).toBeNull();
+  });
+
+  it("dismisses the ready affirmation and remembers the choice", async () => {
+    mockCli(true);
+    render(<FirstRun onOpenRepo={() => {}} />);
+    await screen.findByText(/launch from your terminal/i);
+    fireEvent.click(screen.getByRole("button", { name: /dismiss/i }));
+    expect(screen.queryByText(/launch from your terminal/i)).toBeNull();
+    expect(localStorage.getItem("delta.cliPromptDismissed")).toBe("1");
   });
 });

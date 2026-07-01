@@ -51,9 +51,9 @@ function CliPromo() {
         <Terminal className="size-4" />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <span className="text-[13px] font-medium leading-tight text-foreground">Review from your terminal</span>
+        <span className="text-[13px] font-medium leading-tight text-foreground">Launch from your terminal</span>
         <span className="text-[12px] leading-snug text-muted-foreground">
-          Install the CLI, then just run{" "}
+          {phase === "installed" ? "Just run" : "Install the CLI, then just run"}{" "}
           <code className="rounded bg-foreground/[0.06] px-1 py-0.5 font-mono text-[11px] text-foreground/80">delta</code>{" "}
           in any worktree or branch to review your agent’s work.
         </span>
@@ -76,6 +76,19 @@ function CliAction({ phase, detail, copied, install, dismiss, copyCommand }: Ret
       <X className="size-3.5" />
     </button>
   );
+
+  // Already on PATH (incl. Homebrew's link): a quiet affirmation instead of a CTA,
+  // so the empty state still surfaces the CLI. Dismissible; never auto-retires.
+  if (phase === "installed") {
+    return (
+      <span className="inline-flex shrink-0 items-center gap-1">
+        <span className="inline-flex h-7 items-center gap-1.5 rounded-md px-1 text-[12px] font-medium text-emerald-600 dark:text-emerald-400">
+          <CheckCircle2 className="size-4" /> Ready
+        </span>
+        {dismissBtn}
+      </span>
+    );
+  }
 
   if (phase === "working") {
     return (

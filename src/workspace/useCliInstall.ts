@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
-export type CliPhase = "checking" | "idle" | "working" | "linked" | "pathUpdated" | "manual" | "error" | "hidden";
+export type CliPhase = "checking" | "idle" | "installed" | "working" | "linked" | "pathUpdated" | "manual" | "error" | "hidden";
 
 const DISMISS_KEY = "delta.cliPromptDismissed";
 
@@ -31,14 +31,15 @@ export function useCliInstall(): CliInstall {
   const [detail, setDetail] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // Resolve "checking" → idle/hidden from cli_status. A failed check still offers
-  // install (better to over-offer than hide it).
+  // Resolve "checking" → idle/installed from cli_status. A failed check still offers
+  // install (better to over-offer than hide it). "installed" is a visible resting
+  // state (the empty-state promo shows a ✓); the header pill renders it as null.
   useEffect(() => {
     if (localStorage.getItem(DISMISS_KEY) === "1") return; // seeded hidden already
     let cancelled = false;
     void api
       .cliStatus()
-      .then((s) => !cancelled && setPhase(s.installed ? "hidden" : "idle"))
+      .then((s) => !cancelled && setPhase(s.installed ? "installed" : "idle"))
       .catch(() => !cancelled && setPhase("idle"));
     return () => {
       cancelled = true;
