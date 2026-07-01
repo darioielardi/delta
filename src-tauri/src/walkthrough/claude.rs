@@ -102,14 +102,61 @@ fn dump_output(tag: &str, json: &str) {
     eprintln!("[delta/walkthrough] {tag} model output ({} bytes) -> {}", json.len(), path.display());
 }
 
+/// Best diagnostic for a non-zero exit: stderr if present, else the CLI's stdout
+/// (often a JSON envelope carrying the real error), lightly parsed for a clean message.
+/// So the failure is never a bare "Claude exited with an error."
+fn pick_error_detail(stderr: &str, stdout: &str) -> String {
+    let e = stderr.trim();
+    if !e.is_empty() {
+        return truncate(e, 2000);
+    }
+    let o = stdout.trim();
+    if o.is_empty() {
+        return String::new();
+    }
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(o) {
+        for key in ["error", "result", "message"] {
+            if let Some(s) = v.get(key).and_then(|x| x.as_str()) {
+                if !s.trim().is_empty() {
+                    return truncate(s.trim(), 2000);
+                }
+            }
+        }
+    }
+    truncate(o, 2000)
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    let n = s.chars().count();
+    if n <= max {
+        return s.to_string();
+    }
+    let cut: String = s.chars().take(max).collect();
+    format!("{cut}… (+{} more chars)", n - max)
+}
+
 /// Strip a `--output-format json` envelope down to the model's JSON object. Tolerates
 /// the raw result already being the JSON, code fences, and surrounding prose.
 pub fn extract_result_json(envelope: &str) -> Result<String, WalkthroughError> {
     let result_text = match serde_json::from_str::<serde_json::Value>(envelope) {
-        Ok(serde_json::Value::Object(map)) => match map.get("result").and_then(|v| v.as_str()) {
-            Some(s) => s.to_string(),
-            None => envelope.to_string(),
-        },
+        Ok(serde_json::Value::Object(map)) => {
+            // An API-level failure (refusal, overload, low credits) can come back as a
+            // clean exit with `is_error: true`. Surface its message instead of trying to
+            // parse the error text as a walkthrough (→ misleading "couldn't build one").
+            if map.get("is_error").and_then(|v| v.as_bool()) == Some(true) {
+                let detail = map
+                    .get("result")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| map.get("error").and_then(|v| v.as_str()))
+                    .unwrap_or("Claude reported an error")
+                    .trim();
+                return Err(WalkthroughError::Exit { code: None, stderr: truncate(detail, 2000) });
+            }
+            match map.get("result").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => envelope.to_string(),
+            }
+        }
         _ => envelope.to_string(),
     };
     let cleaned = clean_json(&result_text);
@@ -387,6 +434,16 @@ impl RealClaude {
             sys_path.display(),
         );
     }
+
+    /// Debug-only: persist a captured stream (`stdout`/`stderr`) to a temp file.
+    fn dump(&self, tag: &str, content: &str) {
+        if content.is_empty() {
+            return;
+        }
+        let path = std::env::temp_dir().join(format!("delta-walkthrough-{}.{tag}.txt", self.review_id));
+        let _ = std::fs::write(&path, content);
+        eprintln!("[delta/walkthrough] {tag} = {} bytes -> {}", content.len(), path.display());
+    }
 }
 
 impl ClaudeRunner for RealClaude {
@@ -425,18 +482,31 @@ impl ClaudeRunner for RealClaude {
 
         let result = match rx.recv_timeout(self.timeout) {
             Ok(Ok(output)) => {
-                if debug && !output.stderr.is_empty() {
-                    eprintln!("[delta/walkthrough] claude stderr:\n{}", String::from_utf8_lossy(&output.stderr));
+                let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+                if debug {
+                    eprintln!(
+                        "[delta/walkthrough] exit={:?}, stdout={}B, stderr={}B",
+                        output.status.code(),
+                        stdout.len(),
+                        stderr.len(),
+                    );
+                    self.dump("stderr", &stderr);
+                    // On success, generate_with_runner dumps the extracted result JSON;
+                    // on failure the raw stdout is where the error usually is.
+                    if !output.status.success() {
+                        self.dump("stdout", &stdout);
+                    }
                 }
                 if output.status.success() {
-                    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+                    Ok(stdout)
                 } else if output.status.code().is_none() {
                     // terminated by signal before our timeout → an external cancel
                     Err(WalkthroughError::Cancelled)
                 } else {
                     Err(WalkthroughError::Exit {
                         code: output.status.code(),
-                        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                        stderr: pick_error_detail(&stderr, &stdout),
                     })
                 }
             }
@@ -578,6 +648,15 @@ mod tests {
     fn extracts_when_result_is_raw_object() {
         let env = r#"{"version":1,"title":"t"}"#;
         assert_eq!(extract_result_json(env).unwrap(), env);
+    }
+
+    #[test]
+    fn is_error_envelope_surfaces_as_exit_with_detail() {
+        let env = r#"{"type":"result","result":"Credit balance is too low","is_error":true}"#;
+        match extract_result_json(env) {
+            Err(WalkthroughError::Exit { stderr, .. }) => assert!(stderr.contains("Credit balance")),
+            other => panic!("expected Exit, got {other:?}"),
+        }
     }
 
     struct Fake {
