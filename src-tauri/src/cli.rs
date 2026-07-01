@@ -68,29 +68,45 @@ pub fn precheck(args: &[String]) -> PreCheck {
     PreCheck::Proceed
 }
 
-/// Pure dispatch rule: we are the CLI client iff invoked under a *different* name
-/// than the real binary (i.e. through the installed shim symlink) and that name is
-/// one of our shims. Running the raw `target/release/delta` binary (same name as
-/// the real exe) stays in app mode — no footgun.
-pub fn is_cli_invocation(invoked: Option<&OsStr>, real: Option<&OsStr>) -> bool {
+/// Pure dispatch rule: we are the CLI client iff invoked under one of our shim names
+/// AND we are not the app binary itself. "Not the app" holds when either the invoked
+/// name differs from the real binary (shim `delta` vs bundle `Delta`), or we were
+/// reached through the shim symlink (`via_symlink`).
+///
+/// The `via_symlink` backstop is casing-independent: it fires even when the bundle
+/// binary shares the shim's basename — the `delta` shim → `.../MacOS/delta` collision
+/// that shipped and hung the terminal (Tauri named the executable after the Cargo bin
+/// `delta` because `mainBinaryName` was unset). Running the raw `target/release/delta`
+/// binary directly (same name, and *not* reached via a symlink) stays in app mode.
+pub fn is_cli_invocation(invoked: Option<&OsStr>, real: Option<&OsStr>, via_symlink: bool) -> bool {
     match invoked {
-        Some(name) => Some(name) != real && SHIMS.iter().any(|s| name == OsStr::new(s)),
-        None => false,
+        Some(name) if SHIMS.iter().any(|s| name == OsStr::new(s)) => Some(name) != real || via_symlink,
+        _ => false,
     }
 }
 
 pub fn invoked_as_cli() -> bool {
     // `invoked` is the name we were called by (the shim name, from argv[0]). `real`
     // is the actual binary: macOS `current_exe()` does NOT resolve the shim symlink,
-    // so canonicalize it — otherwise both basenames are the shim name and the rule
-    // below never fires.
+    // so canonicalize it — otherwise both basenames are the shim name and the name
+    // rule never fires.
     let argv0 = std::env::args_os().next();
     let invoked = argv0.as_deref().and_then(|p| Path::new(p).file_name()).map(OsStr::to_os_string);
-    let real = std::env::current_exe()
-        .ok()
+    let exe = std::env::current_exe().ok();
+    let real = exe
+        .as_deref()
         .and_then(|p| std::fs::canonicalize(p).ok())
         .and_then(|p| p.file_name().map(OsStr::to_os_string));
-    is_cli_invocation(invoked.as_deref(), real.as_deref())
+    // Backstop for the name rule: `current_exe()` being the (unresolved) shim symlink
+    // means we were launched through the shim, not as the bundle binary. Checks the
+    // leaf only (`symlink_metadata`), so a real binary living under a symlinked parent
+    // dir — e.g. a dev `target/debug/delta` — is not mistaken for a shim launch.
+    let via_symlink = exe
+        .as_deref()
+        .and_then(|p| std::fs::symlink_metadata(p).ok())
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+    is_cli_invocation(invoked.as_deref(), real.as_deref(), via_symlink)
 }
 
 /// Pure: the argv passed to `open` for a cold launch. `open -b <id> --args <repo> [flag]`.
@@ -184,21 +200,51 @@ mod tests {
 
     #[test]
     fn cli_mode_when_invoked_through_a_shim() {
-        assert!(is_cli_invocation(Some(OsStr::new("delta")), Some(OsStr::new("Delta"))));
-        assert!(is_cli_invocation(Some(OsStr::new("delta-dev")), Some(OsStr::new("Delta Dev"))));
+        // Distinct names (bundle `Delta` via mainBinaryName) → the name rule alone fires.
+        assert!(is_cli_invocation(Some(OsStr::new("delta")), Some(OsStr::new("Delta")), false));
+        assert!(is_cli_invocation(Some(OsStr::new("delta-dev")), Some(OsStr::new("Delta Dev")), false));
+    }
+
+    #[test]
+    fn cli_mode_when_shim_and_binary_share_a_name_but_reached_via_symlink() {
+        // The regression that shipped and hung the terminal: the `delta` shim resolves
+        // to a bundle binary *also* basenamed `delta` (Tauri used the Cargo bin name),
+        // so the name rule can't tell them apart. The symlink backstop must still route
+        // to CLI mode. The old (name-only) rule returned false here — an inline app run.
+        assert!(is_cli_invocation(Some(OsStr::new("delta")), Some(OsStr::new("delta")), true));
+        assert!(is_cli_invocation(Some(OsStr::new("delta-dev")), Some(OsStr::new("delta")), true));
     }
 
     #[test]
     fn app_mode_when_invoked_as_the_real_binary() {
-        // Bundled app launched by LS/dock: argv0 basename == real exe name.
-        assert!(!is_cli_invocation(Some(OsStr::new("Delta")), Some(OsStr::new("Delta"))));
-        // Raw cargo binary run directly during dev: both are "delta".
-        assert!(!is_cli_invocation(Some(OsStr::new("delta")), Some(OsStr::new("delta"))));
+        // Bundled app launched by LS/dock: argv0 basename == real exe name, not a symlink.
+        assert!(!is_cli_invocation(Some(OsStr::new("Delta")), Some(OsStr::new("Delta")), false));
+        // Raw cargo binary run directly during dev: same name AND not reached via symlink.
+        assert!(!is_cli_invocation(Some(OsStr::new("delta")), Some(OsStr::new("delta")), false));
     }
 
     #[test]
     fn app_mode_when_name_is_not_a_shim() {
-        assert!(!is_cli_invocation(Some(OsStr::new("something")), Some(OsStr::new("Delta"))));
+        assert!(!is_cli_invocation(Some(OsStr::new("something")), Some(OsStr::new("Delta")), false));
+        // A non-shim name is never the CLI client, even reached through a symlink.
+        assert!(!is_cli_invocation(Some(OsStr::new("something")), Some(OsStr::new("Delta")), true));
+    }
+
+    #[test]
+    fn bundle_binary_name_differs_from_the_shim_names() {
+        // Guard the fix at its source. The bundled executable is named after
+        // `mainBinaryName`; if it's unset (or set to a shim name), Tauri falls back to
+        // the Cargo bin name `delta`, which collides with the `delta` shim and drops
+        // every terminal invocation into app mode — the window opens and the shell
+        // hangs. Fails fast on that regression, unlike the basename tests above which
+        // can't observe the real build output.
+        let conf: serde_json::Value =
+            serde_json::from_str(include_str!("../tauri.conf.json")).expect("tauri.conf.json parses");
+        let name = conf.get("mainBinaryName").and_then(|v| v.as_str());
+        assert!(
+            matches!(name, Some(n) if !SHIMS.contains(&n)),
+            "mainBinaryName must be set and differ from the shim names {SHIMS:?}; got {name:?}"
+        );
     }
 
     #[test]
