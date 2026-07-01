@@ -62,7 +62,9 @@ export function CommentIndex({
       const fa = a.anchor?.file ?? "", fb = b.anchor?.file ?? "";
       return fa === fb ? (a.anchor?.startLine ?? 0) - (b.anchor?.startLine ?? 0) : fa.localeCompare(fb);
     });
-  const staleCount = anchored.filter((c) => c.stale).length;
+  // A resolved comment is no longer "stale" — resolving is the acknowledgement,
+  // so it drops out of both the count and its per-entry badge below.
+  const staleCount = anchored.filter((c) => c.stale && !c.resolved).length;
 
   return (
     <aside
@@ -130,7 +132,7 @@ export function CommentIndex({
                   </span>
                 );
               })()}
-              {c.stale && <span className="shrink-0 rounded-md squircle bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">⚠ stale</span>}
+              {c.stale && !c.resolved && <span className="shrink-0 rounded-md squircle bg-amber-500/15 px-1.5 py-0.5 text-amber-600 dark:text-amber-400">⚠ stale</span>}
               {c.resolved && <span className="shrink-0 rounded-md squircle bg-emerald-500/15 px-1.5 py-0.5 text-emerald-600 dark:text-emerald-400">✓</span>}
             </span>
             {c.body.trim() === "" ? (
