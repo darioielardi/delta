@@ -85,7 +85,9 @@ impl ReviewEntry {
     pub fn from_review(review: &Review, file_count: u32, repo_name: String) -> Self {
         let visible = |c: &&crate::review::model::Comment| c.scope != CommentScope::General;
         let comment_count = review.comments.iter().filter(visible).count() as u32;
-        let stale_count = review.comments.iter().filter(|c| c.stale && visible(c)).count() as u32;
+        // Resolved comments aren't counted as stale — resolving acknowledges the
+        // drift, so the recents "stale" badge shouldn't keep nagging about them.
+        let stale_count = review.comments.iter().filter(|c| c.stale && !c.resolved && visible(c)).count() as u32;
         let resolved_count = review.comments.iter().filter(|c| c.resolved && visible(c)).count() as u32;
         ReviewEntry {
             id: review.id.clone(),
@@ -166,6 +168,19 @@ mod tests {
         assert_eq!(e.file_count, 7);
         assert_eq!(e.repo_name, "proj");
         assert_eq!(e.id, "0123456789abcdef");
+    }
+
+    #[test]
+    fn stale_count_excludes_resolved() {
+        let r = review_with(
+            vec![
+                comment(CommentScope::Line, true, false), // stale, open → counts
+                comment(CommentScope::Line, true, true),  // stale but resolved → excluded
+            ],
+            vec![],
+        );
+        let e = ReviewEntry::from_review(&r, 0, "proj".into());
+        assert_eq!(e.stale_count, 1);
     }
 
     #[test]
