@@ -190,7 +190,12 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
       const session = await api.refreshReview(cur);
       const sig = reviewSig(session.summary, session.review);
       const shown = new Set((summaryRef.current?.files ?? []).map((f) => f.path));
-      const touches = gitMeta || paths.some((p) => shown.has(p));
+      // git-meta events (index/HEAD/refs) carry no path, so `sig` alone decides:
+      // a bare `.git/index` stat-refresh (a dev server touching files, an IDE
+      // running `git status`) rewrites it with the diff unchanged, whereas a real
+      // commit/checkout moves oids or files and so still changes `sig`. Forcing a
+      // refresh on gitMeta would resurface the button on that no-op churn. (#12)
+      const touches = paths.some((p) => shown.has(p));
       if (sig === sigRef.current && !touches) return; // nothing we display changed
       // Merge the changed scope with any already-pending one (null === reload all).
       const prev = pendingRef.current?.paths;

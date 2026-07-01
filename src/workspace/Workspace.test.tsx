@@ -156,4 +156,44 @@ describe("Workspace", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: /^refresh$/i })).toBeNull());
     await waitFor(() => expect(screen.queryAllByText(/zzztest\.ts/).length).toBeGreaterThan(0));
   });
+
+  it("ignores a git-meta event whose re-diff is unchanged — no spurious Refresh (#12)", async () => {
+    // A `.git/index` stat-refresh (e.g. starting a dev server) fires git-meta with
+    // no paths, but the diff is byte-identical. Returning the same session means
+    // sig === sigRef, so nothing should surface.
+    openReview.mockResolvedValue(fileSession); // showing src/a.ts
+    refreshReview.mockResolvedValue(fileSession); // identical re-diff — nothing changed
+    render(<Workspace target={target} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /copy for agents/i })).toBeInTheDocument());
+
+    await act(async () => {
+      fsChanged?.({ payload: { paths: [], gitMeta: true } });
+      // Resume past `await refreshReview` and drain its continuation so a
+      // (wrongly) staged refresh would have rendered before we assert its absence.
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(refreshReview).toHaveBeenCalled(); // the re-diff ran…
+    // …and found nothing to show. (Substring, not /^refresh$/ — the button's
+    // accessible name is "Refresh ⌘R", so an anchored matcher would spuriously
+    // pass by never matching even when the button is present.)
+    expect(screen.queryByRole("button", { name: /refresh/i })).toBeNull();
+  });
+
+  it("still surfaces Refresh on a git-meta event that moves the diff (commit/checkout) (#12)", async () => {
+    openReview.mockResolvedValue(fileSession);
+    // A commit/checkout: the snapshot oid moved, so sig changes even though no
+    // working-tree path was reported — the button must still appear.
+    refreshReview.mockResolvedValue({
+      ...fileSession,
+      review: { ...fileSession.review, snapshot: { baseOid: "moved", capturedAt: "t2" } },
+    });
+    render(<Workspace target={target} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: /copy for agents/i })).toBeInTheDocument());
+
+    await act(async () => {
+      fsChanged?.({ payload: { paths: [], gitMeta: true } });
+    });
+    await waitFor(() => expect(screen.getByRole("button", { name: /refresh/i })).toBeInTheDocument());
+  });
 });
