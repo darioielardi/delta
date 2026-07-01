@@ -123,6 +123,48 @@ pub fn reconcile(mut review: Review) -> Result<ReviewSession, GitError> {
     Ok(ReviewSession { review, summary, repo_name: String::new() })
 }
 
+/// Fill a content baseline into any viewed entry that lacks one, hashing the
+/// file's current diff content. Called at save time — the moment the user
+/// toggles "viewed" — so the baseline reflects the version they actually saw,
+/// rather than letting `reconcile` stamp it lazily on the next refresh (which
+/// would absorb an edit landing in that window and wrongly keep the file
+/// marked viewed). A file that can't be read is left empty for `reconcile` to
+/// handle. Idempotent: a non-empty hash is never overwritten.
+pub fn stamp_viewed_baselines(review: &mut Review) {
+    for v in review.viewed.iter_mut() {
+        if !v.diff_hash.is_empty() {
+            continue;
+        }
+        if let Ok(fd) = get_file_diff(&review.target, &v.file) {
+            v.diff_hash = diff_hash(
+                fd.old_content.as_deref().unwrap_or(""),
+                fd.new_content.as_deref().unwrap_or(""),
+            );
+        }
+    }
+}
+
+/// Overlay persisted viewed baselines onto the review the frontend holds in
+/// memory. The frontend sends its in-memory review to `refresh_review`; an entry
+/// it toggled since the last reconcile still carries an empty hash there, even
+/// though `save_review` already stamped and persisted the real baseline. Adopt
+/// the persisted hash so `reconcile` compares against the version the user saw,
+/// not the (possibly already-changed) current content.
+pub fn adopt_persisted_viewed_hashes(incoming: &mut Review, persisted: &Review) {
+    for v in incoming.viewed.iter_mut() {
+        if !v.diff_hash.is_empty() {
+            continue;
+        }
+        if let Some(p) = persisted
+            .viewed
+            .iter()
+            .find(|p| p.file == v.file && !p.diff_hash.is_empty())
+        {
+            v.diff_hash = p.diff_hash.clone();
+        }
+    }
+}
+
 fn file_side_content(target: &Target, file: &str, side: Side) -> Option<String> {
     let fd = get_file_diff(target, file).ok()?;
     match side {
