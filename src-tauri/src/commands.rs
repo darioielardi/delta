@@ -10,7 +10,7 @@ use crate::launch::{
 };
 use crate::registry::model::{Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
-use crate::review::reconcile::{reconcile, ReviewSession};
+use crate::review::reconcile::{adopt_persisted_viewed_hashes, reconcile, stamp_viewed_baselines, ReviewSession};
 use crate::storage::{JsonRegistryStore, JsonStorage, RegistryStore, Storage};
 use std::path::PathBuf;
 use tauri::Manager;
@@ -60,13 +60,22 @@ pub fn open_review_impl(storage: &dyn Storage, input: Target) -> Result<ReviewSe
     Ok(session)
 }
 
-pub fn refresh_review_impl(storage: &dyn Storage, review: Review) -> Result<ReviewSession, String> {
+pub fn refresh_review_impl(storage: &dyn Storage, mut review: Review) -> Result<ReviewSession, String> {
+    // The FE's in-memory viewed entries may still carry empty hashes from a
+    // just-made toggle; save_review already stamped the real baselines to disk.
+    // Adopt them so a file changed since it was viewed is correctly un-viewed here.
+    if let Ok(Some(persisted)) = storage.load(&review.id) {
+        adopt_persisted_viewed_hashes(&mut review, &persisted);
+    }
     let session = reconcile(review)?;
     storage.save(&session.review)?;
     Ok(session)
 }
 
-pub fn save_review_impl(storage: &dyn Storage, review: Review) -> Result<(), String> {
+pub fn save_review_impl(storage: &dyn Storage, mut review: Review) -> Result<(), String> {
+    // Stamp a content baseline onto freshly-toggled viewed entries now, while the
+    // files are still at the version the user saw — see stamp_viewed_baselines.
+    stamp_viewed_baselines(&mut review);
     storage.save(&review)
 }
 
@@ -526,6 +535,57 @@ mod tests {
         assert!(!refreshed.summary.files.is_empty());
         let persisted = storage.load(&session.review.id).unwrap();
         assert!(persisted.is_some());
+    }
+
+    #[test]
+    fn save_stamps_empty_viewed_baseline_before_persisting() {
+        use crate::review::model::ViewedEntry;
+        use crate::storage::{JsonStorage, Storage};
+
+        let (dir, _repo) = repo_with_commit();
+        write(dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
+        let store_dir = tempfile::TempDir::new().unwrap();
+        let storage = JsonStorage::new(store_dir.path().join("reviews"));
+        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
+        let session = open_review_impl(&storage, target).unwrap();
+        let mut review = session.review;
+
+        // The FE toggles "viewed" with an empty hash (it doesn't compute the baseline).
+        review.viewed.push(ViewedEntry { file: "file.txt".into(), diff_hash: String::new() });
+        save_review_impl(&storage, review.clone()).unwrap();
+
+        // Save must have stamped the baseline from the file's current content.
+        let persisted = storage.load(&review.id).unwrap().unwrap();
+        assert!(!persisted.viewed[0].diff_hash.is_empty(), "save must stamp the baseline hash before persisting");
+    }
+
+    #[test]
+    fn refresh_unviews_a_file_that_changed_after_being_marked_viewed() {
+        use crate::review::model::ViewedEntry;
+        use crate::storage::JsonStorage;
+
+        // file.txt is in the diff at V1 — the version the user reviews.
+        let (dir, _repo) = repo_with_commit();
+        write(dir.path(), "file.txt", "line1\nV1\nline2\n");
+        let store_dir = tempfile::TempDir::new().unwrap();
+        let storage = JsonStorage::new(store_dir.path().join("reviews"));
+        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
+        let session = open_review_impl(&storage, target).unwrap();
+        let mut review = session.review;
+
+        // User marks file.txt viewed. The FE persists an entry with an empty hash;
+        // save runs immediately, while the file is still at V1.
+        review.viewed.push(ViewedEntry { file: "file.txt".into(), diff_hash: String::new() });
+        save_review_impl(&storage, review.clone()).unwrap();
+
+        // The file changes to V2 before the next refresh (e.g. an agent edits it).
+        write(dir.path(), "file.txt", "line1\nV2\nline2\n");
+
+        // Refresh reconciles the review the FE holds in memory — which still carries
+        // the empty hash. It must still drop the viewed entry, because the file
+        // changed since the user marked it viewed.
+        let refreshed = refresh_review_impl(&storage, review).unwrap();
+        assert_eq!(refreshed.review.viewed.len(), 0, "a file changed after being viewed must be un-viewed on refresh");
     }
 
     #[test]
