@@ -275,7 +275,7 @@ function genLarge(fileCount: number): { summary: DiffSummary; files: Record<stri
   for (let i = 0; i < fileCount; i++) {
     const ext = EXTS[i % EXTS.length];
     const path = `${DIRS[i % DIRS.length]}/module${String(i).padStart(3, "0")}.${ext}`;
-    const giant = i % 17 === 8; // a few genuinely huge files that auto-collapse
+    const giant = i % 17 === 8; // a few genuinely huge files that show the "Show diff" placeholder
     const n = giant ? 900 + (i % 4) * 200 : 150 + (i % 9) * 40; // non-giant 150..470 lines, stays expanded
     const churn = giant ? 1 : 0.4;
     const changed = churn >= 1 ? n : Math.max(1, Math.round(n * churn));

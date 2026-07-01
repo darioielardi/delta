@@ -17,7 +17,7 @@
 // Supports unified + split, line/range/file comments, word-level intra-line diff,
 // jump-to-comment, and the viewed toggle.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { Check, ChevronDown, ChevronRight, ChevronUp, Copy, ExternalLink, Eye, FileQuestion, FileX, MessageSquarePlus, Plus } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ChevronUp, Copy, ExternalLink, Eye, FileQuestion, FileText, FileX, MessageSquarePlus, Plus } from "lucide-react";
 import { getSyntaxLineTemplate } from "@git-diff-view/file";
 import { SplitSide } from "@git-diff-view/react";
 import { Button } from "@/components/ui/button";
@@ -80,11 +80,12 @@ const rowCountOf = (m: Model, layout: DiffLayout) => (layout === "split" ? m.spl
 // not rebuilt every render (and safe to read inside memos without being deps).
 const isGiant = (e: FileEntry) => e.additions + e.deletions >= GIANT_CHANGED_LINES;
 const estBodyH = (e: FileEntry, rowH: number) => Math.max(1, Math.round((e.additions + e.deletions) * 1.1) + 6) * rowH;
-// Binary + deleted files render a fixed-height placeholder, never a model — so
-// their reserved height is KNOWN, not estimated. Using this (not estBodyH) as the
-// offset fallback keeps them exact even after a bodyHeights reset (layout flip),
-// when a placeholder section can't re-report (its effect deps don't change). (#9)
-const estReserved = (e: FileEntry, rowH: number) => (e.binary || e.status === "deleted" ? PLACEHOLDER_BODY_H : estBodyH(e, rowH));
+// Binary, deleted, and (un-revealed) giant files render a fixed-height placeholder
+// instead of a model — so their reserved height is KNOWN, not estimated. Using this
+// (not estBodyH) as the offset fallback keeps them exact even after a bodyHeights
+// reset (layout flip), when a placeholder section can't re-report (its effect deps
+// don't change) — and for a revealed giant, its reported body height overrides this. (#9)
+const estReserved = (e: FileEntry, rowH: number) => (e.binary || e.status === "deleted" || isGiant(e) ? PLACEHOLDER_BODY_H : estBodyH(e, rowH));
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -355,17 +356,20 @@ const VFileSection = memo(function VFileSection({
   }, []);
 
   // Binary files have no textual diff; deleted files hide their (removed) content
-  // behind a reveal so the pane isn't dominated by deletions. Both render a fixed-
-  // height placeholder instead of a diff model — restoring the classic pane's
-  // treatment that the virtual refactor dropped. (#11)
+  // behind a reveal so the pane isn't dominated by deletions; giant files (many
+  // changed lines) hide their diff behind a reveal so a huge parse/render isn't paid
+  // until asked. All three render a fixed-height placeholder instead of a diff model
+  // — restoring the classic pane's treatment that the virtual refactor dropped. (#11)
   const isBinary = entry.binary;
   const isDeleted = entry.status === "deleted";
   const [revealed, setRevealed] = useState(false);
-  const showPlaceholder = !collapsed && (isBinary || (isDeleted && !revealed));
+  const bigHidden = isGiant(entry) && !revealed; // giant, not yet revealed → placeholder
+  const showPlaceholder = !collapsed && (isBinary || (isDeleted && !revealed) || bigHidden);
 
   // Build the model when on-screen, or whenever find is active (forceModel) so
-  // every searchable file contributes matches even while off-screen/collapsed.
-  const wantModel = !isBinary && (!isDeleted || revealed) && (forceModel || (view != null && !collapsed));
+  // every searchable file contributes matches even while off-screen/collapsed — but a
+  // hidden giant only builds under forceModel, so scrolling past it stays cheap. (#11)
+  const wantModel = !isBinary && (!isDeleted || revealed) && (forceModel || (!bigHidden && view != null && !collapsed));
   const fd = useFileDiffCacheEntry(cache, entry.path, wantModel);
   const model = useMemo(() => (fd && wantModel ? buildModel(fd, theme, layout) : null), [fd, theme, layout, wantModel]);
   const rowCount = model ? rowCountOf(model, layout) : 0;
@@ -723,10 +727,10 @@ const VFileSection = memo(function VFileSection({
           size="sm"
           variant="ghost"
           onClick={() => {
-            // A deleted file hides its content behind a reveal, and the file-comment
-            // form renders inside the (model-built) body — so reveal first, else the
-            // comment this click creates would sit hidden behind the placeholder. (#11)
-            if (isDeleted && !revealed) { setRevealed(true); void cache.load(entry.path); }
+            // A deleted or giant file hides its content behind a reveal, and the
+            // file-comment form renders inside the (model-built) body — so reveal first,
+            // else the comment this click creates would sit hidden behind the placeholder. (#11)
+            if ((isDeleted || isGiant(entry)) && !revealed) { setRevealed(true); void cache.load(entry.path); }
             onAddFileComment(entry.path, "");
           }}
           aria-label={`comment on ${entry.path}`}
@@ -771,6 +775,18 @@ const VFileSection = memo(function VFileSection({
                 className="flex h-7 items-center gap-1.5 rounded-md px-2 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
               >
                 <Eye className="size-4" /> Show deleted content
+              </button>
+            </div>
+          ) : bigHidden ? (
+            <div className="delta-ui-font flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
+              <FileText className="size-4 shrink-0 opacity-70" />
+              <span>Large file — {entry.additions + entry.deletions} changed lines, hidden by default.</span>
+              <button
+                type="button"
+                onClick={() => { setRevealed(true); void cache.load(entry.path); }}
+                className="flex h-7 items-center gap-1.5 rounded-md px-2 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <Eye className="size-4" /> Show diff
               </button>
             </div>
           ) : (
@@ -960,12 +976,14 @@ export function VirtualDiffPane({
   if (prevLayout !== layout) { setPrevLayout(layout); setBodyHeights({}); }
 
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
-  const collapsedFor = useCallback((e: FileEntry) => overrides[e.path] ?? (viewedFiles.has(e.path) || isGiant(e)), [overrides, viewedFiles]);
+  // Giant files no longer auto-collapse — they render an expanded card with a
+  // "Show diff" placeholder instead (see bigHidden). Only viewed files collapse by
+  // default; everything else follows the manual override. (#11)
+  const collapsedFor = useCallback((e: FileEntry) => overrides[e.path] ?? viewedFiles.has(e.path), [overrides, viewedFiles]);
   const toggleCollapse = useCallback((path: string) => {
-    const e = files.find((f) => f.path === path);
-    const cur = overrides[path] ?? (e ? viewedFiles.has(path) || isGiant(e) : false);
+    const cur = overrides[path] ?? viewedFiles.has(path);
     setOverrides((o) => ({ ...o, [path]: !cur }));
-  }, [files, overrides, viewedFiles]);
+  }, [overrides, viewedFiles]);
 
   // When viewed flips, drop any manual collapse override so the section follows
   // viewed (collapse on view / expand on un-view), matching the classic pane.
