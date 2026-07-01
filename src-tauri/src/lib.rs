@@ -71,9 +71,11 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             match event {
-                // A window is gone: stop its watcher. When the last window closes we
-                // deliberately do NOT resurrect the launcher — the pop-up was unwanted.
-                // (#9 cleanup, #14)
+                // A window is gone: stop its watcher. We deliberately do NOT resurrect
+                // the launcher when the last window closes — the pop-up was unwanted
+                // (#9 cleanup, #14, #31). On macOS the process is kept alive by the
+                // ExitRequested arm below; other platforms have no dock/tray to recover
+                // a windowless process, so exit to avoid an orphan.
                 tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } => {
                     crate::watch::stop(app_handle, &label);
                     let remaining = app_handle
@@ -82,13 +84,19 @@ pub fn run() {
                         .filter(|l| l != &label)
                         .count();
                     if remaining == 0 {
-                        // macOS: stay alive so the `delta` shim socket-forwards warm (#23)
-                        // and a dock-click reopens home (Reopen handler below). Other
-                        // platforms have no dock/tray to recover a windowless process, so
-                        // exit to avoid an orphan.
                         #[cfg(not(target_os = "macos"))]
                         app_handle.exit(0);
                     }
+                }
+                // macOS: closing the last window must not quit the app. Tauri exits by
+                // default once no windows remain (ExitRequested → ControlFlow::Exit unless
+                // prevented), so keep the process alive: the `delta` shim's socket-forward
+                // stays warm (#23) and a dock-click reopens home (Reopen arm below).
+                // `code.is_none()` is the implicit last-window close; an explicit Cmd-Q or
+                // `app.exit()` carries `Some(code)` and is honored so the app stays quittable.
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::ExitRequested { api, code, .. } if code.is_none() => {
+                    api.prevent_exit();
                 }
                 // macOS: clicking the dock icon with no open windows reopens home.
                 #[cfg(target_os = "macos")]
