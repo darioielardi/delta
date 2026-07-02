@@ -45,7 +45,6 @@ const CH_PX = 7.85; // ≈ width of one mono char at 13px (SF Mono/Menlo) — on
 // column count) is the card body minus this chrome. (#wrap)
 const UNIFIED_CHROME = 124; // unified: old# + new# + marker + pr-3
 const SPLIT_COL_CHROME = 60; // one split column: gutter + pr-3
-void SPLIT_COL_CHROME; // consumed by Task 4 (split-column wrap column count)
 // Left-accent colors for changed lines, mirroring the comment-range accent. (#border)
 const ADD_ACCENT = "var(--color-emerald-500)";
 const DEL_ACCENT = "var(--color-rose-500)";
@@ -227,7 +226,7 @@ function Row({ model, index, top, height, wrap, selected, highlighted, onComment
 // gutter is a sticky rail (like the unified row) so it stays pinned and masks the
 // code that scrolls under it on horizontal scroll. The two columns are separate
 // scroll containers (synced), so each side scrolls within its own half. (#2/#10)
-function SplitColCell({ model, side, index, top, changed, highlighted, selected, onComment, marks }: { model: Model; side: Side; index: number; top: number; changed: boolean; highlighted: boolean; selected: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
+function SplitColCell({ model, side, index, top, height, wrap, changed, highlighted, selected, onComment, marks }: { model: Model; side: Side; index: number; top: number; height: number; wrap: boolean; changed: boolean; highlighted: boolean; selected: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
   const line = side === "old" ? model.getSplitLeftLine(index) : model.getSplitRightLine(index);
   const has = line.lineNumber != null;
   const ln = line.lineNumber!;
@@ -244,7 +243,7 @@ function SplitColCell({ model, side, index, top, changed, highlighted, selected,
   const range = changed ? changeRangeOf(line.diff) : undefined;
   const accent = changed ? (side === "old" ? DEL_ACCENT : ADD_ACCENT) : highlighted ? "var(--primary)" : undefined;
   return (
-    <div data-row-index={index} className="group absolute left-0 flex w-full items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height: "var(--code-lh,22px)", background: tint ?? undefined }}>
+    <div data-row-index={index} className="group absolute left-0 flex w-full items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height, background: tint ?? undefined }}>
       <div className="sticky left-0 z-[1] flex items-stretch bg-code" style={{ background: railBg(tint), boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
         <span data-gutter={side} className={gutterCls}>{has ? ln : ""}</span>
         {has && (
@@ -253,7 +252,7 @@ function SplitColCell({ model, side, index, top, changed, highlighted, selected,
           </button>
         )}
       </div>
-      {has ? <Code html={html} range={range} changeBg={side === "old" ? "bg-rose-400/25" : "bg-emerald-400/25"} marks={marks} /> : <span className="flex-1" />}
+      {has ? <Code html={html} range={range} changeBg={side === "old" ? "bg-rose-400/25" : "bg-emerald-400/25"} marks={marks} wrap={wrap} /> : <span className="flex-1" />}
     </div>
   );
 }
@@ -520,21 +519,27 @@ const VFileSection = memo(function VFileSection({
   // old `v * rowH` arithmetic.
   const bodyW = paneW > 0 ? paneW - 2 * PAD - 2 : 0;
   const unifiedCols = wrap ? paneColsFor(bodyW - UNIFIED_CHROME, chPx) : 0;
+  const splitColCols = wrap ? paneColsFor(bodyW / 2 - SPLIT_COL_CHROME, chPx) : 0;
   const rowLines = useMemo(() => {
     const out = new Array<number>(visualCount).fill(1);
-    if (!model || !wrap || layout === "split") return out; // split handled in Task 4
+    if (!model || !wrap) return out;
     for (let v = 0; v < visualCount; v++) {
       const vr = visualRows[v];
       if (vr.kind !== "line") continue; // fold rows never wrap
-      const line = model.getUnifiedLine(vr.index);
-      out[v] = visualLinesForCols((line.value ?? "").length, unifiedCols);
+      if (layout === "split") {
+        const l = model.getSplitLeftLine(vr.index), r = model.getSplitRightLine(vr.index);
+        const ll = l.lineNumber != null ? visualLinesForCols((l.value ?? "").length, splitColCols) : 1;
+        const rl = r.lineNumber != null ? visualLinesForCols((r.value ?? "").length, splitColCols) : 1;
+        out[v] = Math.max(ll, rl);
+      } else {
+        const line = model.getUnifiedLine(vr.index);
+        out[v] = visualLinesForCols((line.value ?? "").length, unifiedCols);
+      }
     }
     return out;
-  }, [model, wrap, layout, visualRows, visualCount, unifiedCols]);
+  }, [model, wrap, layout, visualRows, visualCount, unifiedCols, splitColCols]);
   const rowTops = useMemo(() => buildRowOffsets(rowLines, rowH), [rowLines, rowH]);
   const rowPxOf = (v: number) => rowLines[v] * rowH;
-  const codeTopOf = (v: number) => rowTops[v];
-  void codeTopOf; // consumed by Task 4 (split-column code top offset)
 
   // In-code find (#find): scan SHOWN lines for the query. Matches map to model
   // rows (folded/hidden lines are skipped). `fileMatches` feeds the global list;
@@ -678,7 +683,7 @@ const VFileSection = memo(function VFileSection({
   // each column with its own static scroll ref so the two stay independently
   // scrollable + synced. (#10)
   const splitColumnInner = (side: Side) => (
-    <div className="relative h-full" style={{ width: colWidthCss, minWidth: "100%" }}>
+    <div className="relative h-full" style={{ width: wrap ? "100%" : colWidthCss, minWidth: "100%" }}>
       {model && renderVisual.map((v) => {
         const vr = visualRows[v];
         if (vr.kind !== "line") return null;
@@ -690,7 +695,7 @@ const VFileSection = memo(function VFileSection({
           : rightHas && (!leftHas || !!changeRangeOf(right.diff));
         return (
           <SplitColCell
-            key={idx} model={model} side={side} index={idx} top={visualRowTop(v)}
+            key={idx} model={model} side={side} index={idx} top={visualRowTop(v)} height={rowPxOf(v)} wrap={wrap}
             changed={changed} highlighted={rangeRows.has(idx)} selected={idx >= selLo && idx <= selHi}
             onComment={commentLine} marks={rowMarks(idx)?.filter((m) => m.side === side)}
           />
@@ -846,7 +851,7 @@ const VFileSection = memo(function VFileSection({
                   <div
                     ref={oldColRef}
                     onScroll={() => syncCols("old")}
-                    className={`absolute inset-y-0 left-0 w-1/2 overflow-x-auto overflow-y-hidden border-r border-border/60 ${HIDE_SCROLLBAR}`}
+                    className={`absolute inset-y-0 left-0 w-1/2 ${wrap ? "overflow-x-hidden" : "overflow-x-auto"} overflow-y-hidden border-r border-border/60 ${HIDE_SCROLLBAR}`}
                     style={{ overscrollBehaviorY: "auto" }}
                   >
                     {splitColumnInner("old")}
@@ -854,7 +859,7 @@ const VFileSection = memo(function VFileSection({
                   <div
                     ref={newColRef}
                     onScroll={() => syncCols("new")}
-                    className={`absolute inset-y-0 left-1/2 w-1/2 overflow-x-auto overflow-y-hidden ${HIDE_SCROLLBAR}`}
+                    className={`absolute inset-y-0 left-1/2 w-1/2 ${wrap ? "overflow-x-hidden" : "overflow-x-auto"} overflow-y-hidden ${HIDE_SCROLLBAR}`}
                     style={{ overscrollBehaviorY: "auto" }}
                   >
                     {splitColumnInner("new")}
