@@ -827,7 +827,14 @@ const VFileSection = memo(function VFileSection({
           onPointerDown={onGutterPointerDown}
         >
           {previewing ? (
-            <PreviewBody content={fd?.newContent ?? ""} onHeight={onPreviewHeight} />
+            fd?.newContent != null ? (
+              <PreviewBody content={fd.newContent} onHeight={onPreviewHeight} />
+            ) : (
+              <div className="delta-ui-font flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
+                <BookOpen className="size-4 shrink-0 opacity-70" />
+                <span>Loading preview…</span>
+              </div>
+            )
           ) : isBinary ? (
             <div className="delta-ui-font flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
               <FileQuestion className="size-4 shrink-0 opacity-70" />
