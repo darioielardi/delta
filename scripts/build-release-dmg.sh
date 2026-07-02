@@ -202,7 +202,10 @@ spctl -a -vvv -t open --context context:primary-signature "$dmg_path"
 xcrun stapler validate "$dmg_path"
 
 app_path="src-tauri/target/release/bundle/macos/${product}.app"
-[ -d "$app_path" ] || die "app bundle not found at $app_path"
+if ! [ -d "$app_path" ]; then
+  git checkout -- package.json
+  die "app bundle not found at $app_path"
+fi
 
 printf 'Stapling the .app bundle (for updater-delivered installs)...\n'
 # If this fails with "does not have a ticket" (i.e. the DMG's notarization
@@ -218,7 +221,10 @@ printf 'Repacking + signing the updater tarball from the stapled app...\n'
 tarball="src-tauri/target/release/bundle/macos/${product}.app.tar.gz"
 tar -C "src-tauri/target/release/bundle/macos" -czf "$tarball" "${product}.app"
 pnpm tauri signer sign "$tarball"   # writes ${tarball}.sig using TAURI_SIGNING_PRIVATE_KEY*
-[ -f "${tarball}.sig" ] || die "updater signature not produced"
+if ! [ -f "${tarball}.sig" ]; then
+  git checkout -- package.json
+  die "updater signature not produced"
+fi
 
 sha256="$(shasum -a 256 "$dmg_path" | awk '{print $1}')"
 
