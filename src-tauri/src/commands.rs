@@ -13,8 +13,24 @@ use crate::review::model::{review_id, Review, Snapshot};
 use crate::review::reconcile::{reconcile, ReviewSession};
 use crate::storage::{JsonRegistryStore, JsonStorage, RegistryStore, Storage};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
+
+/// Process-wide one-shot latch for the self-updater. `useUpdater` runs per
+/// window (App mounts in each), so two windows open at once could otherwise
+/// both `check()` + `downloadAndInstall()` and race on replacing the .app.
+/// The first window to call this wins; the rest skip for the process lifetime.
+/// (#updater-race)
+#[derive(Default)]
+pub struct UpdaterGate(AtomicBool);
+
+#[tauri::command]
+pub fn updater_try_acquire(gate: tauri::State<'_, UpdaterGate>) -> bool {
+    gate.0
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+}
 
 pub fn compute_diff_impl(target: Target) -> Result<DiffSummary, String> {
     engine_compute(&target)

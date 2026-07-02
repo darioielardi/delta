@@ -62,4 +62,8 @@ export const api = {
   // `line` jumps there where the editor's CLI supports it. (#editor)
   openInEditor: (editor: string, repoPath: string, file?: string, line?: number): Promise<void> =>
     invokeImpl("open_in_editor", { editor, repoPath, file, line }),
+  // Process-wide updater leader election: the first window to call this gets
+  // `true` and runs the check/download; other windows get `false` and stay idle,
+  // so we never run concurrent downloads or .app replacements. (#updater-race)
+  acquireUpdaterGate: (): Promise<boolean> => invokeImpl("updater_try_acquire"),
 };

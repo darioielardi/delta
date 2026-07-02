@@ -42,7 +42,7 @@ export default function App() {
   // notify() channel so non-component actions can raise it from any call site. (#add-repo-nonrepo)
   const [notice, setNotice] = useState<Notice | null>(null);
   useEffect(() => onNotice(setNotice), []);
-  const { status, version, restart } = useUpdater();
+  const { status, version, progress, download, restart } = useUpdater();
   const [updateDismissed, setUpdateDismissed] = useState(false);
 
   useEffect(() => {
@@ -116,9 +116,12 @@ export default function App() {
         message={notice?.message}
         onClose={() => setNotice(null)}
       />
-      {status === "ready" && !updateDismissed && (
+      {!updateDismissed && (
         <UpdateBanner
+          status={status}
           version={version}
+          progress={progress}
+          onDownload={download}
           onRestart={() => void restart()}
           onDismiss={() => setUpdateDismissed(true)}
         />

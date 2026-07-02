@@ -38,7 +38,10 @@ pub fn run() {
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(crate::watch::Watchers::default())
+        .manage(crate::commands::UpdaterGate::default())
         .invoke_handler(tauri::generate_handler![
             commands::compute_diff,
             commands::get_file_diff,
@@ -56,7 +59,8 @@ pub fn run() {
             commands::delete_review,
             commands::install_cli,
             commands::cli_status,
-            commands::open_in_editor
+            commands::open_in_editor,
+            commands::updater_try_acquire
         ])
         .setup(|app| {
             let args: Vec<String> = std::env::args().skip(1).collect();
