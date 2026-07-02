@@ -1,5 +1,6 @@
 use crate::export::export_markdown;
-use crate::git::diff::{compute_diff as engine_compute, get_file_diff as engine_file, DiffSummary, FileDiff};
+use crate::git::cache::DiffCache;
+use crate::git::diff::{DiffSummary, FileDiff};
 use crate::git::log::{list_commits as engine_list_commits, CommitMeta};
 use crate::git::model::{DiffMode, Target};
 use crate::git::{open_repo, resolve_worktree};
@@ -30,14 +31,6 @@ pub fn updater_try_acquire(gate: tauri::State<'_, UpdaterGate>) -> bool {
     gate.0
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
-}
-
-pub fn compute_diff_impl(target: Target) -> Result<DiffSummary, String> {
-    engine_compute(&target)
-}
-
-pub fn get_file_diff_impl(target: Target, path: String) -> Result<FileDiff, String> {
-    engine_file(&target, &path)
 }
 
 pub fn list_commits_impl(target: Target) -> Result<Vec<CommitMeta>, String> {
@@ -179,15 +172,19 @@ pub fn delete_review_impl(storage: &dyn Storage, reg_store: &dyn RegistryStore, 
 }
 
 #[tauri::command]
-pub async fn compute_diff(target: Target) -> Result<DiffSummary, String> {
-    tauri::async_runtime::spawn_blocking(move || compute_diff_impl(target))
+pub async fn compute_diff(target: Target, cache: tauri::State<'_, DiffCache>) -> Result<DiffSummary, String> {
+    let cache = cache.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || cache.summary(&target))
         .await
         .map_err(|e| format!("compute_diff task: {e}"))?
 }
 
 #[tauri::command]
-pub async fn get_file_diff(target: Target, path: String) -> Result<FileDiff, String> {
-    tauri::async_runtime::spawn_blocking(move || get_file_diff_impl(target, path))
+pub async fn get_file_diff(target: Target, path: String, cache: tauri::State<'_, DiffCache>) -> Result<FileDiff, String> {
+    // Served from the memoized snapshot — the whole-repo diff runs once per snapshot,
+    // not once per file (the large-review perf fix). (#perf)
+    let cache = cache.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || cache.file(&target, &path))
         .await
         .map_err(|e| format!("get_file_diff task: {e}"))?
 }
@@ -214,6 +211,10 @@ pub async fn open_review(app: tauri::AppHandle, target: Target) -> Result<Review
 
 #[tauri::command]
 pub async fn refresh_review(app: tauri::AppHandle, review: Review) -> Result<ReviewSession, String> {
+    // A refresh means "recompute against the current state", so drop any memoized
+    // diff snapshot for this worktree — the window's refetch then rebuilds fresh.
+    // Covers a manual Refresh and one racing the fs watcher's debounce. (#perf)
+    app.state::<DiffCache>().invalidate(&review.target.repo_path);
     let reviews = reviews_dir(&app)?;
     let reg_path = registry_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -487,14 +488,16 @@ mod tests {
     fn compute_diff_command_returns_summary() {
         let (dir, _repo) = repo_with_commit();
         write(dir.path(), "file.txt", "a\nb\n");
-        let summary = compute_diff_impl(Target {
-            repo_path: dir.path().to_str().unwrap().into(),
-            worktree: None,
-            mode: DiffMode::Uncommitted,
-            base: None,
-            commit: None,
-        })
-        .unwrap();
+        // The command serves the summary from the DiffCache (same path the IPC uses).
+        let summary = DiffCache::default()
+            .summary(&Target {
+                repo_path: dir.path().to_str().unwrap().into(),
+                worktree: None,
+                mode: DiffMode::Uncommitted,
+                base: None,
+                commit: None,
+            })
+            .unwrap();
         assert_eq!(summary.files.len(), 1);
     }
 

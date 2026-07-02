@@ -3,8 +3,8 @@ import { toDiffFile } from "./toDiffFile";
 import type { FileDiff } from "../types";
 
 const fd: FileDiff = {
-  oldFileName: "a.ts", oldContent: "const x = 1\n", oldLang: "typescript",
-  newFileName: "a.ts", newContent: "const x = 2\n", newLang: "typescript",
+  oldFileName: "a.ts", oldContent: "const x = 1\n",
+  newFileName: "a.ts", newContent: "const x = 2\n",
   status: "modified", binary: false,
 };
 

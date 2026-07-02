@@ -61,4 +61,19 @@ describe("FilesPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /viewed src\/a\.ts/i }));
     expect(onToggleViewed).toHaveBeenCalledWith("src/a.ts");
   });
+
+  it("prefetches a file's diff after the pointer rests on its row (debounced)", () => {
+    vi.useFakeTimers();
+    try {
+      const onPrefetch = vi.fn();
+      render(<FilesPanel files={files} selected={null} onSelect={() => {}} onPrefetch={onPrefetch} viewedFiles={new Set()} onToggleViewed={() => {}} />);
+      // mouseOver is what React uses to synthesize onMouseEnter (mouseenter doesn't bubble).
+      fireEvent.mouseOver(screen.getByText("a.ts"));
+      expect(onPrefetch).not.toHaveBeenCalled(); // debounced, not fired on entry
+      vi.advanceTimersByTime(110);
+      expect(onPrefetch).toHaveBeenCalledWith("src/a.ts");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

@@ -17,7 +17,7 @@ const SUMMARY: DiffSummary = {
     // Sparse changes far apart → a long unchanged middle that folds. (#10)
     { path: "src/config/limits.ts", status: "modified", additions: 2, deletions: 2, binary: false },
     { path: "src/legacy/cache.ts", status: "deleted", additions: 0, deletions: 9, binary: false },
-    { path: "README.md", status: "added", additions: 3, deletions: 0, binary: false },
+    { path: "README.md", status: "added", additions: 15, deletions: 0, binary: false },
     { path: "assets/logo.png", status: "added", additions: 0, deletions: 0, binary: true },
   ],
 };
@@ -58,8 +58,6 @@ const FILES: Record<string, FileDiff> = {
   "src/auth/session.ts": {
     oldFileName: "src/auth/session.ts",
     newFileName: "src/auth/session.ts",
-    oldLang: "typescript",
-    newLang: "typescript",
     status: "modified",
     binary: false,
     oldContent:
@@ -70,8 +68,6 @@ const FILES: Record<string, FileDiff> = {
   "src/auth/login.ts": {
     oldFileName: "src/auth/login.ts",
     newFileName: "src/auth/login.ts",
-    oldLang: "typescript",
-    newLang: "typescript",
     status: "modified",
     binary: false,
     oldContent: "export function login(token) {\n  if (!token) return null\n  return verify(token)\n}\n",
@@ -81,8 +77,6 @@ const FILES: Record<string, FileDiff> = {
   "src/api/routes.ts": {
     oldFileName: "src/api/routes.ts",
     newFileName: "src/api/routes.ts",
-    oldLang: "typescript",
-    newLang: "typescript",
     status: "modified",
     binary: false,
     oldContent: ROUTES_OLD,
@@ -102,7 +96,7 @@ const FILES: Record<string, FileDiff> = {
     };
     return {
       oldFileName: "src/config/limits.ts", newFileName: "src/config/limits.ts",
-      oldLang: "typescript", newLang: "typescript", status: "modified", binary: false,
+      status: "modified", binary: false,
       oldContent: file(3, 30_000), newContent: file(5, 45_000),
     };
   })(),
@@ -111,8 +105,6 @@ const FILES: Record<string, FileDiff> = {
   "src/legacy/cache.ts": {
     oldFileName: "src/legacy/cache.ts",
     newFileName: null,
-    oldLang: "typescript",
-    newLang: null,
     status: "deleted",
     binary: false,
     oldContent:
@@ -122,19 +114,15 @@ const FILES: Record<string, FileDiff> = {
   "README.md": {
     oldFileName: null,
     newFileName: "README.md",
-    oldLang: null,
-    newLang: "markdown",
     status: "added",
     binary: false,
     oldContent: null,
-    newContent: "# delta\n\nReview code diffs and leave structured comments for Claude.\n",
+    newContent: "# delta\n\nReview code diffs and leave structured comments for Claude.\n\n## Features\n\n- [x] Unified & split diffs\n- [x] Inline comments\n- [ ] Rich markdown preview\n\n| Shortcut | Action |\n| --- | --- |\n| `j` / `k` | Next / prev file |\n| `v` | Toggle viewed |\n\n~~Old workflow~~ is now the new workflow.\n",
   },
   // Binary file: exercises the "Unsupported file" treatment in the diff view.
   "assets/logo.png": {
     oldFileName: null,
     newFileName: "assets/logo.png",
-    oldLang: null,
-    newLang: null,
     status: "added",
     binary: true,
     oldContent: null,
@@ -231,7 +219,6 @@ const REGISTRY: Registry = {
 // (file count) on the dev:mock URL; absent, the small fixture above is served
 // and nothing changes. Deterministic (index-based, no random) so runs compare.
 // ---------------------------------------------------------------------------
-const LANG: Record<string, string> = { ts: "typescript", tsx: "typescript", css: "css", md: "markdown", json: "json" };
 const DIRS = [
   "src/auth", "src/api/handlers", "src/components/ui", "src/components/forms",
   "src/lib/util", "src/hooks", "src/pages/admin", "src/pages/dashboard/widgets",
@@ -281,7 +268,7 @@ function genLarge(fileCount: number): { summary: DiffSummary; files: Record<stri
     const changed = churn >= 1 ? n : Math.max(1, Math.round(n * churn));
     files.push({ path, status: "modified", additions: changed + 4, deletions: changed, binary: false });
     fileDiffs[path] = {
-      oldFileName: path, newFileName: path, oldLang: LANG[ext], newLang: LANG[ext],
+      oldFileName: path, newFileName: path,
       status: "modified", binary: false,
       oldContent: genFile(path, n, 0, churn, ext), newContent: genFile(path, n, 1, churn, ext),
     };

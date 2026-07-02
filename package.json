@@ -1,7 +1,7 @@
 {
   "name": "delta",
   "private": true,
-  "version": "0.11.3",
+  "version": "0.14.0",
   "description": "Fast, beautiful local-first desktop app for reviewing your agents work and leaving structured comments for them.",
   "author": "Dario Ielardi",
   "license": "MIT",
@@ -44,6 +44,7 @@
     "react": "^19",
     "react-dom": "^19",
     "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "shadcn": "^4.11.0",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.1",

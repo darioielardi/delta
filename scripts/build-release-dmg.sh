@@ -219,7 +219,11 @@ xcrun stapler validate "$app_path"
 
 printf 'Repacking + signing the updater tarball from the stapled app...\n'
 tarball="src-tauri/target/release/bundle/macos/${product}.app.tar.gz"
-tar -C "src-tauri/target/release/bundle/macos" -czf "$tarball" "${product}.app"
+# COPYFILE_DISABLE + --no-mac-metadata: without them, macOS bsdtar embeds AppleDouble
+# `._*` members (xattrs/resource forks). bsdtar reabsorbs them silently, but the
+# updater's Rust tar extractor tries to unpack `._Delta.app` and fails the install
+# ("failed to unpack ._Delta.app") — silently breaking every auto-update. Strip them.
+COPYFILE_DISABLE=1 tar --no-mac-metadata -C "src-tauri/target/release/bundle/macos" -czf "$tarball" "${product}.app"
 pnpm tauri signer sign "$tarball"   # writes ${tarball}.sig using TAURI_SIGNING_PRIVATE_KEY*
 if ! [ -f "${tarball}.sig" ]; then
   git checkout -- package.json

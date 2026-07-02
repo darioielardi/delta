@@ -90,6 +90,9 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   // file/comment still re-fires the scroll effect; `commentId` lets the pane
   // scroll to the exact comment, not just the file top.
   const [jump, setJump] = useState<{ file: string; commentId?: string; n: number } | null>(null);
+  // Hover-prefetch signal: the files tree emits a (debounced) file path on pointer
+  // rest; the diff pane warms it so a subsequent click paints with no blank. (#jump-preload)
+  const [prefetch, setPrefetch] = useState<{ file: string; n: number } | null>(null);
   // The file currently at the top of the diff viewport (scroll-spy → tree). (#r3)
   const [visibleFile, setVisibleFile] = useState<string | null>(null);
   const [copyState, setCopyState] = useState<"idle" | "ok" | "err">("idle");
@@ -329,6 +332,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   // memoization — otherwise toggling the comments pane (Workspace state) would
   // hand the diff pane new callbacks and re-render every mounted file section.
   const onSelectFile = useCallback((p: string) => setJump({ file: p, n: Date.now() }), []);
+  const onPrefetchFile = useCallback((p: string) => setPrefetch({ file: p, n: Date.now() }), []);
   const onVisibleFileChange = useCallback((p: string) => setVisibleFile(p), []);
   const onToggleViewedFile = useCallback((file: string) => toggleViewed(file, ""), [toggleViewed]);
   const onAddComment = useCallback(
@@ -413,7 +417,11 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
   }, [comments]);
   // One canonical order — the tree's depth-first order — so the files list and
   // the diff pane match the tree instead of raw git order. (#3)
-  const orderedFiles = flattenTreeFiles(viewSummary?.files ?? []);
+  // Memoized so its identity is stable across unrelated re-renders (e.g. hover
+  // prefetch). An unstable array here churns the files tree's `visible` memo, which
+  // re-fires its "keep active row in view" scroll effect and yanks the tree back to
+  // the active row mid-scroll. (#jump-preload)
+  const orderedFiles = useMemo(() => flattenTreeFiles(viewSummary?.files ?? []), [viewSummary?.files]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -596,7 +604,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 ) : copyState === "err" ? (
                   <><Copy className="size-3.5" /> Failed</>
                 ) : (
-                  <><Copy className="size-3.5" /> Copy for agents{commentCount > 0 && <Kbd keys="⌘⇧C" className="border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground/90" />}</>
+                  <><Copy className="size-3.5" /> Copy for agents<Kbd keys="⌘⇧C" className="border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground/90" /></>
                 )}
               </Button>
             </div>
@@ -642,6 +650,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 files={orderedFiles}
                 selected={visibleFile}
                 onSelect={onSelectFile}
+                onPrefetch={onPrefetchFile}
                 viewedFiles={viewedFiles}
                 onToggleViewed={onToggleViewedFile}
                 commentCounts={commentCountsByFile}
@@ -657,6 +666,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 viewedFiles={viewedFiles}
                 comments={comments}
                 jump={jump}
+                prefetch={prefetch}
                 invalidate={diffInval}
                 onVisibleFileChange={onVisibleFileChange}
                 onToggleViewed={onToggleViewedFile}
