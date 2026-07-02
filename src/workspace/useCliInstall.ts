@@ -5,6 +5,7 @@
 // it has to fall back to ~/.local/bin, wires that dir into the user's shell configs
 // so new terminals pick it up with no manual step. (#cli)
 import { useEffect, useState } from "react";
+import { track } from "@/analytics";
 import { api } from "../api";
 
 export type CliPhase = "checking" | "idle" | "installed" | "working" | "linked" | "pathUpdated" | "manual" | "error" | "hidden";
@@ -65,9 +66,11 @@ export function useCliInstall(): CliInstall {
       if (out.kind === "linked") {
         setDetail(out.path);
         setPhase("linked");
+        track("cli_installed");
       } else if (out.kind === "linkedPathUpdated") {
         setDetail(out.path);
         setPhase("pathUpdated");
+        track("cli_installed");
       } else {
         setDetail(out.command);
         setPhase("manual");

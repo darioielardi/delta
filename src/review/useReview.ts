@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { track } from "@/analytics";
 import { api } from "../api";
 import type { Anchor, Comment, CommentScope, Review } from "../types";
 
@@ -72,6 +73,7 @@ export function useReview(initial: Review | null) {
       updatedAt: now,
     };
     mutate((r) => ({ ...r, comments: [...r.comments, comment] }), body.trim() === "" ? "none" : "now");
+    track("comment_added");
     return comment.id;
   }, [mutate]);
 
@@ -95,6 +97,7 @@ export function useReview(initial: Review | null) {
       (r) => ({ ...r, comments: r.comments.map((c) => (c.id === id ? { ...c, resolved: !c.resolved, updatedAt: now } : c)) }),
       "now",
     );
+    track("comment_resolved");
   }, [mutate]);
 
   const toggleViewed = useCallback((file: string, diffHash: string) => {

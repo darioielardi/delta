@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { track } from '@/analytics';
 import { isTauri } from '@tauri-apps/api/core';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -79,6 +80,7 @@ export function useUpdater(): UpdaterState {
           }
         });
         setStatus('ready');
+        track('update_applied');
       } catch (err) {
         console.error('updater: download failed', err);
         setStatus('error');

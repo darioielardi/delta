@@ -1,5 +1,6 @@
 // src/workspace/Workspace.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { track } from "@/analytics";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Kbd } from "@/components/ui/kbd";
@@ -34,6 +35,11 @@ const MODES: { id: DiffMode; label: string }[] = [
   { id: "last-commit", label: "Last commit" },
   { id: "branch-vs-base", label: "Branch vs base" },
 ];
+
+// Bucketed for analytics — never the raw file count/list. (#analytics)
+function fileCountBucket(n: number): string {
+  return n <= 9 ? "1-9" : n <= 49 ? "10-49" : "50+";
+}
 
 // Keep the URL's `mode` param in sync so a window reload restores the current
 // mode. (Fresh opens from the picker restore the review's persisted last mode.)
@@ -133,6 +139,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
       const session = await api.openReview({ repoPath: target.repoPath, mode: diffMode, base: target.base });
       setReview(session.review);
       setSummary(session.summary);
+      track("review_opened", { file_count_bucket: fileCountBucket(session.summary.files.length) });
       setRepoName(session.repoName);
       sigRef.current = reviewSig(session.summary, session.review);
       pendingRef.current = null;
@@ -321,6 +328,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
       setError(null);
       const md = await api.exportReview(review);
       await navigator.clipboard.writeText(md);
+      track("copy_for_agents", { comment_count: review.comments.length });
       flashCopy("ok");
     } catch (e) {
       setError(String(e));
