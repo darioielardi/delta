@@ -17,7 +17,7 @@
 // Supports unified + split, line/range/file comments, word-level intra-line diff,
 // jump-to-comment, and the viewed toggle.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { Check, ChevronDown, ChevronRight, ChevronUp, Copy, ExternalLink, Eye, FileQuestion, FileText, FileX, MessageSquarePlus, Plus } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, ChevronUp, Copy, ExternalLink, Eye, FileQuestion, FileText, FileX, MessageSquarePlus, Plus, WrapText } from "lucide-react";
 import { getSyntaxLineTemplate } from "@git-diff-view/file";
 import { SplitSide } from "@git-diff-view/react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ import { findPrefillFromSelection } from "./findSelection";
 import type { Anchor, Comment, FileDiff, FileEntry, Side, Target } from "../types";
 import type { DiffLayout } from "./useDiffLayout";
 import { useFileDiffCache } from "./useFileDiffCache";
+import { wrapsByDefault } from "./wrap";
 import { anchorScrollTopOnCollapse } from "./anchorScroll";
 import { useCodeFont, rowHeightFor } from "../codeFont";
 
@@ -309,7 +310,7 @@ function CommentBlock({ id, top, comments, onEdit, onDelete, onToggleResolved, o
 interface Block { id: string; index: number; comments: Comment[] }
 
 const VFileSection = memo(function VFileSection({
-  entry, theme, layout, cache, collapsed, viewed, headerSolo, repoPath, onToggleCollapse, onToggleViewed, view, paneW, rowH, chPx, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment, reportBodyHeight,
+  entry, theme, layout, cache, collapsed, viewed, headerSolo, repoPath, onToggleCollapse, onToggleViewed, wrap, onToggleWrap, view, paneW, rowH, chPx, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment, reportBodyHeight,
 }: {
   entry: FileEntry; theme: "light" | "dark"; layout: DiffLayout;
   cache: ReturnType<typeof useFileDiffCache>;
@@ -318,6 +319,8 @@ const VFileSection = memo(function VFileSection({
   repoPath: string; // absolute repo/worktree root — joined with entry.path to open in an editor (#editor)
   onToggleCollapse: (path: string) => void;
   onToggleViewed: (path: string) => void;
+  wrap: boolean;
+  onToggleWrap: (path: string) => void;
   view: [number, number] | null; // body-relative visible window [top, bottom] px, or null off-screen
   paneW: number; // diff pane client width — decides if a file overflows → horizontal scroll (#hscroll)
   rowH: number; // code row height (px), from the font-size pref; must match the --code-lh the rows render at
@@ -738,6 +741,17 @@ const VFileSection = memo(function VFileSection({
         <Button
           size="sm"
           variant="ghost"
+          onClick={() => onToggleWrap(entry.path)}
+          aria-pressed={wrap}
+          aria-label={`wrap lines ${entry.path}`}
+          title="Wrap lines"
+          className={`relative h-6 shrink-0 px-2 ${wrap ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+        >
+          <WrapText className="size-4" />
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
           onClick={() => onToggleViewed(entry.path)}
           aria-pressed={viewed}
           aria-label={`viewed ${entry.path}`}
@@ -976,6 +990,15 @@ export function VirtualDiffPane({
     const cur = overrides[path] ?? viewedFiles.has(path);
     setOverrides((o) => ({ ...o, [path]: !cur }));
   }, [overrides, viewedFiles]);
+
+  // Per-file line-wrap override (session-only, like the collapse overrides above):
+  // resolved wrap = explicit override, else the extension default. Not persisted.
+  const [wrapOverrides, setWrapOverrides] = useState<Record<string, boolean>>({});
+  const wrapFor = useCallback((e: FileEntry) => wrapOverrides[e.path] ?? wrapsByDefault(e.path), [wrapOverrides]);
+  const toggleWrap = useCallback((path: string) => {
+    const cur = wrapOverrides[path] ?? wrapsByDefault(path);
+    setWrapOverrides((o) => ({ ...o, [path]: !cur }));
+  }, [wrapOverrides]);
 
   // When viewed flips, drop any manual collapse override so the section follows
   // viewed (collapse on view / expand on un-view), matching the classic pane.
@@ -1287,6 +1310,7 @@ export function VirtualDiffPane({
                 headerSolo={headerSolo}
                 repoPath={target.repoPath}
                 onToggleCollapse={toggleCollapse} onToggleViewed={onToggleViewed}
+                wrap={wrapFor(entry)} onToggleWrap={toggleWrap}
                 view={view} paneW={viewportW} rowH={rowH} chPx={chPx}
                 query={findActive ? query : ""}
                 caseSensitive={caseSensitive} wholeWord={wholeWord}
