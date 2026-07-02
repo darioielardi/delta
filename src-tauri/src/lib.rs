@@ -42,6 +42,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(crate::watch::Watchers::default())
         .manage(crate::commands::UpdaterGate::default())
+        .manage(crate::git::cache::DiffCache::default())
         .invoke_handler(tauri::generate_handler![
             commands::compute_diff,
             commands::get_file_diff,
