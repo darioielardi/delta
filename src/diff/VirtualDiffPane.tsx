@@ -579,7 +579,7 @@ const VFileSection = memo(function VFileSection({
       }
     }
     return { fileMatches: fm, marksByRow: mbr };
-  }, [model, q, caseSensitive, wholeWord, layout, rowCount, modelToVisual, entry.path]);
+  }, [model, q, caseSensitive, wholeWord, layout, rowCount, modelToVisual, entry.path, rowTops]);
   useEffect(() => { onMatches(entry.path, fileMatches); }, [entry.path, fileMatches, onMatches]);
   // The active match's row gets its matching mark flagged active (cheap, at render).
   const rowMarks = (mi: number): RowMark[] | undefined => {
@@ -944,12 +944,22 @@ export function VirtualDiffPane({
   // to the CH_PX estimate until the probe is measured on first layout. (#wrap)
   const measureRef = useRef<HTMLSpanElement>(null);
   const [measuredCh, setMeasuredCh] = useState(0);
+  // Re-measure on ANY change to the probe's box — code font size, family, or
+  // browser zoom all change the mono advance and thus how many columns fit per
+  // wrapped line. A stale advance under-counts wrapped lines → row overlap, so
+  // observe the probe directly rather than enumerating font deps. (#wrap)
   useLayoutEffect(() => {
     const el = measureRef.current;
     if (!el) return;
-    const w = el.getBoundingClientRect().width / 200; // 200-char probe
-    if (w > 0 && Math.abs(w - measuredCh) > 0.01) setMeasuredCh(w);
-  }, [codeSize, measuredCh]);
+    const measure = () => {
+      const w = el.getBoundingClientRect().width / 200; // 200-char probe
+      setMeasuredCh((prev) => (w > 0 && Math.abs(w - prev) > 0.01 ? w : prev));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const chPx = measuredCh || (CH_PX * codeSize) / 13;
 
   // Drop + reload changed files when the user hits Refresh; a fresh FileDiff
@@ -1190,7 +1200,9 @@ export function VirtualDiffPane({
     // the per-file horizontal-overflow test, so DEBOUNCE it: a comments open/close
     // animates the pane width over ~200ms, and updating viewportW every frame would
     // re-render every on-screen file section. Rows reflow natively meanwhile;
-    // commit width once the resize settles. (#pane-anim)
+    // commit width once the resize settles. (#pane-anim) (Wrapped files reflow
+    // their text immediately but re-allocate row height only at settle, so a
+    // wrapped row may briefly overlap mid-resize.)
     let wTimer = 0;
     const ro = new ResizeObserver(() => {
       setViewportH(pane.clientHeight);
