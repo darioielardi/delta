@@ -17,7 +17,7 @@
 // Supports unified + split, line/range/file comments, word-level intra-line diff,
 // jump-to-comment, and the viewed toggle.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { Check, ChevronDown, ChevronRight, ChevronUp, Copy, ExternalLink, Eye, FileQuestion, FileText, FileX, MessageSquarePlus, Plus } from "lucide-react";
+import { BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, Copy, ExternalLink, Eye, FileQuestion, FileText, FileX, MessageSquarePlus, Plus } from "lucide-react";
 import { getSyntaxLineTemplate } from "@git-diff-view/file";
 import { SplitSide } from "@git-diff-view/react";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,9 @@ import { api } from "../api";
 import { getEditorPref } from "../editor";
 import { toDiffFile } from "./toDiffFile";
 import { CommentThread } from "../review/CommentThread";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { isMarkdownPath } from "./isMarkdownPath";
 import { DiffFind } from "./DiffFind";
 import { findPrefillFromSelection } from "./findSelection";
 import type { Anchor, Comment, FileDiff, FileEntry, Side, Target } from "../types";
@@ -45,6 +48,7 @@ const DEL_ACCENT = "var(--color-rose-500)";
 const OVERSCAN = 1500; // px of rows to render/build beyond the viewport each way
 const GIANT_CHANGED_LINES = 500;
 const EST_BLOCK_H = 96; // placeholder height for a comment thread before it measures
+const EST_PREVIEW_H = 240; // placeholder body height for a markdown preview before it measures (#preview)
 const PLACEHOLDER_BODY_H = 72; // fixed body height for binary / deleted placeholders (#11, shared layout #5, padding #8)
 const CONTEXT = 3; // unchanged lines kept around each change before folding (#10)
 const EXPAND_STEP = 25; // lines revealed per fold expand click (#2)
@@ -306,6 +310,31 @@ function CommentBlock({ id, top, comments, onEdit, onDelete, onToggleResolved, o
   );
 }
 
+// A rendered markdown preview of a file's new content, shown in place of the diff
+// when the user toggles Preview. Variable height — measured with a ResizeObserver
+// and reported up, exactly like CommentBlock, so the file participates in the
+// pane's offset math. delta-comment-ui flips the mono/app-color wrapper back to the
+// sans prose treatment (same as comment bodies). (#preview)
+function PreviewBody({ content, onHeight }: { content: string; onHeight: (h: number) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const report = () => onHeight(el.offsetHeight);
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onHeight, content]);
+  return (
+    <div ref={ref} className="delta-comment-ui px-5 py-4">
+      <div className="prose prose-sm max-w-none break-words prose-pre:my-1.5 prose-pre:text-[12px] prose-code:text-[12px]">
+        <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+      </div>
+    </div>
+  );
+}
+
 interface Block { id: string; index: number; comments: Comment[] }
 
 const VFileSection = memo(function VFileSection({
@@ -359,16 +388,35 @@ const VFileSection = memo(function VFileSection({
   const isBinary = entry.binary;
   const isDeleted = entry.status === "deleted";
   const [revealed, setRevealed] = useState(false);
+  // Rendered markdown preview: added/modified markdown files only (deleted has no
+  // new content; binary has none). Ephemeral per-card state, same lifecycle as
+  // `revealed`. (#preview)
+  const canPreview = isMarkdownPath(entry.path) && !isBinary && !isDeleted;
+  const [previewing, setPreviewing] = useState(false);
+  const [previewH, setPreviewH] = useState(0);
+  const onPreviewHeight = useCallback((h: number) => {
+    setPreviewH((prev) => (Math.abs(prev - h) < 1 ? prev : h));
+  }, []);
   const bigHidden = isGiant(entry) && !revealed; // giant, not yet revealed → placeholder
-  const showPlaceholder = !collapsed && (isBinary || (isDeleted && !revealed) || bigHidden);
+  // Previewing takes precedence over every diff placeholder (incl. a giant's "Show
+  // diff") — a previewed file shows rendered content, not a placeholder.
+  const showPlaceholder = !collapsed && !previewing && (isBinary || (isDeleted && !revealed) || bigHidden);
 
   // Build the model when on-screen, or whenever find is active (forceModel) so
   // every searchable file contributes matches even while off-screen/collapsed — but a
   // hidden giant only builds under forceModel, so scrolling past it stays cheap. (#11)
   const wantModel = !isBinary && (!isDeleted || revealed) && (forceModel || (!bigHidden && view != null && !collapsed));
-  const fd = useFileDiffCacheEntry(cache, entry.path, wantModel);
+  const fd = useFileDiffCacheEntry(cache, entry.path, wantModel || previewing);
   const model = useMemo(() => (fd && wantModel ? buildModel(fd, theme, layout) : null), [fd, theme, layout, wantModel]);
   const rowCount = model ? rowCountOf(model, layout) : 0;
+
+  // Toggle the rendered preview. Turning it on for a collapsed card expands it
+  // first (a preview of a collapsed card is meaningless), mirroring the comment
+  // button's reveal. Content loads via the cache hook above (wantModel || previewing).
+  const togglePreview = useCallback(() => {
+    if (!previewing && collapsed) onToggleCollapse(entry.path);
+    setPreviewing((p) => !p);
+  }, [previewing, collapsed, entry.path, onToggleCollapse]);
 
   // Horizontal scroll (#hscroll): rows are widened to the file's longest line so
   // long code can scroll instead of clipping. Width is exact `ch` (mono) + fixed
@@ -556,10 +604,16 @@ const VFileSection = memo(function VFileSection({
   const commentAbove = (v: number) => { let s = 0; for (const b of blocks) { if (blockVa(b) < v) s += heightOf(b); else break; } return s; };
   const visualRowTop = (v: number) => v * rowH + commentAbove(v);
   const totalCommentH = blocks.reduce((s, b) => s + heightOf(b), 0);
-  const bodyH = collapsed ? 0 : showPlaceholder ? PLACEHOLDER_BODY_H : visualCount * rowH + totalCommentH;
+  const bodyH = collapsed
+    ? 0
+    : previewing
+      ? (previewH || EST_PREVIEW_H)
+      : showPlaceholder
+        ? PLACEHOLDER_BODY_H
+        : visualCount * rowH + totalCommentH;
   // Report a definite height once it's known — model built, or a fixed-height
   // placeholder shown — so the parent's offsets are exact. (#10/#11)
-  useEffect(() => { if (model || showPlaceholder) reportBodyHeight(entry.path, bodyH); }, [model, showPlaceholder, isBinary, entry.path, bodyH, reportBodyHeight]);
+  useEffect(() => { if (model || showPlaceholder || previewing) reportBodyHeight(entry.path, bodyH); }, [model, showPlaceholder, previewing, isBinary, entry.path, bodyH, reportBodyHeight]);
 
   // Create a line/range anchor and add an (empty) comment, mirroring the classic renderer.
   const commentLine = useCallback((side: Side, lineNumber: number) => {
@@ -709,6 +763,20 @@ const VFileSection = memo(function VFileSection({
           {entry.additions > 0 && <span className="text-emerald-500">+{entry.additions}</span>}{" "}
           {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
         </span>
+        {canPreview && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={togglePreview}
+            aria-pressed={previewing}
+            aria-label={`toggle rich preview ${entry.path}`}
+            title={previewing ? "Show diff" : "Show rich preview"}
+            className={`delta-ui-font relative h-6 shrink-0 gap-1.5 px-2 text-[12px] ${previewing ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            <BookOpen className="size-4" />
+            Preview
+          </Button>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -719,22 +787,24 @@ const VFileSection = memo(function VFileSection({
         >
           <ExternalLink className="size-4" />
         </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            // A deleted or giant file hides its content behind a reveal, and the
-            // file-comment form renders inside the (model-built) body — so reveal first,
-            // else the comment this click creates would sit hidden behind the placeholder. (#11)
-            if ((isDeleted || isGiant(entry)) && !revealed) { setRevealed(true); void cache.load(entry.path); }
-            onAddFileComment(entry.path, "");
-          }}
-          aria-label={`comment on ${entry.path}`}
-          title="Comment on file"
-          className="relative h-6 shrink-0 px-2 text-muted-foreground hover:text-foreground"
-        >
-          <MessageSquarePlus className="size-4" />
-        </Button>
+        {!previewing && (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              // A deleted or giant file hides its content behind a reveal, and the
+              // file-comment form renders inside the (model-built) body — so reveal first,
+              // else the comment this click creates would sit hidden behind the placeholder. (#11)
+              if ((isDeleted || isGiant(entry)) && !revealed) { setRevealed(true); void cache.load(entry.path); }
+              onAddFileComment(entry.path, "");
+            }}
+            aria-label={`comment on ${entry.path}`}
+            title="Comment on file"
+            className="relative h-6 shrink-0 px-2 text-muted-foreground hover:text-foreground"
+          >
+            <MessageSquarePlus className="size-4" />
+          </Button>
+        )}
         <Button
           size="sm"
           variant="ghost"
@@ -756,7 +826,9 @@ const VFileSection = memo(function VFileSection({
           style={{ height: bodyH, overscrollBehaviorY: "auto" /* always chain a vertical wheel to the pane, not only over h-scrollable files — the app-wide overscroll-behavior:none otherwise traps it on every card (#hscroll) */, "--rw": rowWidthCss } as CSSProperties}
           onPointerDown={onGutterPointerDown}
         >
-          {isBinary ? (
+          {previewing ? (
+            <PreviewBody content={fd?.newContent ?? ""} onHeight={onPreviewHeight} />
+          ) : isBinary ? (
             <div className="delta-ui-font flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
               <FileQuestion className="size-4 shrink-0 opacity-70" />
               <span>Unsupported file — binary or non-text content.</span>
