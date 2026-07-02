@@ -143,8 +143,8 @@ function occurrencesOf(re: RegExp, text: string): { col: number; len: number }[]
 function Code({ html, range, changeBg, marks, wrap }: { html: string; range: ChangeRange; changeBg: string; marks?: Mark[]; wrap?: boolean }) {
   if (wrap) {
     return (
-      <code className="diff-line-syntax-raw relative flex-1 whitespace-pre-wrap [overflow-wrap:anywhere] pr-3">
-        <span className="relative whitespace-pre-wrap [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: html }} />
+      <code className="diff-line-syntax-raw relative flex-1 whitespace-pre-wrap break-all pr-3">
+        <span className="relative whitespace-pre-wrap break-all" dangerouslySetInnerHTML={{ __html: html }} />
       </code>
     );
   }
@@ -939,7 +939,18 @@ export function VirtualDiffPane({
   // the wrapper below). At the default 13px this is 22 — identical to before.
   const { size: codeSize } = useCodeFont();
   const rowH = rowHeightFor(codeSize);
-  const chPx = (CH_PX * codeSize) / 13; // overflow check only; scales with size
+  // Measure the real mono advance (px/char) for the code font at the current
+  // size, so wrap-column math matches what the browser actually fits. Falls back
+  // to the CH_PX estimate until the probe is measured on first layout. (#wrap)
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [measuredCh, setMeasuredCh] = useState(0);
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (!el) return;
+    const w = el.getBoundingClientRect().width / 200; // 200-char probe
+    if (w > 0 && Math.abs(w - measuredCh) > 0.01) setMeasuredCh(w);
+  }, [codeSize, measuredCh]);
+  const chPx = measuredCh || (CH_PX * codeSize) / 13;
 
   // Drop + reload changed files when the user hits Refresh; a fresh FileDiff
   // invalidates its cached model (WeakMap-keyed) so the section rebuilds. (#12)
@@ -1314,6 +1325,14 @@ export function VirtualDiffPane({
           "--fold-fs": `${Math.max(10, codeSize - 1)}px`,
         } as CSSProperties}
       >
+        <span
+          ref={measureRef}
+          aria-hidden
+          className="pointer-events-none absolute font-mono text-[length:var(--code-fs,13px)]"
+          style={{ visibility: "hidden", whiteSpace: "pre", left: -9999, top: 0 }}
+        >
+          {"0".repeat(200)}
+        </span>
         {/* Opaque cap over the canvas gap above a stuck file header: without it,
             diff rows scrolling up peek through the strip between the pane's top
             edge and the header (which sticks at top:PAD). Layered BETWEEN content
