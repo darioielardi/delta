@@ -30,7 +30,7 @@ import { findPrefillFromSelection } from "./findSelection";
 import type { Anchor, Comment, FileDiff, FileEntry, Side, Target } from "../types";
 import type { DiffLayout } from "./useDiffLayout";
 import { useFileDiffCache } from "./useFileDiffCache";
-import { wrapsByDefault } from "./wrap";
+import { wrapsByDefault, paneColsFor, visualLinesForCols, buildRowOffsets } from "./wrap";
 import { anchorScrollTopOnCollapse } from "./anchorScroll";
 import { useCodeFont, rowHeightFor } from "../codeFont";
 
@@ -40,6 +40,12 @@ const HEADER_H = 40; // sticky file header (border-box); content is vertically c
 // set on the wrapper; the JS row height drives the windowing math and must match).
 // CH_PX is calibrated at 13px and scaled with the chosen size.
 const CH_PX = 7.85; // ≈ width of one mono char at 13px (SF Mono/Menlo) — only used to decide whether a file overflows the pane (→ enable horizontal scroll); layout itself uses exact `ch` units (#hscroll)
+// Fixed non-code width per row: gutters + marker + code padding. Mirrors the
+// constants in `rowPx`/`colWidthCss` below — the available code width (→ wrap
+// column count) is the card body minus this chrome. (#wrap)
+const UNIFIED_CHROME = 124; // unified: old# + new# + marker + pr-3
+const SPLIT_COL_CHROME = 60; // one split column: gutter + pr-3
+void SPLIT_COL_CHROME; // consumed by Task 4 (split-column wrap column count)
 // Left-accent colors for changed lines, mirroring the comment-range accent. (#border)
 const ADD_ACCENT = "var(--color-emerald-500)";
 const DEL_ACCENT = "var(--color-rose-500)";
@@ -135,7 +141,14 @@ function occurrencesOf(re: RegExp, text: string): { col: number; len: number }[]
 // The code area: highlighted line + a brighter tint over exactly the changed
 // characters (word-level diff). Monospace ⇒ char N is at N`ch`, so the overlay
 // lines up without splitting tokens.
-function Code({ html, range, changeBg, marks }: { html: string; range: ChangeRange; changeBg: string; marks?: Mark[] }) {
+function Code({ html, range, changeBg, marks, wrap }: { html: string; range: ChangeRange; changeBg: string; marks?: Mark[]; wrap?: boolean }) {
+  if (wrap) {
+    return (
+      <code className="diff-line-syntax-raw relative flex-1 whitespace-pre-wrap [overflow-wrap:anywhere] pr-3">
+        <span className="relative whitespace-pre-wrap [overflow-wrap:anywhere]" dangerouslySetInnerHTML={{ __html: html }} />
+      </code>
+    );
+  }
   return (
     <code className="diff-line-syntax-raw relative flex-1 whitespace-pre pr-3">
       {range && range.length > 0 && (
@@ -167,7 +180,7 @@ const railBg = (tint: string | null) => (tint ? `linear-gradient(${tint}, ${tint
 const mix = (color: string, pct: number) => `color-mix(in oklch, ${color} ${pct}%, transparent)`;
 
 // Unified row: old# · new# · marker · code, hover `+` to comment, gutters drag-select.
-function Row({ model, index, top, selected, highlighted, onComment, marks }: { model: Model; index: number; top: number; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
+function Row({ model, index, top, height, wrap, selected, highlighted, onComment, marks }: { model: Model; index: number; top: number; height: number; wrap: boolean; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
   const line = model.getUnifiedLine(index);
   const hasOld = line.oldLineNumber != null, hasNew = line.newLineNumber != null;
   const kind = hasOld && hasNew ? "ctx" : hasNew ? "add" : hasOld ? "del" : "hunk";
@@ -188,7 +201,7 @@ function Row({ model, index, top, selected, highlighted, onComment, marks }: { m
   // green/red edge mirroring the comment accent. (#border)
   const accent = highlighted ? "var(--primary)" : kind === "add" ? ADD_ACCENT : kind === "del" ? DEL_ACCENT : undefined;
   return (
-    <div data-row-index={index} className="group absolute left-0 flex items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height: "var(--code-lh,22px)", width: "var(--rw)", minWidth: "100%", background: tint ?? undefined }}>
+    <div data-row-index={index} className="group absolute left-0 flex items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height, width: wrap ? "100%" : "var(--rw)", minWidth: "100%", background: tint ?? undefined }}>
       {/* Sticky rail: pins the line-number gutters + marker to the left on
           horizontal scroll and masks the code scrolling under it. Opaque bg-code,
           or the row tint composited over it so the fill reaches the left edge.
@@ -205,7 +218,7 @@ function Row({ model, index, top, selected, highlighted, onComment, marks }: { m
           </button>
         )}
       </div>
-      <Code html={html} range={kind === "hunk" ? undefined : range} changeBg={kind === "add" ? "bg-emerald-400/25" : "bg-rose-400/25"} marks={marks} />
+      <Code html={html} range={kind === "hunk" ? undefined : range} changeBg={kind === "add" ? "bg-emerald-400/25" : "bg-rose-400/25"} marks={marks} wrap={wrap} />
     </div>
   );
 }
@@ -391,6 +404,7 @@ const VFileSection = memo(function VFileSection({
   const colWidthCss = `calc(60px + ${maxCols}ch)`; // one split column's content width (gutter + code) (#10)
   const rowPx = (layout === "split" ? 120 : 124) + maxCols * chPx * (layout === "split" ? 2 : 1);
   const wide = paneW > 0 && rowPx > paneW - 2 * PAD - 2; // card is inset by PAD each side, minus its 1px borders
+  const hScroll = wide && !wrap; // wrapping and horizontal scroll are mutually exclusive (#wrap)
 
   // Comment blocks: file-scope → index -1 (top); line/range → the row they anchor.
   const blocks = useMemo<Block[]>(() => {
@@ -500,6 +514,28 @@ const VFileSection = memo(function VFileSection({
   }, [model, layout, rowCount, commentedRows, rangeRows, expansions]);
   const visualCount = visualRows.length;
 
+  // Wrapping geometry (#wrap). Available code width = card body (pane minus the
+  // PAD inset each side and the card's 1px borders) minus the row chrome. When
+  // wrap is off, or width is unknown, every row is 1 line high → identical to the
+  // old `v * rowH` arithmetic.
+  const bodyW = paneW > 0 ? paneW - 2 * PAD - 2 : 0;
+  const unifiedCols = wrap ? paneColsFor(bodyW - UNIFIED_CHROME, chPx) : 0;
+  const rowLines = useMemo(() => {
+    const out = new Array<number>(visualCount).fill(1);
+    if (!model || !wrap || layout === "split") return out; // split handled in Task 4
+    for (let v = 0; v < visualCount; v++) {
+      const vr = visualRows[v];
+      if (vr.kind !== "line") continue; // fold rows never wrap
+      const line = model.getUnifiedLine(vr.index);
+      out[v] = visualLinesForCols((line.value ?? "").length, unifiedCols);
+    }
+    return out;
+  }, [model, wrap, layout, visualRows, visualCount, unifiedCols]);
+  const rowTops = useMemo(() => buildRowOffsets(rowLines, rowH), [rowLines, rowH]);
+  const rowPxOf = (v: number) => rowLines[v] * rowH;
+  const codeTopOf = (v: number) => rowTops[v];
+  void codeTopOf; // consumed by Task 4 (split-column code top offset)
+
   // In-code find (#find): scan SHOWN lines for the query. Matches map to model
   // rows (folded/hidden lines are skipped). `fileMatches` feeds the global list;
   // `marksByRow` drives the per-row highlight overlays. y is the row's body-top
@@ -515,7 +551,7 @@ const VFileSection = memo(function VFileSection({
       if (!occ.length) return;
       const vr = modelToVisual.get(i);
       if (vr == null) return; // line folded away — not visible, skip
-      const y = vr * rowH;
+      const y = rowTops[vr];
       let arr = mbr.get(i);
       if (!arr) mbr.set(i, (arr = []));
       for (const o of occ) {
@@ -557,9 +593,9 @@ const VFileSection = memo(function VFileSection({
   // running sum below can break early. (#10)
   const blockVa = (b: Block) => (b.index < 0 ? -1 : modelToVisual.get(b.index) ?? 0);
   const commentAbove = (v: number) => { let s = 0; for (const b of blocks) { if (blockVa(b) < v) s += heightOf(b); else break; } return s; };
-  const visualRowTop = (v: number) => v * rowH + commentAbove(v);
+  const visualRowTop = (v: number) => rowTops[v] + commentAbove(v);
   const totalCommentH = blocks.reduce((s, b) => s + heightOf(b), 0);
-  const bodyH = collapsed ? 0 : showPlaceholder ? PLACEHOLDER_BODY_H : visualCount * rowH + totalCommentH;
+  const bodyH = collapsed ? 0 : showPlaceholder ? PLACEHOLDER_BODY_H : rowTops[visualCount] + totalCommentH;
   // Report a definite height once it's known — model built, or a fixed-height
   // placeholder shown — so the parent's offsets are exact. (#10/#11)
   useEffect(() => { if (model || showPlaceholder) reportBodyHeight(entry.path, bodyH); }, [model, showPlaceholder, isBinary, entry.path, bodyH, reportBodyHeight]);
@@ -767,7 +803,7 @@ const VFileSection = memo(function VFileSection({
       {!collapsed && (
         <div
           className="relative overflow-hidden rounded-b-lg border-x border-b border-border bg-code"
-          style={{ height: bodyH, overscrollBehaviorY: "auto" /* always chain a vertical wheel to the pane, not only over h-scrollable files — the app-wide overscroll-behavior:none otherwise traps it on every card (#hscroll) */, "--rw": rowWidthCss } as CSSProperties}
+          style={{ height: bodyH, overscrollBehaviorY: "auto" /* always chain a vertical wheel to the pane, not only over h-scrollable files — the app-wide overscroll-behavior:none otherwise traps it on every card (#hscroll) */, "--rw": wrap ? "100%" : rowWidthCss } as CSSProperties}
           onPointerDown={onGutterPointerDown}
         >
           {isBinary ? (
@@ -830,14 +866,14 @@ const VFileSection = memo(function VFileSection({
                 // below, so they stay put when the code scrolls sideways — mirrors how
                 // split renders them outside its scroll columns. (#hscroll)
                 <div
-                  className={`absolute inset-0 ${wide ? `overflow-x-auto overflow-y-hidden ${HIDE_SCROLLBAR}` : "overflow-hidden"}`}
+                  className={`absolute inset-0 ${hScroll ? `overflow-x-auto overflow-y-hidden ${HIDE_SCROLLBAR}` : "overflow-hidden"}`}
                   style={{ overscrollBehaviorY: "auto" }}
                 >
                   {renderVisual.map((v) => {
                     const vr = visualRows[v];
                     if (vr.kind !== "line") return null;
                     const hl = rangeRows.has(vr.index);
-                    return <Row key={vr.index} model={model} index={vr.index} top={visualRowTop(v)} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} marks={rowMarks(vr.index)} />;
+                    return <Row key={vr.index} model={model} index={vr.index} top={visualRowTop(v)} height={rowPxOf(v)} wrap={wrap} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} marks={rowMarks(vr.index)} />;
                   })}
                 </div>
               ))}
@@ -857,7 +893,7 @@ const VFileSection = memo(function VFileSection({
                 return <FoldRow key={`fold-${vr.start}`} top={visualRowTop(v)} count={vr.count} showDown={canDown || both} showUp={canUp || both} onDown={() => growFold(key, "top")} onUp={() => growFold(key, "bottom")} onExpand={() => growFold(key, primary)} onAll={() => growFold(key, "all")} />;
               })}
               {model && blocks.map((b) => (
-                <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + rowH} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onToggleResolved={onToggleResolvedComment} onHeight={onHeight} />
+                <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + rowPxOf(blockVa(b))} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onToggleResolved={onToggleResolvedComment} onHeight={onHeight} />
               ))}
             </>
           )}
