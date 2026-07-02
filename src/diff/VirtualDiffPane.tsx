@@ -339,13 +339,15 @@ function PreviewBody({ content, onHeight }: { content: string; onHeight: (h: num
 interface Block { id: string; index: number; comments: Comment[] }
 
 const VFileSection = memo(function VFileSection({
-  entry, theme, layout, cache, collapsed, viewed, headerSolo, repoPath, onToggleCollapse, onToggleViewed, view, paneW, rowH, chPx, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment, reportBodyHeight,
+  entry, theme, layout, cache, collapsed, viewed, previewing, onSetPreview, headerSolo, repoPath, onToggleCollapse, onToggleViewed, view, paneW, rowH, chPx, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment, reportBodyHeight,
 }: {
   entry: FileEntry; theme: "light" | "dark"; layout: DiffLayout;
   cache: ReturnType<typeof useFileDiffCache>;
   collapsed: boolean; viewed: boolean;
   headerSolo: boolean; // body fully scrolled under the stuck header → round its bottom corners (#6)
   repoPath: string; // absolute repo/worktree root — joined with entry.path to open in an editor (#editor)
+  previewing: boolean; // rendered markdown preview instead of the diff (state lifted to the pane so it survives scroll-unmount) (#preview)
+  onSetPreview: (path: string, on: boolean) => void;
   onToggleCollapse: (path: string) => void;
   onToggleViewed: (path: string) => void;
   view: [number, number] | null; // body-relative visible window [top, bottom] px, or null off-screen
@@ -390,10 +392,9 @@ const VFileSection = memo(function VFileSection({
   const isDeleted = entry.status === "deleted";
   const [revealed, setRevealed] = useState(false);
   // Rendered markdown preview: added/modified markdown files only (deleted has no
-  // new content; binary has none). Ephemeral per-card state, same lifecycle as
-  // `revealed`. (#preview)
+  // new content; binary has none). `previewing` is held by the pane (survives the
+  // card unmounting when scrolled off-screen); only the measured height is local. (#preview)
   const canPreview = isMarkdownPath(entry.path) && !isBinary && !isDeleted;
-  const [previewing, setPreviewing] = useState(false);
   const [previewH, setPreviewH] = useState(0);
   const onPreviewHeight = useCallback((h: number) => {
     setPreviewH((prev) => (Math.abs(prev - h) < 1 ? prev : h));
@@ -418,8 +419,8 @@ const VFileSection = memo(function VFileSection({
   const setPreview = useCallback((on: boolean) => {
     if (on === previewing) return;
     if (on && collapsed) onToggleCollapse(entry.path);
-    setPreviewing(on);
-  }, [previewing, collapsed, entry.path, onToggleCollapse]);
+    onSetPreview(entry.path, on);
+  }, [previewing, collapsed, entry.path, onToggleCollapse, onSetPreview]);
 
   // Horizontal scroll (#hscroll): rows are widened to the file's longest line so
   // long code can scroll instead of clipping. Width is exact `ch` (mono) + fixed
@@ -1068,6 +1069,19 @@ export function VirtualDiffPane({
     setOverrides((o) => ({ ...o, [path]: !cur }));
   }, [overrides, viewedFiles]);
 
+  // Preview (rendered markdown vs raw diff) is per-file UI state held here, not in
+  // VFileSection — off-screen cards unmount (virtualization), which would otherwise
+  // reset the toggle when a previewed file scrolls out of view and back. (#preview)
+  const [previewingFiles, setPreviewingFiles] = useState<Set<string>>(new Set());
+  const setFilePreview = useCallback((path: string, on: boolean) => {
+    setPreviewingFiles((prev) => {
+      if (prev.has(path) === on) return prev;
+      const next = new Set(prev);
+      if (on) next.add(path); else next.delete(path);
+      return next;
+    });
+  }, []);
+
   // When viewed flips, drop any manual collapse override so the section follows
   // viewed (collapse on view / expand on un-view), matching the classic pane.
   const prevViewed = useRef(viewedFiles);
@@ -1375,6 +1389,7 @@ export function VirtualDiffPane({
               <VFileSection
                 entry={entry} theme={theme} layout={layout} cache={cache}
                 collapsed={collapsed} viewed={viewedFiles.has(entry.path)}
+                previewing={previewingFiles.has(entry.path)} onSetPreview={setFilePreview}
                 headerSolo={headerSolo}
                 repoPath={target.repoPath}
                 onToggleCollapse={toggleCollapse} onToggleViewed={onToggleViewed}
