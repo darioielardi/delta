@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Monitor, Moon, Sun, X } from "lucide-react";
 import { useThemePref, type ThemePref } from "../theme";
+import { useTelemetryPref } from "../analytics";
 import { useEditorPref, EDITORS, type EditorId } from "../editor";
 import { useCodeFont, setCodeFontFamily, setCodeFontSize, installedMonoFonts, SIZE_OPTIONS } from "../codeFont";
 import { usePickerOpenMode, type PickerOpenMode } from "../windowMode";
@@ -35,6 +36,7 @@ const selectClass =
 // it. Escape and click-outside close; the card grabs focus so Escape works.
 export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const [theme, setTheme] = useThemePref();
+  const [telemetry, setTelemetry] = useTelemetryPref();
   const [editor, setEditor] = useEditorPref();
   const [openMode, setOpenMode] = usePickerOpenMode();
   const { family: fontFamily, size: fontSize } = useCodeFont();
@@ -119,6 +121,39 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                     {label}
                   </ToggleGroupItem>
                 ))}
+              </ToggleGroup>
+            }
+          />
+
+          <div className="h-px bg-border/50" />
+
+          <Row
+            label="Usage analytics"
+            hint="Anonymous feature usage only — never your code, file names, or comments. Turn off anytime."
+            control={
+              <ToggleGroup
+                type="single"
+                size="sm"
+                value={telemetry}
+                onValueChange={(v) => v && setTelemetry(v as "on" | "off")}
+                className="gap-0.5 rounded-lg bg-muted/70 p-0.5"
+              >
+                <ToggleGroupItem
+                  value="on"
+                  aria-label="On"
+                  title="Share anonymous usage stats"
+                  className="h-7 gap-1.5 rounded-md border-0 px-2.5 text-[12px] text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+                >
+                  On
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="off"
+                  aria-label="Off"
+                  title="Disable usage stats"
+                  className="h-7 gap-1.5 rounded-md border-0 px-2.5 text-[12px] text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+                >
+                  Off
+                </ToggleGroupItem>
               </ToggleGroup>
             }
           />
