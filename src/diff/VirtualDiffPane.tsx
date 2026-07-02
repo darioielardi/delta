@@ -861,11 +861,14 @@ function useFileDiffCacheEntry(cache: ReturnType<typeof useFileDiffCache>, path:
 }
 
 export function VirtualDiffPane({
-  target, files, theme, layout, viewedFiles, comments, jump, invalidate, onVisibleFileChange, onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment,
+  target, files, theme, layout, viewedFiles, comments, jump, prefetch, invalidate, onVisibleFileChange, onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment,
 }: {
   target: Target; files: FileEntry[]; theme: "light" | "dark"; layout: DiffLayout;
   viewedFiles: Set<string>; comments: Comment[];
   jump?: { file: string; commentId?: string; n: number } | null;
+  // Hover-prefetch signal from the files tree: warm this file's diff (load only, no
+  // scroll) so a subsequent click paints instantly. The nonce re-fires it. (#jump-preload)
+  prefetch?: { file: string; n: number } | null;
   // Reload signal from the header Refresh button: { paths: null } reloads all
   // mounted files, otherwise just the listed ones. The nonce re-fires it. (#12)
   invalidate?: { paths: string[] | null; n: number } | null;
@@ -894,6 +897,14 @@ export function VirtualDiffPane({
     else cache.invalidate(invalidate.paths);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invalidate?.n]);
+
+  // Hover-prefetch: the files tree fires this (debounced) as the pointer rests on a
+  // row, so the diff is warm before a click lands — the skeleton-free way to avoid a
+  // blank card. Load only; never scrolls. cache.load no-ops if loaded/inflight. (#jump-preload)
+  useEffect(() => {
+    if (prefetch) void cache.load(prefetch.file);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefetch?.n]);
 
   const paneRef = useRef<HTMLDivElement>(null);
   const jumpPin = useRef<string | null>(null);
@@ -1137,7 +1148,11 @@ export function VirtualDiffPane({
 
   // Jump: file → scroll + pin its offset; comment → center the comment node, both
   // held as files above resolve (offsets shift). Released after settle / user input.
-  useEffect(() => {
+  // useLayoutEffect (not useEffect): the jump scrolls the pane and syncs scrollTop so
+  // the target section mounts + renders. Running it before paint means React flushes
+  // that mount in the same frame as the scroll — a passive effect would let the browser
+  // paint the scrolled-but-unmounted frame first, which is the residual click flash. (#jump-preload)
+  useLayoutEffect(() => {
     if (!jump) return;
     const { file, commentId } = jump;
     const i = files.findIndex((f) => f.path === file);
@@ -1169,8 +1184,18 @@ export function VirtualDiffPane({
       };
     }
 
+    // Preload the target's diff now (like the comment-jump branch above) so the card
+    // isn't blank when the scroll lands: the fetch overlaps the scroll + mount instead
+    // of only starting once the section mounts on arrival. Cheap — cache.load no-ops
+    // if it's already loaded/inflight. (#jump-preload)
+    void cache.load(file);
     jumpPin.current = file;
     pane.scrollTop = Math.max(0, Math.min(offsets[i] - PAD, pane.scrollHeight - pane.clientHeight));
+    // Sync the row-window this commit instead of waiting for the rAF-gated onScroll:
+    // a distant jump lands outside the old window, so without this the target section
+    // stays unmounted for ~1 frame — the brief blank flash on click. Mirrors the
+    // collapse-anchor's setScrollTop above. (#jump-preload)
+    setScrollTop(pane.scrollTop);
     const release = () => { jumpPin.current = null; clearTimeout(jumpPinTimer.current); };
     jumpPinTimer.current = window.setTimeout(release, 1500);
     pane.addEventListener("wheel", release, { passive: true, once: true });

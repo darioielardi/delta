@@ -1,8 +1,17 @@
 use crate::git::model::Target;
 use crate::git::{open_repo, resolve_endpoints, Endpoints, GitError, RightSide};
-use git2::{Diff, DiffFindOptions, DiffOptions, Repository};
+use git2::{Diff, DiffDelta, DiffFindOptions, DiffOptions, Repository};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
+
+/// Eager-extraction memory bounds for `compute_diff_full` (the cached path). A file
+/// whose recorded size exceeds the per-file cap is left out of the map (served by a
+/// one-off `get_file_diff` on demand); once the retained snapshot passes the total
+/// cap we stop extracting so a huge review can't balloon backend memory. Well above
+/// any hand-reviewable file, so normal diffs are fully cached. (#perf)
+pub(crate) const MAX_CACHED_FILE_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_CACHED_SNAPSHOT_BYTES: usize = 128 * 1024 * 1024;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -71,43 +80,42 @@ fn map_status(s: git2::Delta) -> FileStatus {
     }
 }
 
+/// Build the summary entry for one delta: path, rename old_path, status, +/- line
+/// stats, and the binary flag. Shared by `compute_diff` (summary only) and
+/// `compute_diff_full` (summary + content) so the two can't drift. (#perf)
+fn summary_entry(diff: &Diff, idx: usize, delta: &DiffDelta) -> FileEntry {
+    let new_path = delta.new_file().path().map(|p| p.to_string_lossy().into_owned());
+    let old_path = delta.old_file().path().map(|p| p.to_string_lossy().into_owned());
+    let path = new_path.clone().or_else(|| old_path.clone()).unwrap_or_default();
+
+    let (additions, deletions) = match git2::Patch::from_diff(diff, idx) {
+        Ok(Some(p)) => {
+            let (_ctx, add, del) = p.line_stats().unwrap_or((0, 0, 0));
+            (add, del)
+        }
+        _ => (0, 0),
+    };
+
+    FileEntry {
+        path,
+        old_path: old_path.filter(|o| Some(o) != new_path.as_ref()),
+        status: map_status(delta.status()),
+        additions,
+        deletions,
+        binary: delta.new_file().is_binary() || delta.old_file().is_binary(),
+    }
+}
+
 pub fn compute_diff(target: &Target) -> Result<DiffSummary, GitError> {
     let repo = open_repo(&target.repo_path)?;
     let ep = resolve_endpoints(&repo, target)?;
     let diff = build_diff(&repo, &ep)?;
 
-    let mut files = Vec::new();
-    for (idx, delta) in diff.deltas().enumerate() {
-        let new_path = delta
-            .new_file()
-            .path()
-            .map(|p| p.to_string_lossy().into_owned());
-        let old_path = delta
-            .old_file()
-            .path()
-            .map(|p| p.to_string_lossy().into_owned());
-        let path = new_path
-            .clone()
-            .or_else(|| old_path.clone())
-            .unwrap_or_default();
-
-        let (additions, deletions) = match git2::Patch::from_diff(&diff, idx) {
-            Ok(Some(p)) => {
-                let (_ctx, add, del) = p.line_stats().unwrap_or((0, 0, 0));
-                (add, del)
-            }
-            _ => (0, 0),
-        };
-
-        files.push(FileEntry {
-            path,
-            old_path: old_path.filter(|o| Some(o) != new_path.as_ref()),
-            status: map_status(delta.status()),
-            additions,
-            deletions,
-            binary: delta.new_file().is_binary() || delta.old_file().is_binary(),
-        });
-    }
+    let files = diff
+        .deltas()
+        .enumerate()
+        .map(|(idx, delta)| summary_entry(&diff, idx, &delta))
+        .collect();
 
     Ok(DiffSummary {
         files,
@@ -134,26 +142,11 @@ fn looks_binary(bytes: &[u8]) -> bool {
     bytes.iter().take(8000).any(|&b| b == 0)
 }
 
-pub fn get_file_diff(target: &Target, path: &str) -> Result<FileDiff, GitError> {
-    let repo = open_repo(&target.repo_path)?;
-    let ep = resolve_endpoints(&repo, target)?;
-    let diff = build_diff(&repo, &ep)?;
-
-    // Locate the delta for this path (match new path, else old path).
-    let delta = diff
-        .deltas()
-        .find(|d| {
-            d.new_file()
-                .path()
-                .map(|p| p.to_string_lossy() == path)
-                .unwrap_or(false)
-                || d.old_file()
-                    .path()
-                    .map(|p| p.to_string_lossy() == path)
-                    .unwrap_or(false)
-        })
-        .ok_or_else(|| format!("file not in diff: {path}"))?;
-
+/// Extract one file's content + metadata from an already-built delta, given the
+/// resolved endpoints. Shared by `get_file_diff` (locate one file) and
+/// `compute_diff_full` (every file in a single pass) so callers never re-run the
+/// whole-repo diff once per file.
+fn extract_file_diff(repo: &Repository, ep: &Endpoints, delta: &DiffDelta) -> Result<FileDiff, GitError> {
     let status = map_status(delta.status());
 
     let old_path = delta
@@ -213,6 +206,73 @@ pub fn get_file_diff(target: &Target, path: &str) -> Result<FileDiff, GitError> 
     })
 }
 
+pub fn get_file_diff(target: &Target, path: &str) -> Result<FileDiff, GitError> {
+    let repo = open_repo(&target.repo_path)?;
+    let ep = resolve_endpoints(&repo, target)?;
+    let diff = build_diff(&repo, &ep)?;
+
+    // Locate the delta for this path (match new path, else old path).
+    let delta = diff
+        .deltas()
+        .find(|d| {
+            d.new_file()
+                .path()
+                .map(|p| p.to_string_lossy() == path)
+                .unwrap_or(false)
+                || d.old_file()
+                    .path()
+                    .map(|p| p.to_string_lossy() == path)
+                    .unwrap_or(false)
+        })
+        .ok_or_else(|| format!("file not in diff: {path}"))?;
+
+    extract_file_diff(&repo, &ep, &delta)
+}
+
+/// Build the whole diff ONCE and return both the file-list summary and every file's
+/// extracted content in a single pass. This is the cached path (see `git::cache`):
+/// it replaces N separate `get_file_diff` calls — each of which re-ran the full
+/// repo diff + rename detection — with one computation the cache serves per file.
+/// Content is bounded (see the MAX_CACHED_* consts); over-cap files are omitted and
+/// fall back to a one-off `get_file_diff`. (#perf)
+pub fn compute_diff_full(target: &Target) -> Result<(DiffSummary, HashMap<String, FileDiff>), GitError> {
+    let repo = open_repo(&target.repo_path)?;
+    let ep = resolve_endpoints(&repo, target)?;
+    let diff = build_diff(&repo, &ep)?;
+
+    let mut files = Vec::new();
+    let mut contents: HashMap<String, FileDiff> = HashMap::new();
+    let mut held_bytes: usize = 0;
+    for (idx, delta) in diff.deltas().enumerate() {
+        let entry = summary_entry(&diff, idx, &delta);
+        let path = entry.path.clone();
+        files.push(entry);
+
+        // Eagerly cache content so the per-file fetch is a map hit — but keep held
+        // memory bounded: skip individually huge files, and stop once the snapshot
+        // passes the total cap. Skipped files fall back to a one-off get_file_diff.
+        // The pre-check uses the delta's recorded size (accurate for tree blobs); a
+        // working-tree file can report size 0, so a post-read length check backs it
+        // up before we RETAIN the content. (#perf)
+        let size = delta.new_file().size().max(delta.old_file().size());
+        if size <= MAX_CACHED_FILE_BYTES && held_bytes < MAX_CACHED_SNAPSHOT_BYTES {
+            if let Ok(fd) = extract_file_diff(&repo, &ep, &delta) {
+                let n = fd.old_content.as_deref().map_or(0, str::len)
+                    + fd.new_content.as_deref().map_or(0, str::len);
+                if n as u64 <= MAX_CACHED_FILE_BYTES {
+                    held_bytes += n;
+                    contents.insert(path, fd);
+                }
+            }
+        }
+    }
+
+    Ok((
+        DiffSummary { files, base_label: ep.base_label, head_label: ep.head_label },
+        contents,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,6 +293,31 @@ mod tests {
         ).unwrap();
         assert_eq!(fd.old_content.as_deref(), Some("line1\nline2\n"));
         assert_eq!(fd.new_content.as_deref(), Some("line1\nCHANGED\nline2\n"));
+    }
+
+    #[test]
+    fn compute_diff_full_returns_summary_and_per_file_content_in_one_pass() {
+        let (dir, _repo) = repo_with_commit(); // file.txt = "line1\nline2\n"
+        write(dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
+        write(dir.path(), "new.ts", "export const x = 1;\n");
+        let t = target(dir.path().to_str().unwrap(), DiffMode::Uncommitted);
+
+        let (summary, files) = compute_diff_full(&t).unwrap();
+
+        // Summary matches compute_diff: both changed files present with line stats.
+        assert_eq!(summary.files.len(), 2);
+        let modified = summary.files.iter().find(|f| f.path == "file.txt").unwrap();
+        assert_eq!(modified.additions, 1);
+        assert_eq!(modified.deletions, 0);
+
+        // The per-file map carries the SAME content get_file_diff would return —
+        // extracted once, so callers never re-diff the repo per file.
+        let fd = files.get("file.txt").expect("file.txt in map");
+        assert_eq!(fd.old_content.as_deref(), Some("line1\nline2\n"));
+        assert_eq!(fd.new_content.as_deref(), Some("line1\nCHANGED\nline2\n"));
+        let added = files.get("new.ts").expect("new.ts in map");
+        assert_eq!(added.old_content.as_deref(), None); // added → no old side
+        assert_eq!(added.new_content.as_deref(), Some("export const x = 1;\n"));
     }
 
     #[test]
