@@ -17,10 +17,11 @@
 // Supports unified + split, line/range/file comments, word-level intra-line diff,
 // jump-to-comment, and the viewed toggle.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, Copy, ExternalLink, Eye, FileQuestion, FileText, FileX, MessageSquarePlus, Plus } from "lucide-react";
+import { BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, Code as CodeIcon, Copy, ExternalLink, Eye, FileQuestion, FileText, FileX, MessageSquarePlus, Plus } from "lucide-react";
 import { getSyntaxLineTemplate } from "@git-diff-view/file";
 import { SplitSide } from "@git-diff-view/react";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api } from "../api";
 import { getEditorPref } from "../editor";
 import { toDiffFile } from "./toDiffFile";
@@ -410,12 +411,14 @@ const VFileSection = memo(function VFileSection({
   const model = useMemo(() => (fd && wantModel ? buildModel(fd, theme, layout) : null), [fd, theme, layout, wantModel]);
   const rowCount = model ? rowCountOf(model, layout) : 0;
 
-  // Toggle the rendered preview. Turning it on for a collapsed card expands it
-  // first (a preview of a collapsed card is meaningless), mirroring the comment
-  // button's reveal. Content loads via the cache hook above (wantModel || previewing).
-  const togglePreview = useCallback(() => {
-    if (!previewing && collapsed) onToggleCollapse(entry.path);
-    setPreviewing((p) => !p);
+  // Switch between the raw diff and the rendered preview. Turning preview on for a
+  // collapsed card expands it first (a preview of a collapsed card is meaningless),
+  // mirroring the comment button's reveal. Content loads via the cache hook above
+  // (wantModel || previewing).
+  const setPreview = useCallback((on: boolean) => {
+    if (on === previewing) return;
+    if (on && collapsed) onToggleCollapse(entry.path);
+    setPreviewing(on);
   }, [previewing, collapsed, entry.path, onToggleCollapse]);
 
   // Horizontal scroll (#hscroll): rows are widened to the file's longest line so
@@ -764,18 +767,19 @@ const VFileSection = memo(function VFileSection({
           {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
         </span>
         {canPreview && (
-          <Button
+          // Diff / rendered-preview switch — same segmented control as the files
+          // panel's list/tree toggle. (#preview)
+          <ToggleGroup
+            type="single"
             size="sm"
-            variant="ghost"
-            onClick={togglePreview}
-            aria-pressed={previewing}
-            aria-label={`toggle rich preview ${entry.path}`}
-            title={previewing ? "Show diff" : "Show rich preview"}
-            className={`delta-ui-font relative h-6 shrink-0 gap-1.5 px-2 text-[12px] ${previewing ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+            value={previewing ? "preview" : "diff"}
+            onValueChange={(v) => v && setPreview(v === "preview")}
+            aria-label={`view mode for ${entry.path}`}
+            className="relative shrink-0 gap-0.5 rounded-md bg-muted/70 p-0.5"
           >
-            <BookOpen className="size-4" />
-            Preview
-          </Button>
+            <ToggleGroupItem value="diff" aria-label="Diff view" title="Diff" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"><CodeIcon className="size-3.5" /></ToggleGroupItem>
+            <ToggleGroupItem value="preview" aria-label="Rich preview" title="Preview" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"><BookOpen className="size-3.5" /></ToggleGroupItem>
+          </ToggleGroup>
         )}
         <Button
           size="sm"
@@ -787,10 +791,19 @@ const VFileSection = memo(function VFileSection({
         >
           <ExternalLink className="size-4" />
         </Button>
-        {!previewing && (
+        {/* While previewing there are no line anchors to attach to, so commenting is
+            disabled rather than hidden. The title lives on the wrapping span so the
+            native tooltip still shows over the disabled (pointer-events-none) button,
+            and the span absorbs the click so it can't fall through to the collapse
+            target behind it. (#preview) */}
+        <span
+          className="relative shrink-0"
+          title={previewing ? "Switch to Diff to add a comment" : "Comment on file"}
+        >
           <Button
             size="sm"
             variant="ghost"
+            disabled={previewing}
             onClick={() => {
               // A deleted or giant file hides its content behind a reveal, and the
               // file-comment form renders inside the (model-built) body — so reveal first,
@@ -798,13 +811,12 @@ const VFileSection = memo(function VFileSection({
               if ((isDeleted || isGiant(entry)) && !revealed) { setRevealed(true); void cache.load(entry.path); }
               onAddFileComment(entry.path, "");
             }}
-            aria-label={`comment on ${entry.path}`}
-            title="Comment on file"
-            className="relative h-6 shrink-0 px-2 text-muted-foreground hover:text-foreground"
+            aria-label={previewing ? `commenting disabled while previewing ${entry.path}` : `comment on ${entry.path}`}
+            className="h-6 px-2 text-muted-foreground hover:text-foreground"
           >
             <MessageSquarePlus className="size-4" />
           </Button>
-        )}
+        </span>
         <Button
           size="sm"
           variant="ghost"
