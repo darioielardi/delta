@@ -1262,18 +1262,18 @@ export function VirtualDiffPane({
           const bh = collapsed ? 0 : (bodyHeights[entry.path] ?? estReserved(entry, rowH));
           const sectionTop = offsets[i], bodyTop = sectionTop + HEADER_H;
           const onScreen = viewportH > 0 && !collapsed && bodyTop + bh > top0 && bodyTop < bot0;
-          // Mount the full section (a ~35-node card: sticky header, buttons, icons,
-          // body) only when it's near the viewport; otherwise a bare, correctly-sized
-          // spacer. Off-screen files sit ≥ OVERSCAN px away, so their header is never
-          // visible anyway — skipping it turns the pane from O(files) DOM (~75k nodes
-          // at 2000 files) into O(on-screen). find must reach every file to collect
-          // matches, so it forces full mounts everywhere (like forceModel). (#vfiles)
-          // Off-screen: render nothing at all. The wrapper's fixed `height: total`
-          // (not the sum of children) holds the scroll range, so absent sections don't
-          // collapse it — that's what makes the pane O(on-screen) rather than O(files),
-          // down to a handful of elements per frame. jump-to-comment scrolls to
-          // offsets[i] to materialize a target on demand. (#vfiles)
-          if (!(onScreen || findActive)) return null;
+          // Collapsed (viewed) files are a header-only card with no body, so `onScreen`
+          // (which also gates the row window below) is false for them — but the header
+          // must still render when near the viewport, or a viewed file vanishes into an
+          // empty gap where its card sits (worst at the top when the first files are
+          // viewed). (#gap)
+          const headerVisible = viewportH > 0 && collapsed && sectionTop < bot0 && sectionTop + HEADER_H > top0;
+          // Mount a section only when near the viewport (expanded body OR collapsed
+          // header); off-screen files render nothing, so the wrapper's fixed height:total
+          // (not the sum of children) holds the scroll range and the pane stays
+          // O(on-screen), not O(files). find forces every file to mount for matches, and
+          // jump-to-comment scrolls to offsets[i] to materialize a target on demand. (#vfiles)
+          if (!(onScreen || headerVisible || findActive)) return null;
           const view: [number, number] | null = onScreen ? [Math.max(0, top0 - bodyTop), Math.max(0, bot0 - bodyTop)] : null;
           // Header is "solo" when its body has fully scrolled up under the stuck
           // header (nothing renders right below it) — round its bottom corners so
