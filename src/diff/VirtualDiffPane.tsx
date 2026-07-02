@@ -309,7 +309,7 @@ function CommentBlock({ id, top, comments, onEdit, onDelete, onToggleResolved, o
 interface Block { id: string; index: number; comments: Comment[] }
 
 const VFileSection = memo(function VFileSection({
-  entry, theme, layout, cache, collapsed, viewed, headerSolo, repoPath, onToggleCollapse, onToggleViewed, view, paneW, rowH, chPx, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment, reportBodyHeight, registerRef,
+  entry, theme, layout, cache, collapsed, viewed, headerSolo, repoPath, onToggleCollapse, onToggleViewed, view, paneW, rowH, chPx, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment, reportBodyHeight,
 }: {
   entry: FileEntry; theme: "light" | "dark"; layout: DiffLayout;
   cache: ReturnType<typeof useFileDiffCache>;
@@ -334,11 +334,7 @@ const VFileSection = memo(function VFileSection({
   onDeleteComment: (id: string) => void;
   onToggleResolvedComment: (id: string) => void;
   reportBodyHeight: (path: string, h: number) => void;
-  registerRef: (path: string, el: HTMLDivElement | null) => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { registerRef(entry.path, ref.current); return () => registerRef(entry.path, null); }, [entry.path]);
-
   // Split view renders the two sides as separate horizontal-scroll columns;
   // mirror one's scrollLeft onto the other so the old/new sides stay aligned. The
   // guard flag avoids the feedback loop between the two onScroll handlers. (#10)
@@ -667,7 +663,7 @@ const VFileSection = memo(function VFileSection({
   return (
     // Borders live on the header + body, not this wrapper, so a stuck header can
     // float with a canvas GAP above it (the wrapper is transparent there). (#7)
-    <div ref={ref} data-file={entry.path} className="rounded-lg shadow-xs dark:shadow-none">
+    <div data-file={entry.path} className="rounded-lg shadow-xs dark:shadow-none">
       {/* Canvas backdrop pinned exactly behind the sticky header (z below it).
           The header's rounded top corners are transparent at the notch; without
           this, code rows scrolling under the header peek through those corners.
@@ -900,10 +896,6 @@ export function VirtualDiffPane({
   }, [invalidate?.n]);
 
   const paneRef = useRef<HTMLDivElement>(null);
-  const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const registerRef = useCallback((path: string, el: HTMLDivElement | null) => {
-    if (el) sectionRefs.current.set(path, el); else sectionRefs.current.delete(path);
-  }, []);
   const jumpPin = useRef<string | null>(null);
   const jumpPinTimer = useRef(0);
   const jumpTimer = useRef(0);
@@ -1107,7 +1099,10 @@ export function VirtualDiffPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navNonce]);
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect): the measured height decides which file
+  // sections mount (below), so measuring before paint means the first frame already
+  // has the real window — no blank flash, no first-paint fallback needed. (#vfiles)
+  useLayoutEffect(() => {
     const pane = paneRef.current;
     if (!pane) return;
     setViewportH(pane.clientHeight);
@@ -1156,7 +1151,10 @@ export function VirtualDiffPane({
       const attempt = (tries: number) => {
         const node = pane.querySelector(`[data-comment-id="${CSS.escape(commentId)}"]`) as HTMLElement | null;
         if (node) { node.scrollIntoView({ block: "center" }); return; }
-        (sectionRefs.current.get(file) ?? (pane.querySelector(`[data-file="${CSS.escape(file)}"]`) as HTMLElement | null))?.scrollIntoView({ block: "start" });
+        // The target file may not be mounted yet (off-screen sections render nothing),
+        // so scroll to its offset to materialize it — once its model builds, all its
+        // comment blocks render and the next attempt finds + centers the node. (#vfiles)
+        pane.scrollTop = Math.max(0, Math.min(offsets[i] - PAD, pane.scrollHeight - pane.clientHeight));
         if (tries < 40) jumpTimer.current = window.setTimeout(() => attempt(tries + 1), 40);
       };
       attempt(0);
@@ -1264,6 +1262,18 @@ export function VirtualDiffPane({
           const bh = collapsed ? 0 : (bodyHeights[entry.path] ?? estReserved(entry, rowH));
           const sectionTop = offsets[i], bodyTop = sectionTop + HEADER_H;
           const onScreen = viewportH > 0 && !collapsed && bodyTop + bh > top0 && bodyTop < bot0;
+          // Collapsed (viewed) files are a header-only card with no body, so `onScreen`
+          // (which also gates the row window below) is false for them — but the header
+          // must still render when near the viewport, or a viewed file vanishes into an
+          // empty gap where its card sits (worst at the top when the first files are
+          // viewed). (#gap)
+          const headerVisible = viewportH > 0 && collapsed && sectionTop < bot0 && sectionTop + HEADER_H > top0;
+          // Mount a section only when near the viewport (expanded body OR collapsed
+          // header); off-screen files render nothing, so the wrapper's fixed height:total
+          // (not the sum of children) holds the scroll range and the pane stays
+          // O(on-screen), not O(files). find forces every file to mount for matches, and
+          // jump-to-comment scrolls to offsets[i] to materialize a target on demand. (#vfiles)
+          if (!(onScreen || headerVisible || findActive)) return null;
           const view: [number, number] | null = onScreen ? [Math.max(0, top0 - bodyTop), Math.max(0, bot0 - bodyTop)] : null;
           // Header is "solo" when its body has fully scrolled up under the stuck
           // header (nothing renders right below it) — round its bottom corners so
@@ -1285,7 +1295,7 @@ export function VirtualDiffPane({
                 forceModel={findActive}
                 comments={view || findActive ? (commentsByFile.get(entry.path) ?? noComments) : noComments}
                 onAddComment={onAddComment} onAddFileComment={onAddFileComment} onEditComment={onEditComment} onDeleteComment={onDeleteComment} onToggleResolvedComment={onToggleResolvedComment}
-                reportBodyHeight={reportBodyHeight} registerRef={registerRef}
+                reportBodyHeight={reportBodyHeight}
               />
             </div>
           );
