@@ -429,6 +429,10 @@ export function installMockBackend(): void {
       case "open_in_editor":
         console.info("[delta mock] open_in_editor", args);
         return undefined as T;
+      case "updater_try_acquire":
+        // Never reached in mock mode (useUpdater bails on !isTauri), but keep the
+        // IPC surface mirrored. The sole caller always wins the gate.
+        return true as T;
       default:
         throw new Error(`mockBackend: unhandled command "${cmd}"`);
     }

@@ -164,6 +164,8 @@ require_cmd shasum
 require_clean_worktree
 require_notary_auth
 [ -n "${APPLE_SIGNING_IDENTITY:-}" ] || die "APPLE_SIGNING_IDENTITY is required so the build can sign the app (e.g. 'Developer ID Application: Your Name (TEAMID)')"
+[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] || die "TAURI_SIGNING_PRIVATE_KEY is required to sign updater artifacts"
+[ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ] || die "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is required to sign updater artifacts"
 
 old_version="$(package_version)"
 product="$(product_name)"
@@ -185,7 +187,7 @@ trap 'git checkout -- package.json' ERR
 # The DMG is notarized exactly once, explicitly, below.
 env -u APPLE_API_KEY -u APPLE_API_ISSUER -u APPLE_API_KEY_PATH \
     -u APPLE_ID -u APPLE_PASSWORD -u APPLE_TEAM_ID \
-    pnpm tauri build --bundles dmg
+    pnpm tauri build --bundles app,dmg
 
 dmg_path="$(find_dmg "$new_version" "$product")"
 
@@ -199,10 +201,37 @@ printf 'Verifying final DMG...\n'
 spctl -a -vvv -t open --context context:primary-signature "$dmg_path"
 xcrun stapler validate "$dmg_path"
 
+app_path="src-tauri/target/release/bundle/macos/${product}.app"
+if ! [ -d "$app_path" ]; then
+  git checkout -- package.json
+  die "app bundle not found at $app_path"
+fi
+
+printf 'Stapling the .app bundle (for updater-delivered installs)...\n'
+# If this fails with "does not have a ticket" (i.e. the DMG's notarization
+# submission does not staple to the inner .app on this toolchain), submit the
+# app itself instead and staple that ticket:
+#   ditto -c -k --keepParent "$app_path" /tmp/app.zip
+#   xcrun notarytool submit /tmp/app.zip "${NOTARY_ARGS[@]}" --wait
+#   xcrun stapler staple "$app_path"
+xcrun stapler staple "$app_path"
+xcrun stapler validate "$app_path"
+
+printf 'Repacking + signing the updater tarball from the stapled app...\n'
+tarball="src-tauri/target/release/bundle/macos/${product}.app.tar.gz"
+tar -C "src-tauri/target/release/bundle/macos" -czf "$tarball" "${product}.app"
+pnpm tauri signer sign "$tarball"   # writes ${tarball}.sig using TAURI_SIGNING_PRIVATE_KEY*
+if ! [ -f "${tarball}.sig" ]; then
+  git checkout -- package.json
+  die "updater signature not produced"
+fi
+
 sha256="$(shasum -a 256 "$dmg_path" | awk '{print $1}')"
 
 printf '\nRelease candidate built.\n'
 printf 'Version: %s\n' "$new_version"
 printf 'DMG: %s\n' "$dmg_path"
 printf 'SHA-256: %s\n' "$sha256"
+printf 'Updater tarball: %s\n' "$tarball"
+printf 'Updater signature: %s\n' "${tarball}.sig"
 printf '\nTest this DMG locally. If it is good, run scripts/publish-release.sh.\n'

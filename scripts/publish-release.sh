@@ -110,6 +110,9 @@ version="$(package_version)"
 product="$(product_name)"
 tag="v${version}"
 dmg_path="$(find_dmg "$version" "$product")"
+tarball="src-tauri/target/release/bundle/macos/${product}.app.tar.gz"
+[ -f "$tarball" ] || die "updater tarball not found at $tarball (run build-release-dmg.sh first)"
+[ -f "${tarball}.sig" ] || die "updater signature not found at ${tarball}.sig"
 
 printf 'Verifying DMG before publishing...\n'
 spctl -a -vvv -t open --context context:primary-signature "$dmg_path"
@@ -142,7 +145,17 @@ trap 'rm -f "$notes_file"' EXIT
   printf '```\n'
 } > "$notes_file"
 
-gh release create "$tag" "$dmg_path" --title "$tag" --notes-file "$notes_file" --generate-notes
+latest_json="$(mktemp -d)/latest.json"
+tarball_url="https://github.com/darioielardi/delta/releases/download/${tag}/${product}.app.tar.gz"
+node scripts/gen-latest-json.mjs \
+  --version "$version" \
+  --signature-file "${tarball}.sig" \
+  --url "$tarball_url" \
+  --pub-date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --notes "See the release page for details." > "$latest_json"
+
+gh release create "$tag" "$dmg_path" "$tarball" "${tarball}.sig" "$latest_json" \
+  --title "$tag" --notes-file "$notes_file" --generate-notes
 
 printf '\nPublished %s.\n' "$tag"
 printf 'DMG: %s\n' "$dmg_path"
