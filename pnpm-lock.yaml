@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@aptabase/tauri':
+        specifier: ^0.4.1
+        version: 0.4.1
       '@git-diff-view/file':
         specifier: 0.1.6
         version: 0.1.6
@@ -136,6 +139,9 @@ packages:
 
   '@apm-js-collab/tracing-hooks@0.10.0':
     resolution: {integrity: sha512-2/Z3NTewJTruUkmsSnBC5bJlLNUd9keuD1OLlTEpim4FyLhm6m2Rnfv+wrFdUvFfhmH8CRdiDZBqBrn+wyaGuA==}
+
+  '@aptabase/tauri@0.4.1':
+    resolution: {integrity: sha512-ZjCtPN1Tw0y90nxMLR64UqFjgikxfc9NZouxqXlqZFkfpF8D/tPf1xUn0Anu8nvERGND/hAkO3x7ZLyLGI1HRg==}
 
   '@babel/code-frame@7.29.7':
     resolution: {integrity: sha512-Aup7aUOfpbAUg2ROOJN6Iw5f9DMBlzu0mIkm/malLQFN/YQgO48wCj0Kxa3sEHJvPVFg7siR+qRInwXd2qhQKw==}
@@ -2109,6 +2115,10 @@ packages:
     resolution: {integrity: sha512-hItDHuIIlEV61R+faXu66s1K36aTurO/Qw0e45Vskz57gXl9pWOT6eg3zmcEui6CZXddbN7zd41bwmvag4JGwQ==}
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7 || ^8
+
+  '@tauri-apps/api@1.6.0':
+    resolution: {integrity: sha512-rqI++FWClU5I2UBp4HXFvl+sBWkdigBkxnpJDQUWttNyG7IZP4FwQGhTNL5EOw0vI8i6eSAJ5frLqO7n7jbJdg==}
+    engines: {node: '>= 14.6.0', npm: '>= 6.6.0', yarn: '>= 1.19.1'}
 
   '@tauri-apps/api@2.11.1':
     resolution: {integrity: sha512-M2FPuYND2m+wh5hfW9ZpSdxMPdEJovPBWwoHJmwUpysTYNHaOkVFN419m/K0LIgjb/7KU2vBgsUepJWugQCvAA==}
@@ -4514,6 +4524,10 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@aptabase/tauri@0.4.1':
+    dependencies:
+      '@tauri-apps/api': 1.6.0
+
   '@babel/code-frame@7.29.7':
     dependencies:
       '@babel/helper-validator-identifier': 7.29.7
@@ -6253,6 +6267,8 @@ snapshots:
       '@tailwindcss/oxide': 4.3.1
       tailwindcss: 4.3.1
       vite: 7.3.6(@types/node@26.0.1)(jiti@2.7.0)(lightningcss@1.32.0)(yaml@2.9.0)
+
+  '@tauri-apps/api@1.6.0': {}
 
   '@tauri-apps/api@2.11.1': {}
 

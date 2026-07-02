@@ -167,6 +167,10 @@ require_notary_auth
 [ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ] || die "TAURI_SIGNING_PRIVATE_KEY is required to sign updater artifacts"
 [ -n "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}" ] || die "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is required to sign updater artifacts"
 
+if [ -z "${APTABASE_KEY:-}" ]; then
+  printf 'warning: APTABASE_KEY is unset — this release will ship with analytics disabled.\n' >&2
+fi
+
 old_version="$(package_version)"
 product="$(product_name)"
 

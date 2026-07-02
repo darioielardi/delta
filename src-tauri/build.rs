@@ -14,6 +14,7 @@ fn main() {
         .unwrap_or_else(|| "0.0.0".to_string());
     println!("cargo:rustc-env=DELTA_VERSION={version}");
     println!("cargo:rerun-if-changed=../package.json");
+    println!("cargo:rerun-if-env-changed=APTABASE_KEY");
 
     tauri_build::build()
 }
