@@ -1,4 +1,3 @@
-use crate::git::lang::lang_for;
 use crate::git::model::Target;
 use crate::git::{open_repo, resolve_endpoints, Endpoints, GitError, RightSide};
 use git2::{Diff, DiffDelta, DiffFindOptions, DiffOptions, Repository};
@@ -131,10 +130,8 @@ pub fn compute_diff(target: &Target) -> Result<DiffSummary, GitError> {
 pub struct FileDiff {
     pub old_file_name: Option<String>,
     pub old_content: Option<String>,
-    pub old_lang: Option<String>,
     pub new_file_name: Option<String>,
     pub new_content: Option<String>,
-    pub new_lang: Option<String>,
     pub status: FileStatus,
     pub binary: bool,
 }
@@ -201,8 +198,6 @@ fn extract_file_diff(repo: &Repository, ep: &Endpoints, delta: &DiffDelta) -> Re
     let new_content = if binary { None } else { new_bytes.map(|b| String::from_utf8_lossy(&b).into_owned()) };
 
     Ok(FileDiff {
-        old_lang: old_path.as_deref().and_then(lang_for),
-        new_lang: new_path.as_deref().and_then(lang_for),
         old_file_name: old_path,
         new_file_name: new_path,
         old_content,
@@ -298,7 +293,6 @@ pub fn compute_diff_full(target: &Target) -> Result<(DiffSummary, HashMap<String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::lang::lang_for;
     use crate::git::model::{DiffMode, Target};
     use crate::git::test_support::*;
 
@@ -316,7 +310,6 @@ mod tests {
         ).unwrap();
         assert_eq!(fd.old_content.as_deref(), Some("line1\nline2\n"));
         assert_eq!(fd.new_content.as_deref(), Some("line1\nCHANGED\nline2\n"));
-        assert_eq!(fd.new_lang.as_deref(), None); // .txt → no lang
     }
 
     #[test]
@@ -342,7 +335,6 @@ mod tests {
         let added = files.get("new.ts").expect("new.ts in map");
         assert_eq!(added.old_content.as_deref(), None); // added → no old side
         assert_eq!(added.new_content.as_deref(), Some("export const x = 1;\n"));
-        assert_eq!(added.new_lang.as_deref(), Some("typescript"));
     }
 
     #[test]
@@ -357,11 +349,6 @@ mod tests {
         .unwrap();
         assert!(fd.binary, "png with NUL bytes should be flagged binary");
         assert!(fd.new_content.is_none(), "binary content must be omitted");
-    }
-
-    #[test]
-    fn lang_for_maps_typescript() {
-        assert_eq!(lang_for("src/a.ts").as_deref(), Some("typescript"));
     }
 
     #[test]

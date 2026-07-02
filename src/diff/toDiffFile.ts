@@ -1,14 +1,17 @@
 import { generateDiffFile } from "@git-diff-view/file";
 import type { FileDiff } from "../types";
+import { langFromFilename } from "./lang";
 
 export function toDiffFile(fd: FileDiff) {
+  const oldName = fd.oldFileName ?? "";
+  const newName = fd.newFileName ?? "";
   const file = generateDiffFile(
-    fd.oldFileName ?? "",
+    oldName,
     fd.oldContent ?? "",
-    fd.newFileName ?? "",
+    newName,
     fd.newContent ?? "",
-    fd.oldLang ?? "",
-    fd.newLang ?? ""
+    langFromFilename(oldName),
+    langFromFilename(newName)
   );
   file.init();
   return file;

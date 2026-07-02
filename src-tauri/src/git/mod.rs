@@ -1,6 +1,5 @@
 pub mod cache;
 pub mod diff;
-pub mod lang;
 pub mod log;
 pub mod model;
 
