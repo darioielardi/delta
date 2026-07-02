@@ -1,29 +1,47 @@
 //! Process-wide diff cache. A per-file fetch used to re-run the whole-repo diff
 //! (build + rename detection) every call — O(files) redundant work that dominated
-//! large reviews. This memoizes one diff *snapshot* (summary + every file's
-//! content, built once by `compute_diff_full`) so each `get_file_diff` is a map
-//! read. Held in Tauri managed state; the fs watcher `invalidate`s it when the
-//! worktree changes so working-tree diffs never go stale. (#perf)
+//! large reviews. This memoizes diff *snapshots* (summary + every file's content,
+//! built once by `compute_diff_full`) so each `get_file_diff` is a map read.
+//!
+//! Held in Tauri managed state. Snapshots are keyed by *target identity*
+//! (repo/mode/base/commit) — not resolved OIDs — so the hot per-file path does zero
+//! git work on a hit. Freshness therefore rides entirely on `invalidate`: the fs
+//! watcher calls it on any working-tree/`.git` change, and `refresh_review` calls it
+//! on a manual refresh. Committed-commit snapshots are immutable, and every other
+//! mode's content-changing event (edit, commit, checkout, fetch) trips the watcher,
+//! so a cached snapshot is only ever served for state the watcher would not have
+//! invalidated. (#perf)
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::git::diff::{compute_diff_full, get_file_diff, DiffSummary, FileDiff};
 use crate::git::model::{DiffMode, Target};
-use crate::git::{open_repo, resolve_endpoints, GitError, RightSide};
+use crate::git::GitError;
 
-/// Identity of a diff snapshot: the target plus the resolved endpoint OIDs. For
-/// tree↔tree modes the OIDs pin the content exactly (a moved HEAD → new key →
-/// rebuild); working-tree modes carry a `workdir` token, so their freshness rides
-/// on the watcher calling `invalidate`.
+/// Most recent snapshots to retain. A small LRU (not a single slot) so multiple
+/// review windows on different targets don't evict each other. Per-snapshot content
+/// is bounded by the MAX_CACHED_* caps in `diff.rs`, so held memory stays bounded.
+const MAX_SNAPSHOTS: usize = 4;
+
+/// Identity of a diff snapshot = its target. The diff content is fully determined by
+/// (repo_path, mode, base, commit); resolved OIDs are deliberately NOT part of the
+/// key (see the module doc — freshness comes from `invalidate`, so the hit path
+/// avoids resolving them).
 #[derive(PartialEq, Eq, Clone)]
 struct SnapshotKey {
     repo_path: String,
-    worktree: Option<String>,
     mode: DiffMode,
     base: Option<String>,
     commit: Option<String>,
-    from_oid: String,
-    to_token: String,
+}
+
+fn key_of(target: &Target) -> SnapshotKey {
+    SnapshotKey {
+        repo_path: target.repo_path.clone(),
+        mode: target.mode,
+        base: target.base.clone(),
+        commit: target.commit.clone(),
+    }
 }
 
 struct Snapshot {
@@ -32,13 +50,11 @@ struct Snapshot {
     files: HashMap<String, FileDiff>,
 }
 
-/// Single-slot cache of the most-recent diff snapshot. One review window works one
-/// target at a time, so a single slot serves the hot path; switching target just
-/// rebuilds once (still one whole-repo diff, versus one *per file* before). Cloning
-/// is cheap (shared `Arc`) so a command can move a handle into `spawn_blocking` and
-/// the fs watcher can hold its own.
+/// Bounded LRU of recent diff snapshots. Cloning the handle is cheap (shared `Arc`)
+/// so a command can move one into `spawn_blocking` and the fs watcher can hold its
+/// own; the snapshots themselves are `Arc`-shared so reads clone content off-lock.
 #[derive(Default, Clone)]
-pub struct DiffCache(Arc<Mutex<Option<Snapshot>>>);
+pub struct DiffCache(Arc<Mutex<Vec<Arc<Snapshot>>>>);
 
 /// Same worktree on disk? Cheap string-eq first, then a best-effort canonicalize so
 /// the watcher's canonical root still matches a target opened by a symlinked path.
@@ -51,63 +67,53 @@ fn same_worktree(a: &str, b: &str) -> bool {
 }
 
 impl DiffCache {
-    fn key_for(target: &Target) -> Result<SnapshotKey, GitError> {
-        let repo = open_repo(&target.repo_path)?;
-        let ep = resolve_endpoints(&repo, target)?;
-        Ok(SnapshotKey {
-            repo_path: target.repo_path.clone(),
-            worktree: target.worktree.clone(),
-            mode: target.mode,
-            base: target.base.clone(),
-            commit: target.commit.clone(),
-            from_oid: ep.from_tree.map(|o| o.to_string()).unwrap_or_default(),
-            to_token: match ep.right {
-                RightSide::Tree(o) => o.to_string(),
-                RightSide::WorkTree => "workdir".into(),
-            },
-        })
+    /// Lock the cache, recovering from a poisoned mutex instead of panicking — a
+    /// panic under the guard must not brick diff fetching for the rest of the session.
+    fn lock(&self) -> std::sync::MutexGuard<'_, Vec<Arc<Snapshot>>> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// The file-list summary for `target`, building (and caching) the snapshot on a
-    /// miss. Resolving the key is cheap (revparse + merge-base); the whole-repo diff
-    /// runs only when the key changed.
-    pub fn summary(&self, target: &Target) -> Result<DiffSummary, GitError> {
-        let key = Self::key_for(target)?;
-        let mut slot = self.0.lock().unwrap();
-        if slot.as_ref().map_or(true, |s| s.key != key) {
-            let (summary, files) = compute_diff_full(target)?;
-            *slot = Some(Snapshot { key, summary, files });
+    /// The snapshot for `target`, built on a miss. Shared by `summary` and `file`.
+    /// The whole-repo build runs under the lock so concurrent first-fetches of the
+    /// same target dedup onto one diff (rather than each running their own); the
+    /// returned `Arc` then lets callers clone content out *after* the lock is dropped.
+    fn snapshot(&self, target: &Target) -> Result<Arc<Snapshot>, GitError> {
+        let key = key_of(target);
+        let mut cache = self.lock();
+        if let Some(pos) = cache.iter().position(|s| s.key == key) {
+            let hit = cache.remove(pos);
+            cache.push(hit.clone()); // most-recently-used at the back
+            return Ok(hit);
         }
-        Ok(slot.as_ref().unwrap().summary.clone())
+        let (summary, files) = compute_diff_full(target)?;
+        let snap = Arc::new(Snapshot { key, summary, files });
+        cache.push(snap.clone());
+        if cache.len() > MAX_SNAPSHOTS {
+            cache.remove(0); // evict least-recently-used (front)
+        }
+        Ok(snap)
     }
 
-    /// One file's diff for `target`. A map read once the snapshot is built; the build
-    /// happens at most once per snapshot (concurrent first-fetches serialize on the
-    /// lock, so only one runs the diff). Files too large to cache fall back to a
-    /// one-off `get_file_diff`.
+    /// The file-list summary for `target` (builds + caches the snapshot on a miss).
+    pub fn summary(&self, target: &Target) -> Result<DiffSummary, GitError> {
+        Ok(self.snapshot(target)?.summary.clone())
+    }
+
+    /// One file's diff for `target` — a map read once the snapshot is built. Files
+    /// too large to cache aren't in the map and fall back to a one-off `get_file_diff`.
     pub fn file(&self, target: &Target, path: &str) -> Result<FileDiff, GitError> {
-        let key = Self::key_for(target)?;
-        {
-            let mut slot = self.0.lock().unwrap();
-            if slot.as_ref().map_or(true, |s| s.key != key) {
-                let (summary, files) = compute_diff_full(target)?;
-                *slot = Some(Snapshot { key, summary, files });
-            }
-            if let Some(fd) = slot.as_ref().unwrap().files.get(path) {
-                return Ok(fd.clone());
-            }
-        } // drop the lock before the fallback does its own repo work
+        let snap = self.snapshot(target)?;
+        if let Some(fd) = snap.files.get(path) {
+            return Ok(fd.clone());
+        }
         get_file_diff(target, path)
     }
 
-    /// Drop the cached snapshot if it belongs to `worktree` (the path the fs watcher
-    /// watches). Called on `fs:changed` so a working-tree edit is reflected on the
-    /// next fetch; a no-op when the slot holds a different worktree.
+    /// Drop cached snapshots for `worktree` (the path the fs watcher watches, or the
+    /// target's repo path on manual refresh) so the next fetch rebuilds against
+    /// current content. A no-op for snapshots of other worktrees.
     pub fn invalidate(&self, worktree: &str) {
-        let mut slot = self.0.lock().unwrap();
-        if slot.as_ref().is_some_and(|s| same_worktree(&s.key.repo_path, worktree)) {
-            *slot = None;
-        }
+        self.lock().retain(|s| !same_worktree(&s.key.repo_path, worktree));
     }
 }
 
@@ -187,5 +193,24 @@ mod tests {
         cache.invalidate("/some/other/worktree");
         write(dir_a.path(), "file.txt", "A2\n");
         assert_eq!(cache.file(&t, "file.txt").unwrap().new_content.as_deref(), Some("A1\n"), "unrelated invalidate must not evict");
+    }
+
+    #[test]
+    fn keeps_snapshots_for_multiple_targets() {
+        let (dir_a, _a) = repo_with_commit();
+        write(dir_a.path(), "file.txt", "A\n");
+        let (dir_b, _b) = repo_with_commit();
+        write(dir_b.path(), "file.txt", "B\n");
+        let ta = target(dir_a.path().to_str().unwrap(), DiffMode::Uncommitted);
+        let tb = target(dir_b.path().to_str().unwrap(), DiffMode::Uncommitted);
+        let cache = DiffCache::default();
+
+        assert_eq!(cache.file(&ta, "file.txt").unwrap().new_content.as_deref(), Some("A\n"));
+        // A second target must not evict the first (no single-slot thrash).
+        assert_eq!(cache.file(&tb, "file.txt").unwrap().new_content.as_deref(), Some("B\n"));
+        // Change A without invalidating; A's snapshot must survive building B — with a
+        // single slot it would have been evicted and this would rebuild to "A2".
+        write(dir_a.path(), "file.txt", "A2\n");
+        assert_eq!(cache.file(&ta, "file.txt").unwrap().new_content.as_deref(), Some("A\n"), "target A must survive building target B");
     }
 }

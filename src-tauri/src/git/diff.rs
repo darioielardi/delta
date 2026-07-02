@@ -80,43 +80,42 @@ fn map_status(s: git2::Delta) -> FileStatus {
     }
 }
 
+/// Build the summary entry for one delta: path, rename old_path, status, +/- line
+/// stats, and the binary flag. Shared by `compute_diff` (summary only) and
+/// `compute_diff_full` (summary + content) so the two can't drift. (#perf)
+fn summary_entry(diff: &Diff, idx: usize, delta: &DiffDelta) -> FileEntry {
+    let new_path = delta.new_file().path().map(|p| p.to_string_lossy().into_owned());
+    let old_path = delta.old_file().path().map(|p| p.to_string_lossy().into_owned());
+    let path = new_path.clone().or_else(|| old_path.clone()).unwrap_or_default();
+
+    let (additions, deletions) = match git2::Patch::from_diff(diff, idx) {
+        Ok(Some(p)) => {
+            let (_ctx, add, del) = p.line_stats().unwrap_or((0, 0, 0));
+            (add, del)
+        }
+        _ => (0, 0),
+    };
+
+    FileEntry {
+        path,
+        old_path: old_path.filter(|o| Some(o) != new_path.as_ref()),
+        status: map_status(delta.status()),
+        additions,
+        deletions,
+        binary: delta.new_file().is_binary() || delta.old_file().is_binary(),
+    }
+}
+
 pub fn compute_diff(target: &Target) -> Result<DiffSummary, GitError> {
     let repo = open_repo(&target.repo_path)?;
     let ep = resolve_endpoints(&repo, target)?;
     let diff = build_diff(&repo, &ep)?;
 
-    let mut files = Vec::new();
-    for (idx, delta) in diff.deltas().enumerate() {
-        let new_path = delta
-            .new_file()
-            .path()
-            .map(|p| p.to_string_lossy().into_owned());
-        let old_path = delta
-            .old_file()
-            .path()
-            .map(|p| p.to_string_lossy().into_owned());
-        let path = new_path
-            .clone()
-            .or_else(|| old_path.clone())
-            .unwrap_or_default();
-
-        let (additions, deletions) = match git2::Patch::from_diff(&diff, idx) {
-            Ok(Some(p)) => {
-                let (_ctx, add, del) = p.line_stats().unwrap_or((0, 0, 0));
-                (add, del)
-            }
-            _ => (0, 0),
-        };
-
-        files.push(FileEntry {
-            path,
-            old_path: old_path.filter(|o| Some(o) != new_path.as_ref()),
-            status: map_status(delta.status()),
-            additions,
-            deletions,
-            binary: delta.new_file().is_binary() || delta.old_file().is_binary(),
-        });
-    }
+    let files = diff
+        .deltas()
+        .enumerate()
+        .map(|(idx, delta)| summary_entry(&diff, idx, &delta))
+        .collect();
 
     Ok(DiffSummary {
         files,
@@ -245,25 +244,9 @@ pub fn compute_diff_full(target: &Target) -> Result<(DiffSummary, HashMap<String
     let mut contents: HashMap<String, FileDiff> = HashMap::new();
     let mut held_bytes: usize = 0;
     for (idx, delta) in diff.deltas().enumerate() {
-        let new_path = delta.new_file().path().map(|p| p.to_string_lossy().into_owned());
-        let old_path = delta.old_file().path().map(|p| p.to_string_lossy().into_owned());
-        let path = new_path.clone().or_else(|| old_path.clone()).unwrap_or_default();
-
-        let (additions, deletions) = match git2::Patch::from_diff(&diff, idx) {
-            Ok(Some(p)) => {
-                let (_ctx, add, del) = p.line_stats().unwrap_or((0, 0, 0));
-                (add, del)
-            }
-            _ => (0, 0),
-        };
-        files.push(FileEntry {
-            path: path.clone(),
-            old_path: old_path.filter(|o| Some(o) != new_path.as_ref()),
-            status: map_status(delta.status()),
-            additions,
-            deletions,
-            binary: delta.new_file().is_binary() || delta.old_file().is_binary(),
-        });
+        let entry = summary_entry(&diff, idx, &delta);
+        let path = entry.path.clone();
+        files.push(entry);
 
         // Eagerly cache content so the per-file fetch is a map hit — but keep held
         // memory bounded: skip individually huge files, and stop once the snapshot
