@@ -341,7 +341,7 @@ function PreviewBody({ content, onHeight }: { content: string; onHeight: (h: num
     return () => ro.disconnect();
   }, [onHeight, content]);
   return (
-    <div ref={ref} className="delta-comment-ui px-5 py-4">
+    <div ref={ref} className="delta-comment-ui p-12">
       <div className="prose prose-sm max-w-none break-words prose-pre:my-1.5 prose-pre:text-[12px] prose-code:text-[12px]">
         <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
       </div>
