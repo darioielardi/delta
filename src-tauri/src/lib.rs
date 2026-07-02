@@ -23,6 +23,7 @@ pub fn run() {
     // (`cli`/`ipc`): a CLI invocation forwards over the socket or `open -b`s the
     // bundle, which Launch Services single-instances. The app is only entered via
     // LS/dock/dev, so the old in-process TTY guard is gone.
+    #[cfg_attr(debug_assertions, allow(unused_mut))]
     let mut builder = tauri::Builder::default();
 
     // Anonymous usage analytics — release builds only, and only when a key was
