@@ -80,9 +80,16 @@ cd /Users/dario.ielardi/projects/delta && git status --porcelain && git log --on
   gh release view vX.Y.Z --json tagName,url,assets --jq '{tag:.tagName, url:.url, assets:[.assets[].name]}'
 ```
 
-Expect: clean worktree, HEAD = `chore(release): vX.Y.Z`, release live with the
-`Delta_X.Y.Z_aarch64.dmg` asset, and "Bumped darioielardi/homebrew-tap to version X.Y.Z"
-in the publish log.
+Expect: clean worktree, HEAD = `chore(release): vX.Y.Z`, release live with:
+- `Delta_X.Y.Z_aarch64.dmg` (signed, notarized)
+- `Delta.app.tar.gz`, `Delta.app.tar.gz.sig` (updater bundle + detached signature)
+- `latest.json` (updater manifest)
+
+Also confirm "Bumped darioielardi/homebrew-tap to version X.Y.Z" in the publish log.
+
+**Cask update note:** The Homebrew cask gains `auto_updates true` **only after** the release
+is marked current. Never flip it before — existing installs would orphan if they ran before
+the updater ships. It's a separate operator task (gated in Step 4 of the release procedure).
 
 ## Common mistakes
 
