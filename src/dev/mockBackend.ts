@@ -17,7 +17,7 @@ const SUMMARY: DiffSummary = {
     // Sparse changes far apart → a long unchanged middle that folds. (#10)
     { path: "src/config/limits.ts", status: "modified", additions: 2, deletions: 2, binary: false },
     { path: "src/legacy/cache.ts", status: "deleted", additions: 0, deletions: 9, binary: false },
-    { path: "README.md", status: "added", additions: 3, deletions: 0, binary: false },
+    { path: "README.md", status: "added", additions: 15, deletions: 0, binary: false },
     { path: "assets/logo.png", status: "added", additions: 0, deletions: 0, binary: true },
   ],
 };
@@ -117,7 +117,7 @@ const FILES: Record<string, FileDiff> = {
     status: "added",
     binary: false,
     oldContent: null,
-    newContent: "# delta\n\nReview code diffs and leave structured comments for Claude.\n",
+    newContent: "# delta\n\nReview code diffs and leave structured comments for Claude.\n\n## Features\n\n- [x] Unified & split diffs\n- [x] Inline comments\n- [ ] Rich markdown preview\n\n| Shortcut | Action |\n| --- | --- |\n| `j` / `k` | Next / prev file |\n| `v` | Toggle viewed |\n\n~~Old workflow~~ is now the new workflow.\n",
   },
   // Binary file: exercises the "Unsupported file" treatment in the diff view.
   "assets/logo.png": {
