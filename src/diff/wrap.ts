@@ -3,10 +3,12 @@
 // Per-file line-wrapping helpers for the virtual diff renderer. Kept pure so the
 // row-height arithmetic is testable outside the big component.
 //
-// Wrap mode is "break-anywhere" (CSS `overflow-wrap: anywhere`): the browser wraps
-// at the same character boundary this math predicts, so a wrapped row's height is
-// EXACT — `ceil(cols / paneCols)` visual lines — and the virtualizer can compute
-// row offsets without mounting rows.
+// Wrap mode is tight character packing (CSS `word-break: break-all`): every visual
+// line fills to exactly `floor(textWidth / charWidth)` chars, so a wrapped row's
+// height is EXACT — `ceil(cols / paneCols)` visual lines — and the virtualizer can
+// compute row offsets without mounting rows. (Plain `overflow-wrap: anywhere` would
+// break at whitespace first and render MORE lines than this predicts; `paneCols`
+// must be derived from the real measured char advance for the count to match.)
 
 // Extensions that wrap by default: prose + plain text, which read far better
 // wrapped and rarely have alignment-significant columns. Code and structured/data
