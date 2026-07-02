@@ -420,6 +420,9 @@ export function installMockBackend(): void {
         // Never reached in mock mode (useUpdater bails on !isTauri), but keep the
         // IPC surface mirrored. The sole caller always wins the gate.
         return true as T;
+      case "telemetry_allowed":
+        // Mock/browser mode is never a real, permitted client.
+        return false as T;
       default:
         throw new Error(`mockBackend: unhandled command "${cmd}"`);
     }

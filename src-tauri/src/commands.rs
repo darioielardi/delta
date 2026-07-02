@@ -33,6 +33,39 @@ pub fn updater_try_acquire(gate: tauri::State<'_, UpdaterGate>) -> bool {
         .is_ok()
 }
 
+/// True unless telemetry is disabled by build or environment. This reports only
+/// what the frontend cannot see (the debug/release flag and process env); the
+/// user's Settings toggle is a separate, frontend-only check. Debug builds have
+/// no analytics plugin registered, so this is always false there.
+#[tauri::command]
+pub fn telemetry_allowed() -> bool {
+    if cfg!(debug_assertions) {
+        return false;
+    }
+    telemetry_allowed_from_env(
+        std::env::var("DO_NOT_TRACK").ok().as_deref(),
+        std::env::var("DELTA_TELEMETRY").ok().as_deref(),
+    )
+}
+
+/// Pure decision: `DO_NOT_TRACK=1|true` (Console Do Not Track standard) or
+/// `DELTA_TELEMETRY=0|false` disables; anything else is allowed.
+pub(crate) fn telemetry_allowed_from_env(
+    do_not_track: Option<&str>,
+    delta_telemetry: Option<&str>,
+) -> bool {
+    let dnt = do_not_track
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if dnt {
+        return false;
+    }
+    let disabled = delta_telemetry
+        .map(|v| v == "0" || v.eq_ignore_ascii_case("false"))
+        .unwrap_or(false);
+    !disabled
+}
+
 pub fn list_commits_impl(target: Target) -> Result<Vec<CommitMeta>, String> {
     engine_list_commits(&target)
 }
@@ -678,5 +711,38 @@ mod tests {
 
         assert!(storage.load(&session.review.id).unwrap().is_none());
         assert!(reg_store.load().unwrap().reviews.iter().all(|e| e.id != session.review.id));
+    }
+}
+
+#[cfg(test)]
+mod telemetry_tests {
+    use super::telemetry_allowed_from_env;
+
+    #[test]
+    fn allowed_by_default() {
+        assert!(telemetry_allowed_from_env(None, None));
+    }
+
+    #[test]
+    fn do_not_track_disables() {
+        assert!(!telemetry_allowed_from_env(Some("1"), None));
+        assert!(!telemetry_allowed_from_env(Some("true"), None));
+        assert!(!telemetry_allowed_from_env(Some("TRUE"), None));
+    }
+
+    #[test]
+    fn do_not_track_zero_is_not_opt_out() {
+        assert!(telemetry_allowed_from_env(Some("0"), None));
+    }
+
+    #[test]
+    fn delta_telemetry_off_disables() {
+        assert!(!telemetry_allowed_from_env(None, Some("0")));
+        assert!(!telemetry_allowed_from_env(None, Some("false")));
+    }
+
+    #[test]
+    fn delta_telemetry_on_stays_enabled() {
+        assert!(telemetry_allowed_from_env(None, Some("1")));
     }
 }

@@ -72,7 +72,8 @@ pub fn run() {
             commands::install_cli,
             commands::cli_status,
             commands::open_in_editor,
-            commands::updater_try_acquire
+            commands::updater_try_acquire,
+            commands::telemetry_allowed
         ])
         .setup(|app| {
             let args: Vec<String> = std::env::args().skip(1).collect();
