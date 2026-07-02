@@ -811,82 +811,101 @@ const VFileSection = memo(function VFileSection({
           {entry.additions > 0 && <span className="text-emerald-500">+{entry.additions}</span>}{" "}
           {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
         </span>
-        {canPreview && (
-          // Diff / rendered-preview switch — same segmented control as the files
-          // panel's list/tree toggle. (#preview)
-          <ToggleGroup
-            type="single"
-            size="sm"
-            value={previewing ? "preview" : "diff"}
-            onValueChange={(v) => v && setPreview(v === "preview")}
-            aria-label={`view mode for ${entry.path}`}
-            className="relative shrink-0 gap-0.5 rounded-md bg-muted/70 p-0.5"
-          >
-            <ToggleGroupItem value="diff" aria-label="Diff view" title="Diff" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"><CodeIcon className="size-3.5" /></ToggleGroupItem>
-            <ToggleGroupItem value="preview" aria-label="Rich preview" title="Preview" className="size-5 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"><BookOpen className="size-3.5" /></ToggleGroupItem>
-          </ToggleGroup>
-        )}
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => { void api.openInEditor(getEditorPref(), repoPath, entry.path).catch((e) => console.error("open in editor:", e)); }}
-          aria-label={`open ${entry.path} in editor`}
-          title="Open in editor"
-          className="relative h-6 shrink-0 px-2 text-muted-foreground hover:text-foreground"
-        >
-          <ExternalLink className="size-4" />
-        </Button>
-        {/* While previewing there are no line anchors to attach to, so commenting is
-            disabled rather than hidden. The title lives on the wrapping span so the
-            native tooltip still shows over the disabled (pointer-events-none) button,
-            and the span absorbs the click so it can't fall through to the collapse
-            target behind it. (#preview) */}
-        <span
-          className="relative shrink-0"
-          title={previewing ? "Switch to Diff to add a comment" : "Comment on file"}
-        >
+        {/* Control cluster, grouped by role: view toggles (hold state, light up
+            in --primary) · actions (one-shot, never lit) · Viewed (review state,
+            pinned to the edge). Hairline dividers separate the groups so a control's
+            position is predictable. The cluster is `relative` so it (and its buttons)
+            paint above — and take clicks from — the absolute collapse target. (#card) */}
+        <div className="relative ml-2 flex shrink-0 items-center gap-1">
+          {/* View: how the file is displayed. */}
+          <div className="flex items-center gap-1">
+            {canPreview && (
+              // Diff / rendered-preview switch. The selected segment adopts the same
+              // --primary "on" accent as an active Wrap, so all view toggles read alike. (#preview)
+              <ToggleGroup
+                type="single"
+                size="sm"
+                value={previewing ? "preview" : "diff"}
+                onValueChange={(v) => v && setPreview(v === "preview")}
+                aria-label={`view mode for ${entry.path}`}
+                className="gap-0.5 rounded-md bg-muted/70 p-0.5"
+              >
+                <ToggleGroupItem value="diff" aria-label="Diff view" title="Diff" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-primary/10 data-[state=on]:text-primary"><CodeIcon className="size-4" /></ToggleGroupItem>
+                <ToggleGroupItem value="preview" aria-label="Rich preview" title="Preview" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-primary/10 data-[state=on]:text-primary"><BookOpen className="size-4" /></ToggleGroupItem>
+              </ToggleGroup>
+            )}
+            {/* Wrap is a diff-view setting with no meaning in the rendered preview,
+                so it's disabled there. Active → the shared --primary pill. */}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onToggleWrap(entry.path)}
+              disabled={previewing}
+              aria-pressed={wrap}
+              aria-label={`wrap lines ${entry.path}`}
+              title="Wrap lines"
+              className={`h-7 px-2 ${wrap ? "bg-primary/10 text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <WrapText className="size-4" />
+            </Button>
+          </div>
+          <span aria-hidden className="mx-1 h-5 w-px bg-border/60" />
+          {/* Actions: one-shot, never carry persistent state. */}
+          <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => { void api.openInEditor(getEditorPref(), repoPath, entry.path).catch((e) => console.error("open in editor:", e)); }}
+              aria-label={`open ${entry.path} in editor`}
+              title="Open in editor"
+              className="h-7 px-2 text-muted-foreground hover:text-foreground"
+            >
+              <ExternalLink className="size-4" />
+            </Button>
+            {/* While previewing there are no line anchors to attach to, so commenting is
+                disabled rather than hidden. The title lives on the wrapping span so the
+                native tooltip still shows over the disabled (pointer-events-none) button,
+                and the span absorbs the click so it can't fall through to the collapse
+                target behind it. (#preview) */}
+            <span
+              className="relative shrink-0"
+              title={previewing ? "Switch to Diff to add a comment" : "Comment on file"}
+            >
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={previewing}
+                onClick={() => {
+                  // A deleted or giant file hides its content behind a reveal, and the
+                  // file-comment form renders inside the (model-built) body — so reveal first,
+                  // else the comment this click creates would sit hidden behind the placeholder. (#11)
+                  if ((isDeleted || isGiant(entry)) && !revealed) { setRevealed(true); void cache.load(entry.path); }
+                  onAddFileComment(entry.path, "");
+                }}
+                aria-label={previewing ? `commenting disabled while previewing ${entry.path}` : `comment on ${entry.path}`}
+                className="h-7 px-2 text-muted-foreground hover:text-foreground"
+              >
+                <MessageSquarePlus className="size-4" />
+              </Button>
+            </span>
+          </div>
+          <span aria-hidden className="mx-1 h-5 w-px bg-border/60" />
+          {/* Review state: the per-file "done" checkpoint, pinned to the edge. */}
           <Button
             size="sm"
             variant="ghost"
-            disabled={previewing}
-            onClick={() => {
-              // A deleted or giant file hides its content behind a reveal, and the
-              // file-comment form renders inside the (model-built) body — so reveal first,
-              // else the comment this click creates would sit hidden behind the placeholder. (#11)
-              if ((isDeleted || isGiant(entry)) && !revealed) { setRevealed(true); void cache.load(entry.path); }
-              onAddFileComment(entry.path, "");
-            }}
-            aria-label={previewing ? `commenting disabled while previewing ${entry.path}` : `comment on ${entry.path}`}
-            className="h-6 px-2 text-muted-foreground hover:text-foreground"
+            onClick={() => onToggleViewed(entry.path)}
+            aria-pressed={viewed}
+            aria-label={`viewed ${entry.path}`}
+            title="Mark viewed"
+            className={`delta-ui-font h-7 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
           >
-            <MessageSquarePlus className="size-4" />
+            <span className={`flex size-4 items-center justify-center rounded-[5px] border transition-colors ${viewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80"}`}>
+              {viewed && <Check className="size-3" strokeWidth={3} />}
+            </span>
+            Viewed
           </Button>
-        </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => onToggleWrap(entry.path)}
-          aria-pressed={wrap}
-          aria-label={`wrap lines ${entry.path}`}
-          title="Wrap lines"
-          className={`relative h-6 shrink-0 px-2 ${wrap ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          <WrapText className="size-4" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => onToggleViewed(entry.path)}
-          aria-pressed={viewed}
-          aria-label={`viewed ${entry.path}`}
-          title="Mark viewed"
-          className={`delta-ui-font relative h-6 shrink-0 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          <span className={`flex size-4 items-center justify-center rounded-[5px] border transition-colors ${viewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80"}`}>
-            {viewed && <Check className="size-3" strokeWidth={3} />}
-          </span>
-          Viewed
-        </Button>
+        </div>
       </div>
       {!collapsed && (
         <div
