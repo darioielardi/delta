@@ -596,7 +596,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
                 ) : copyState === "err" ? (
                   <><Copy className="size-3.5" /> Failed</>
                 ) : (
-                  <><Copy className="size-3.5" /> Copy for agents{commentCount > 0 && <Kbd keys="⌘⇧C" className="border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground/90" />}</>
+                  <><Copy className="size-3.5" /> Copy for agents<Kbd keys="⌘⇧C" className="border-primary-foreground/30 bg-primary-foreground/15 text-primary-foreground/90" /></>
                 )}
               </Button>
             </div>
