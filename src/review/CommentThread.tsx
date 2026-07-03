@@ -1,5 +1,6 @@
 import { useState } from "react";
 import Markdown from "react-markdown";
+import { markdownComponents } from "@/lib/markdownLink";
 import { Check, Pencil, Trash2, RotateCcw, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -134,7 +135,7 @@ export function CommentThread({
                     </button>
                   ) : (
                     <div className="prose prose-sm max-w-none break-words prose-pre:my-1.5 prose-pre:text-[12px] prose-code:text-[12px]">
-                      <Markdown>{c.body}</Markdown>
+                      <Markdown components={markdownComponents}>{c.body}</Markdown>
                     </div>
                   )}
                 </div>
