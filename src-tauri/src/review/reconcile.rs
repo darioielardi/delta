@@ -1,4 +1,5 @@
 use crate::anchor::{diff_hash, reanchor};
+use crate::git::cache::DiffCache;
 use crate::git::diff::{compute_diff, get_file_diff, DiffSummary};
 use crate::git::log::list_commits;
 use crate::git::model::Target;
@@ -121,6 +122,51 @@ pub fn reconcile(mut review: Review) -> Result<ReviewSession, GitError> {
     review.last_opened_at = now();
 
     Ok(ReviewSession { review, summary, repo_name: String::new() })
+}
+
+/// Fill a content baseline into any viewed entry that lacks one, hashing the
+/// file's diff content from the cached snapshot. Called at save time — the moment
+/// the user toggles "viewed" — so the baseline reflects the version they actually
+/// saw, rather than letting `reconcile` stamp it lazily on the next refresh (which
+/// would absorb an edit landing in that window and wrongly keep the file marked
+/// viewed). Served from the `DiffCache` (a map read against the snapshot the user
+/// is looking at), not a fresh whole-repo diff per entry — the latter turned every
+/// save into O(viewed files) full re-diffs on the (synchronous) save path. A file
+/// that can't be read is left empty for `reconcile` to handle. Idempotent: a
+/// non-empty hash is never overwritten.
+pub fn stamp_viewed_baselines(cache: &DiffCache, review: &mut Review) {
+    for v in review.viewed.iter_mut() {
+        if !v.diff_hash.is_empty() {
+            continue;
+        }
+        if let Ok(fd) = cache.file(&review.target, &v.file) {
+            v.diff_hash = diff_hash(
+                fd.old_content.as_deref().unwrap_or(""),
+                fd.new_content.as_deref().unwrap_or(""),
+            );
+        }
+    }
+}
+
+/// Overlay persisted viewed baselines onto the review the frontend holds in
+/// memory. The frontend sends its in-memory review to `refresh_review`; an entry
+/// it toggled since the last reconcile still carries an empty hash there, even
+/// though `save_review` already stamped and persisted the real baseline. Adopt
+/// the persisted hash so `reconcile` compares against the version the user saw,
+/// not the (possibly already-changed) current content.
+pub fn adopt_persisted_viewed_hashes(incoming: &mut Review, persisted: &Review) {
+    for v in incoming.viewed.iter_mut() {
+        if !v.diff_hash.is_empty() {
+            continue;
+        }
+        if let Some(p) = persisted
+            .viewed
+            .iter()
+            .find(|p| p.file == v.file && !p.diff_hash.is_empty())
+        {
+            v.diff_hash = p.diff_hash.clone();
+        }
+    }
 }
 
 fn file_side_content(target: &Target, file: &str, side: Side) -> Option<String> {
@@ -279,5 +325,35 @@ mod tests {
         write(dir.path(), "file.txt", "line1\nCHANGED-AGAIN\n");
         let dropped = reconcile(r).unwrap();
         assert_eq!(dropped.review.viewed.len(), 0);
+    }
+
+    #[test]
+    fn stamp_viewed_baselines_reads_the_cached_snapshot_not_current_disk() {
+        let (dir, _repo) = repo_with_commit();
+        write(dir.path(), "file.txt", "line1\nAAA\nline2\n");
+        let mut r = empty_review(dir.path().to_str().unwrap());
+        let cache = DiffCache::default();
+
+        // Prime the cache with the version the user is looking at (AAA) and record its hash.
+        let seen = cache.file(&r.target, "file.txt").unwrap();
+        let seen_hash = diff_hash(
+            seen.old_content.as_deref().unwrap_or(""),
+            seen.new_content.as_deref().unwrap_or(""),
+        );
+
+        // The FE marks the file viewed with an empty hash (it never computes the baseline).
+        r.viewed.push(ViewedEntry { file: "file.txt".into(), diff_hash: String::new() });
+
+        // The working tree changes before the stamp runs, but the cache is NOT invalidated.
+        // Stamping must hash the cached snapshot the user saw — not re-diff current disk. With
+        // the old raw `get_file_diff` this would read BBB and produce a different hash.
+        write(dir.path(), "file.txt", "line1\nBBB\nline2\n");
+
+        stamp_viewed_baselines(&cache, &mut r);
+
+        assert_eq!(
+            r.viewed[0].diff_hash, seen_hash,
+            "stamp must read the cached snapshot (a map read), not a fresh whole-repo diff of current disk",
+        );
     }
 }

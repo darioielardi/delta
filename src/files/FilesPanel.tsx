@@ -1,5 +1,5 @@
 // src/files/FilesPanel.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Kbd } from "@/components/ui/kbd";
 import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, Check, List, ListTree, MessageSquare, Search, X } from "lucide-react";
@@ -16,6 +16,18 @@ const EMPTY_COUNTS: Map<string, number> = new Map();
 // last three digits and append "k" (156048 → "156k"). Smaller counts stay exact.
 const fmtCount = (n: number) => (n > 100_000 ? `${Math.floor(n / 1000)}k` : String(n));
 
+// Row windowing geometry (#virtual). Rows are a fixed height, so a row's y-offset is
+// exact arithmetic — we mount only the on-screen slice of a flattened node list and
+// float it over a full-height spacer. Same idea as VirtualDiffPane, but simpler
+// (uniform rows). INDENT/ROW_PL reproduce the old nested ml-2.5 / pl-1 indentation
+// now that rows render flat instead of via nested wrappers.
+const ROW_H = 26;         // must match the row's h-[26px]
+const INDENT = 10;        // px per tree depth (old ml-2.5 = 0.625rem)
+const ROW_PL = 4;         // base row padding-left in tree mode (old pl-1 = 0.25rem)
+const FLAT_PL = 10;       // list-mode padding-left (old pl-2.5 = 0.625rem)
+const TREE_PAD_Y = 6;     // top/bottom breathing room in the scroller (old py-1.5)
+const OVERSCAN_ROWS = 16; // rows rendered beyond the viewport each way
+
 interface RowHandlers {
   activePath: string | null;
   collapsed: Set<string>;
@@ -29,78 +41,79 @@ interface RowHandlers {
   onHoverFile: (path: string | null) => void;
 }
 
-function TreeRows({ nodes, h }: { nodes: TreeNode[]; h: RowHandlers }) {
-  return (
-    <>
-      {nodes.map((node) => (
-        <TreeBranch key={node.path} node={node} h={h} />
-      ))}
-    </>
-  );
-}
-
-function TreeBranch({ node, h }: { node: TreeNode; h: RowHandlers }) {
+// One flattened tree row, absolutely positioned at `top` inside the spacer. Depth
+// drives indentation and the vertical guide lines that used to come from nested
+// border-l wrappers — collapsed subtrees simply never appear in `visible`. (#virtual)
+function Row({ node, depth, top, h }: { node: TreeNode; depth: number; top: number; h: RowHandlers }) {
   const isDir = node.kind === "dir";
   const open = isDir && !h.collapsed.has(node.path);
   const active = node.path === h.activePath;
   const isViewed = !isDir && node.entry ? h.viewedFiles.has(node.entry.path) : false;
   const commentN = !isDir && node.entry ? h.commentCounts.get(node.entry.path) ?? 0 : 0;
+  const paddingLeft = h.flat ? FLAT_PL : depth * INDENT + ROW_PL;
+  // Renamed file → tooltip names the source path (the sky icon already flags the
+  // rename; the old path isn't shown inline to keep the narrow rows uncluttered).
+  const renamedFrom = !isDir && node.entry?.status === "renamed" && node.entry.oldPath ? node.entry.oldPath : null;
 
   return (
-    <div>
-      <div
-        data-path={node.path}
-        className={`group flex h-[26px] select-none items-center gap-1.5 rounded-md ${h.flat ? "pl-2.5" : "pl-1"} pr-1.5 ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-65" : ""}`}
-        onClick={() => (isDir ? h.onToggleDir(node.path) : h.onSelectFile(node.path))}
-        onMouseEnter={isDir ? undefined : () => h.onHoverFile(node.path)}
-        onMouseLeave={isDir ? undefined : () => h.onHoverFile(null)}
-      >
-        {isDir ? (
-          <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
-        ) : h.flat ? null : (
-          <span data-testid="tree-indent" className="w-3.5 shrink-0" />
-        )}
-        {isDir ? (
-          open
-            ? <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
-            : <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <FileGlyph name={node.name} status={node.entry!.status} />
-        )}
-        <span className={`flex-1 truncate text-[13px] ${isDir ? "font-medium text-foreground" : "text-foreground"}`}>
-          {node.name}
-        </span>
-        {!isDir && node.entry && (
-          <>
-            {commentN > 0 && (
-              <span
-                className="flex shrink-0 items-center gap-0.5 text-[11px] tabular-nums text-muted-foreground"
-                title={`${commentN} comment${commentN === 1 ? "" : "s"}`}
-              >
-                <MessageSquare className="size-3" />
-                {commentN}
-              </span>
-            )}
-            <span className="shrink-0 text-[11px] tabular-nums">
-              {node.entry.additions > 0 && <span className="text-emerald-500">+{node.entry.additions}</span>}{" "}
-              {node.entry.deletions > 0 && <span className="text-rose-500">−{node.entry.deletions}</span>}
-            </span>
-            <button
-              aria-label={`viewed ${node.entry.path}`}
-              onClick={(e) => { e.stopPropagation(); h.onToggleViewed(node.entry!.path); }}
-              className={`flex size-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors ${isViewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80 bg-card dark:bg-transparent group-hover:border-foreground/40 hover:!border-foreground/60"}`}
+    <div
+      data-path={node.path}
+      title={renamedFrom ? `Renamed from ${renamedFrom}` : undefined}
+      className={`group absolute inset-x-0 flex h-[26px] select-none items-center gap-1.5 rounded-md pr-1.5 ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-65" : ""}`}
+      style={{ top, paddingLeft }}
+      onClick={() => (isDir ? h.onToggleDir(node.path) : h.onSelectFile(node.path))}
+      onMouseEnter={isDir ? undefined : () => h.onHoverFile(node.path)}
+      onMouseLeave={isDir ? undefined : () => h.onHoverFile(null)}
+    >
+      {/* One vertical guide per ancestor level, replacing the old nested border-l
+          wrappers. Positioned from the row's left edge, so stacked rows line up into
+          continuous rules at the same x the nested version drew them. (#virtual) */}
+      {!h.flat && depth > 0 && Array.from({ length: depth }, (_, k) => (
+        <span
+          key={k}
+          aria-hidden
+          className="pointer-events-none absolute top-0 bottom-0 border-l border-border/40"
+          style={{ left: (k + 1) * INDENT }}
+        />
+      ))}
+      {isDir ? (
+        <ChevronRight className={`size-3.5 shrink-0 text-muted-foreground transition-transform duration-200 ${open ? "rotate-90" : ""}`} />
+      ) : h.flat ? null : (
+        <span data-testid="tree-indent" className="w-3.5 shrink-0" />
+      )}
+      {isDir ? (
+        open
+          ? <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+          : <Folder className="size-3.5 shrink-0 text-muted-foreground" />
+      ) : (
+        <FileGlyph name={node.name} status={node.entry!.status} />
+      )}
+      <span className={`flex-1 truncate text-[13px] ${isDir ? "font-medium text-foreground" : "text-foreground"}`}>
+        {node.name}
+      </span>
+      {!isDir && node.entry && (
+        <>
+          {commentN > 0 && (
+            <span
+              className="flex shrink-0 items-center gap-0.5 text-[11px] tabular-nums text-muted-foreground"
+              title={`${commentN} comment${commentN === 1 ? "" : "s"}`}
             >
-              {isViewed && <Check className="size-2.5" strokeWidth={3} />}
-            </button>
-          </>
-        )}
-      </div>
-      {/* Render children only when open: collapsed subtrees unmount entirely,
-          so a toggle no longer reflows hundreds of clipped-but-mounted rows. */}
-      {isDir && open && (
-        <div className="ml-2.5 border-l border-border/40 pl-0">
-          <TreeRows nodes={node.children} h={h} />
-        </div>
+              <MessageSquare className="size-3" />
+              {commentN}
+            </span>
+          )}
+          <span className="shrink-0 text-[11px] tabular-nums">
+            {node.entry.additions > 0 && <span className="text-emerald-500">+{node.entry.additions}</span>}{" "}
+            {node.entry.deletions > 0 && <span className="text-rose-500">−{node.entry.deletions}</span>}
+          </span>
+          <button
+            aria-label={`viewed ${node.entry.path}`}
+            onClick={(e) => { e.stopPropagation(); h.onToggleViewed(node.entry!.path); }}
+            className={`flex size-4 shrink-0 items-center justify-center rounded-[5px] border transition-colors ${isViewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80 bg-card dark:bg-transparent group-hover:border-foreground/40 hover:!border-foreground/60"}`}
+          >
+            {isViewed && <Check className="size-2.5" strokeWidth={3} />}
+          </button>
+        </>
       )}
     </div>
   );
@@ -129,33 +142,31 @@ export function FilesPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Row-windowing state (#virtual): only rows within [scrollTop, +viewportH] mount.
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportH, setViewportH] = useState(0);
 
-  // Keep the active row in view, but never flush against the top/bottom edge:
-  // leave ~one row of padding so a neighbor is always visible (unless the row is
-  // truly first/last, where the scroll clamps). Always smooth — whether the row
-  // changed via keyboard nav, a click, or scroll-spy following the diff — so the
-  // highlight glides to its new spot instead of teleporting. (#r3)
-  useEffect(() => {
-    if (!activePath) return;
-    const container = scrollRef.current;
-    const el = container?.querySelector(`[data-path="${activePath}"]`) as HTMLElement | null;
-    if (!container || !el) return;
-    const cRect = container.getBoundingClientRect();
-    const eRect = el.getBoundingClientRect();
-    const rowTop = eRect.top - cRect.top + container.scrollTop;
-    const pad = eRect.height + 6; // one neighbor row of breathing room
-    let top: number | null = null;
-    if (rowTop - pad < container.scrollTop) {
-      top = Math.max(0, rowTop - pad);
-    } else if (rowTop + eRect.height + pad > container.scrollTop + container.clientHeight) {
-      top = rowTop + eRect.height + pad - container.clientHeight;
+  // Track the scroller's scrollTop (rAF-gated, like the diff pane) and its height to
+  // drive the row window below. Off-screen rows never mount, so this is what keeps a
+  // 2000-file tree at ~viewport-sized DOM. useLayoutEffect measures before paint so
+  // the first frame already renders the right slice (no flash). (#virtual)
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setViewportH(el.clientHeight);
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => { raf = 0; setScrollTop(el.scrollTop); });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    let ro: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(() => setViewportH(el.clientHeight));
+      ro.observe(el);
     }
-    if (top === null) return; // already comfortably in view — don't nudge
-    // Honor reduced-motion; otherwise glide. Repeated calls (e.g. held arrow key,
-    // continuous scroll-spy) retarget the in-flight animation smoothly.
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    container.scrollTo({ top, behavior: reduce ? "auto" : "smooth" });
-  }, [activePath]);
+    return () => { el.removeEventListener("scroll", onScroll); ro?.disconnect(); if (raf) cancelAnimationFrame(raf); };
+  }, []);
 
   // Follow the diff viewport (scroll-spy): when the top file changes, select it
   // so the highlight tracks what you're looking at. Keyboard/click selection
@@ -194,18 +205,43 @@ export function FilesPanel({
     [filteredFiles, mode],
   );
 
-  // Flatten the currently-visible rows for keyboard nav. While searching, every
-  // dir is force-open so matches are never hidden behind a collapsed parent.
-  const visible: TreeNode[] = useMemo(() => {
-    const out: TreeNode[] = [];
-    (function walk(nodes: TreeNode[]) {
+  // Flatten the currently-visible rows (with depth) for both keyboard nav and row
+  // windowing. While searching, every dir is force-open so matches are never hidden
+  // behind a collapsed parent. Depth replaces the old nested-div indentation. (#virtual)
+  const visible: { node: TreeNode; depth: number }[] = useMemo(() => {
+    const out: { node: TreeNode; depth: number }[] = [];
+    (function walk(nodes: TreeNode[], depth: number) {
       for (const n of nodes) {
-        out.push(n);
-        if (n.kind === "dir" && (searching || !collapsed.has(n.path))) walk(n.children);
+        out.push({ node: n, depth });
+        if (n.kind === "dir" && (searching || !collapsed.has(n.path))) walk(n.children, depth + 1);
       }
-    })(roots);
+    })(roots, 0);
     return out;
   }, [roots, collapsed, searching]);
+
+  // Keep the active row in view. It may be windowed out of the DOM, so its offset is
+  // computed from ROW_H (index math) rather than measured — leaves ~one row of
+  // padding, honors reduced-motion else glides, so the highlight tracks keyboard nav,
+  // clicks, and scroll-spy smoothly. Re-runs on tree reshape too, but only nudges if
+  // the active row actually fell out of view. (#r3/#virtual)
+  useEffect(() => {
+    if (!activePath) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    const idx = visible.findIndex((r) => r.node.path === activePath);
+    if (idx < 0) return;
+    const rowTop = TREE_PAD_Y + idx * ROW_H;
+    const pad = ROW_H + 6; // one neighbor row of breathing room
+    let top: number | null = null;
+    if (rowTop - pad < el.scrollTop) {
+      top = Math.max(0, rowTop - pad);
+    } else if (rowTop + ROW_H + pad > el.scrollTop + el.clientHeight) {
+      top = rowTop + ROW_H + pad - el.clientHeight;
+    }
+    if (top === null) return; // already comfortably in view
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ top, behavior: reduce ? "auto" : "smooth" });
+  }, [activePath, visible]);
 
   // Every directory path, for collapse/expand-all. `roots` is the full tree when
   // not searching, and the collapse-all button is hidden while searching, so this
@@ -243,19 +279,19 @@ export function FilesPanel({
 
   function onKeyDown(e: React.KeyboardEvent) {
     if (!visible.length) return;
-    const idx = visible.findIndex((n) => n.path === activePath);
-    const cur = idx >= 0 ? visible[idx] : undefined;
+    const idx = visible.findIndex((r) => r.node.path === activePath);
+    const cur = idx >= 0 ? visible[idx].node : undefined;
     // Arrows loop and jump-scroll the diff to the file; Enter toggles viewed;
     // left/right collapse/expand dirs. (#r5)
     const moveTo = (n: TreeNode) => (n.kind === "file" ? selectFile(n.path) : setActivePath(n.path));
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        moveTo(visible[idx < 0 ? 0 : (idx + 1) % visible.length]);
+        moveTo(visible[idx < 0 ? 0 : (idx + 1) % visible.length].node);
         break;
       case "ArrowUp":
         e.preventDefault();
-        moveTo(visible[idx <= 0 ? visible.length - 1 : idx - 1]);
+        moveTo(visible[idx <= 0 ? visible.length - 1 : idx - 1].node);
         break;
       case "ArrowRight":
         e.preventDefault();
@@ -282,11 +318,11 @@ export function FilesPanel({
       else searchRef.current?.blur();
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const first = visible.find((n) => n.kind === "file");
+      const first = visible.find((r) => r.node.kind === "file")?.node;
       if (first) selectFile(first.path);
     } else if (e.key === "ArrowDown") {
       e.preventDefault();
-      const first = visible[0];
+      const first = visible[0]?.node;
       if (first) { setActivePath(first.path); scrollRef.current?.focus(); }
     }
   }
@@ -302,6 +338,18 @@ export function FilesPanel({
     onToggleViewed,
     onHoverFile,
   };
+
+  // Row window: which slice of `visible` is on screen (+ overscan). winH falls back to
+  // a tall value before the layout effect measures (and in happy-dom tests) so small
+  // trees render fully on first paint; totalH sizes the spacer that preserves scroll. (#virtual)
+  const winH = viewportH || 1200;
+  const rowCount = visible.length;
+  const firstRow = Math.max(0, Math.floor((scrollTop - TREE_PAD_Y) / ROW_H) - OVERSCAN_ROWS);
+  const lastRow = Math.min(rowCount, Math.ceil((scrollTop - TREE_PAD_Y + winH) / ROW_H) + OVERSCAN_ROWS);
+  // padBottom reserves ~pb-16 of extra scroll room so the floating walkthrough pill
+  // never hides the last row — the virtualized spacer, not container padding, owns
+  // vertical space here. (#guide)
+  const totalH = rowCount * ROW_H + TREE_PAD_Y * 2 + (padBottom ? 64 : 0);
 
   return (
     // Top + left padding mirrors the diff pane's card inset (PAD) so the three
@@ -383,12 +431,16 @@ export function FilesPanel({
         data-testid="files-tree"
         tabIndex={0}
         onKeyDown={onKeyDown}
-        className={`min-h-0 flex-1 overflow-auto pl-2 pr-1.5 pt-1.5 outline-none ${padBottom ? "pb-16" : "pb-1.5"}`}
+        className="min-h-0 flex-1 overflow-auto pl-2 pr-1.5 outline-none"
       >
         {searching && roots.length === 0 ? (
           <div className="px-3 py-6 text-center text-[12px] text-muted-foreground">No files match “{query}”.</div>
         ) : (
-          <TreeRows nodes={roots} h={h} />
+          <div className="relative" style={{ height: totalH }}>
+            {visible.slice(firstRow, lastRow).map(({ node, depth }, k) => (
+              <Row key={node.path} node={node} depth={depth} top={TREE_PAD_Y + (firstRow + k) * ROW_H} h={h} />
+            ))}
+          </div>
         )}
       </div>
     </div>

@@ -31,10 +31,8 @@ export interface FileEntry {
 export interface FileDiff {
   oldFileName?: string | null;
   oldContent?: string | null;
-  oldLang?: string | null;
   newFileName?: string | null;
   newContent?: string | null;
-  newLang?: string | null;
   status: FileStatus;
   binary: boolean;
 }

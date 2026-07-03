@@ -107,11 +107,11 @@ export function CommentThread({
                 <div className="pl-4 pr-3 pt-2.5 pb-3.5">
                   <div className="mb-2 flex items-center gap-1.5">
                     {c.stale ? (
-                      <span className="flex items-center gap-1 text-[11px] font-medium text-amber-600 dark:text-amber-400">
+                      <span className="flex items-center gap-1 text-[12px] font-medium text-amber-600 dark:text-amber-400">
                         <TriangleAlert className="size-3.5" /> stale
                       </span>
                     ) : (
-                      <span className="text-[11px] text-muted-foreground/70">{relTime(c.createdAt)}</span>
+                      <span className="text-[12px] text-muted-foreground/70">{relTime(c.createdAt)}</span>
                     )}
                     <div className="ml-auto flex items-center gap-0.5">
                       <Button variant="ghost" size="icon-xs" className={RESOLVE_BTN} aria-label="Resolve" title="Resolve" onClick={() => onToggleResolved(c.id)}>
@@ -133,7 +133,7 @@ export function CommentThread({
                       Empty note — click to edit
                     </button>
                   ) : (
-                    <div className="prose prose-sm max-w-none break-words dark:prose-invert prose-p:my-0 prose-pre:my-1.5 prose-pre:text-[12px] prose-code:text-[12px]">
+                    <div className="prose prose-sm max-w-none break-words prose-pre:my-1.5 prose-pre:text-[12px] prose-code:text-[12px]">
                       <Markdown>{c.body}</Markdown>
                     </div>
                   )}

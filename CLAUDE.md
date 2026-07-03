@@ -44,11 +44,11 @@ The body is wrapped in an async IIFE, so `await` works; `?w=<window-label>` targ
 - `launch/` — window management (singleton `home`, one `review-{id}` per target), CLI parsing, registry, CLI install.
 - `git/` — diff computation, language detection, repo/worktree/base resolution.
 - `review/` — review model + comment reconciliation (anchors survive edits). `registry/`, `storage/` — persisted recents/reviews. `watch/` — fs watcher → `fs:changed` events for auto-refresh. `export/` — Markdown export for agents.
-- `lib.rs` — plugin/command registration + the window-lifecycle run loop (reopens `home` when the last `review-` window closes).
+- `lib.rs` — plugin/command registration + the window-lifecycle run loop: on macOS it keeps the app alive when the last window closes (`ExitRequested` → `prevent_exit`) and reopens `home` on dock-click; other platforms exit.
 
 ### Window model
 
-Singleton `home` launcher + one `review-{id}` window per target. Opening a review closes `home`; `home` reopens only after the last review window is destroyed ([App.tsx](src/App.tsx), [src-tauri/src/lib.rs](src-tauri/src/lib.rs)).
+Singleton `home` launcher + one `review-{id}` window per target. Opening a review closes `home`. Closing the last window does **not** reopen `home`: on macOS the app stays alive with no window (Tauri would otherwise exit, so `ExitRequested`/`code.is_none()` → `prevent_exit` holds it) — the `delta` shim stays warm and a dock-click reopens `home`; other platforms exit to avoid a windowless orphan ([App.tsx](src/App.tsx), [src-tauri/src/lib.rs](src-tauri/src/lib.rs)).
 
 ## Conventions & gotchas
 

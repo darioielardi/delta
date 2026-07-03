@@ -1,5 +1,6 @@
 use crate::export::export_markdown;
-use crate::git::diff::{compute_diff as engine_compute, get_file_diff as engine_file, DiffSummary, FileDiff};
+use crate::git::cache::DiffCache;
+use crate::git::diff::{DiffSummary, FileDiff};
 use crate::git::log::{list_commits as engine_list_commits, CommitMeta};
 use crate::git::model::{DiffMode, Target};
 use crate::git::{open_repo, resolve_worktree};
@@ -10,21 +11,62 @@ use crate::launch::{
 };
 use crate::registry::model::{Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
-use crate::review::reconcile::{reconcile, ReviewSession};
+use crate::review::reconcile::{adopt_persisted_viewed_hashes, reconcile, stamp_viewed_baselines, ReviewSession};
 use crate::storage::{JsonRegistryStore, JsonStorage, RegistryStore, Storage};
 use crate::walkthrough::claude::{ClaudeRunner, RealClaude};
 use crate::walkthrough::model::{ClaudeStatus, Walkthrough, WalkthroughError};
 use crate::walkthrough::{claude_status_impl, generate_walkthrough_impl, resolve_claude, ChildRegistry};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::Manager;
 use tauri_plugin_dialog::DialogExt;
 
-pub fn compute_diff_impl(target: Target) -> Result<DiffSummary, String> {
-    engine_compute(&target)
+/// Process-wide one-shot latch for the self-updater. `useUpdater` runs per
+/// window (App mounts in each), so two windows open at once could otherwise
+/// both `check()` + `downloadAndInstall()` and race on replacing the .app.
+/// The first window to call this wins; the rest skip for the process lifetime.
+/// (#updater-race)
+#[derive(Default)]
+pub struct UpdaterGate(AtomicBool);
+
+#[tauri::command]
+pub fn updater_try_acquire(gate: tauri::State<'_, UpdaterGate>) -> bool {
+    gate.0
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
 }
 
-pub fn get_file_diff_impl(target: Target, path: String) -> Result<FileDiff, String> {
-    engine_file(&target, &path)
+/// True unless telemetry is disabled by build or environment. This reports only
+/// what the frontend cannot see (the debug/release flag and process env); the
+/// user's Settings toggle is a separate, frontend-only check. Debug builds have
+/// no analytics plugin registered, so this is always false there.
+#[tauri::command]
+pub fn telemetry_allowed() -> bool {
+    if cfg!(debug_assertions) {
+        return false;
+    }
+    telemetry_allowed_from_env(
+        std::env::var("DO_NOT_TRACK").ok().as_deref(),
+        std::env::var("DELTA_TELEMETRY").ok().as_deref(),
+    )
+}
+
+/// Pure decision: `DO_NOT_TRACK=1|true` (Console Do Not Track standard) or
+/// `DELTA_TELEMETRY=0|false` disables; anything else is allowed.
+pub(crate) fn telemetry_allowed_from_env(
+    do_not_track: Option<&str>,
+    delta_telemetry: Option<&str>,
+) -> bool {
+    let dnt = do_not_track
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if dnt {
+        return false;
+    }
+    let disabled = delta_telemetry
+        .map(|v| v == "0" || v.eq_ignore_ascii_case("false"))
+        .unwrap_or(false);
+    !disabled
 }
 
 pub fn list_commits_impl(target: Target) -> Result<Vec<CommitMeta>, String> {
@@ -63,13 +105,23 @@ pub fn open_review_impl(storage: &dyn Storage, input: Target) -> Result<ReviewSe
     Ok(session)
 }
 
-pub fn refresh_review_impl(storage: &dyn Storage, review: Review) -> Result<ReviewSession, String> {
+pub fn refresh_review_impl(storage: &dyn Storage, mut review: Review) -> Result<ReviewSession, String> {
+    // The FE's in-memory viewed entries may still carry empty hashes from a
+    // just-made toggle; save_review already stamped the real baselines to disk.
+    // Adopt them so a file changed since it was viewed is correctly un-viewed here.
+    if let Ok(Some(persisted)) = storage.load(&review.id) {
+        adopt_persisted_viewed_hashes(&mut review, &persisted);
+    }
     let session = reconcile(review)?;
     storage.save(&session.review)?;
     Ok(session)
 }
 
-pub fn save_review_impl(storage: &dyn Storage, review: Review) -> Result<(), String> {
+pub fn save_review_impl(cache: &DiffCache, storage: &dyn Storage, mut review: Review) -> Result<(), String> {
+    // Stamp a content baseline onto freshly-toggled viewed entries now, while the
+    // files are still at the version the user saw — see stamp_viewed_baselines.
+    // Served from the diff cache (a map read), not a fresh whole-repo diff per entry.
+    stamp_viewed_baselines(cache, &mut review);
     storage.save(&review)
 }
 
@@ -143,8 +195,8 @@ pub fn refresh_review_impl_with_registry(storage: &dyn Storage, reg_store: &dyn 
     Ok(session)
 }
 
-pub fn save_review_impl_with_registry(storage: &dyn Storage, reg_store: &dyn RegistryStore, review: Review) -> Result<(), String> {
-    save_review_impl(storage, review.clone())?;
+pub fn save_review_impl_with_registry(cache: &DiffCache, storage: &dyn Storage, reg_store: &dyn RegistryStore, review: Review) -> Result<(), String> {
+    save_review_impl(cache, storage, review.clone())?;
     sync_registry_after_save(reg_store, &review);
     Ok(())
 }
@@ -157,15 +209,19 @@ pub fn delete_review_impl(storage: &dyn Storage, reg_store: &dyn RegistryStore, 
 }
 
 #[tauri::command]
-pub async fn compute_diff(target: Target) -> Result<DiffSummary, String> {
-    tauri::async_runtime::spawn_blocking(move || compute_diff_impl(target))
+pub async fn compute_diff(target: Target, cache: tauri::State<'_, DiffCache>) -> Result<DiffSummary, String> {
+    let cache = cache.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || cache.summary(&target))
         .await
         .map_err(|e| format!("compute_diff task: {e}"))?
 }
 
 #[tauri::command]
-pub async fn get_file_diff(target: Target, path: String) -> Result<FileDiff, String> {
-    tauri::async_runtime::spawn_blocking(move || get_file_diff_impl(target, path))
+pub async fn get_file_diff(target: Target, path: String, cache: tauri::State<'_, DiffCache>) -> Result<FileDiff, String> {
+    // Served from the memoized snapshot — the whole-repo diff runs once per snapshot,
+    // not once per file (the large-review perf fix). (#perf)
+    let cache = cache.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || cache.file(&target, &path))
         .await
         .map_err(|e| format!("get_file_diff task: {e}"))?
 }
@@ -192,6 +248,10 @@ pub async fn open_review(app: tauri::AppHandle, target: Target) -> Result<Review
 
 #[tauri::command]
 pub async fn refresh_review(app: tauri::AppHandle, review: Review) -> Result<ReviewSession, String> {
+    // A refresh means "recompute against the current state", so drop any memoized
+    // diff snapshot for this worktree — the window's refetch then rebuilds fresh.
+    // Covers a manual Refresh and one racing the fs watcher's debounce. (#perf)
+    app.state::<DiffCache>().invalidate(&review.target.repo_path);
     let reviews = reviews_dir(&app)?;
     let reg_path = registry_path(&app)?;
     tauri::async_runtime::spawn_blocking(move || {
@@ -204,9 +264,19 @@ pub async fn refresh_review(app: tauri::AppHandle, review: Review) -> Result<Rev
 }
 
 #[tauri::command]
-pub fn save_review(app: tauri::AppHandle, review: Review) -> Result<(), String> {
-    let storage = JsonStorage::new(reviews_dir(&app)?);
-    save_review_impl_with_registry(&storage, &reg_store(&app)?, review)
+pub async fn save_review(app: tauri::AppHandle, review: Review, cache: tauri::State<'_, DiffCache>) -> Result<(), String> {
+    // Async + spawn_blocking (like the diff commands) so persistence never runs on
+    // the main thread — a sync command here froze the UI on every comment/viewed save.
+    let cache = cache.inner().clone();
+    let reviews = reviews_dir(&app)?;
+    let reg_path = registry_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = JsonStorage::new(reviews.clone());
+        let reg = JsonRegistryStore::new(reg_path, reviews);
+        save_review_impl_with_registry(&cache, &storage, &reg, review)
+    })
+    .await
+    .map_err(|e| format!("save_review task: {e}"))?
 }
 
 #[tauri::command]
@@ -508,14 +578,16 @@ mod tests {
     fn compute_diff_command_returns_summary() {
         let (dir, _repo) = repo_with_commit();
         write(dir.path(), "file.txt", "a\nb\n");
-        let summary = compute_diff_impl(Target {
-            repo_path: dir.path().to_str().unwrap().into(),
-            worktree: None,
-            mode: DiffMode::Uncommitted,
-            base: None,
-            commit: None,
-        })
-        .unwrap();
+        // The command serves the summary from the DiffCache (same path the IPC uses).
+        let summary = DiffCache::default()
+            .summary(&Target {
+                repo_path: dir.path().to_str().unwrap().into(),
+                worktree: None,
+                mode: DiffMode::Uncommitted,
+                base: None,
+                commit: None,
+            })
+            .unwrap();
         assert_eq!(summary.files.len(), 1);
     }
 
@@ -550,7 +622,7 @@ mod tests {
         let snapshot = Snapshot { base_oid: "abc123".into(), head_oid: None, captured_at: now.clone() };
         let review = Review::new("0123456789abcdef".into(), target, snapshot, now);
 
-        save_review_impl(&storage, review.clone()).unwrap();
+        save_review_impl(&DiffCache::default(), &storage, review.clone()).unwrap();
         let loaded = storage.load(&review.id).unwrap();
         assert!(loaded.is_some());
         assert_eq!(loaded.unwrap().id, "0123456789abcdef");
@@ -572,6 +644,57 @@ mod tests {
         assert!(!refreshed.summary.files.is_empty());
         let persisted = storage.load(&session.review.id).unwrap();
         assert!(persisted.is_some());
+    }
+
+    #[test]
+    fn save_stamps_empty_viewed_baseline_before_persisting() {
+        use crate::review::model::ViewedEntry;
+        use crate::storage::{JsonStorage, Storage};
+
+        let (dir, _repo) = repo_with_commit();
+        write(dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
+        let store_dir = tempfile::TempDir::new().unwrap();
+        let storage = JsonStorage::new(store_dir.path().join("reviews"));
+        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
+        let session = open_review_impl(&storage, target).unwrap();
+        let mut review = session.review;
+
+        // The FE toggles "viewed" with an empty hash (it doesn't compute the baseline).
+        review.viewed.push(ViewedEntry { file: "file.txt".into(), diff_hash: String::new() });
+        save_review_impl(&DiffCache::default(), &storage, review.clone()).unwrap();
+
+        // Save must have stamped the baseline from the file's current content.
+        let persisted = storage.load(&review.id).unwrap().unwrap();
+        assert!(!persisted.viewed[0].diff_hash.is_empty(), "save must stamp the baseline hash before persisting");
+    }
+
+    #[test]
+    fn refresh_unviews_a_file_that_changed_after_being_marked_viewed() {
+        use crate::review::model::ViewedEntry;
+        use crate::storage::JsonStorage;
+
+        // file.txt is in the diff at V1 — the version the user reviews.
+        let (dir, _repo) = repo_with_commit();
+        write(dir.path(), "file.txt", "line1\nV1\nline2\n");
+        let store_dir = tempfile::TempDir::new().unwrap();
+        let storage = JsonStorage::new(store_dir.path().join("reviews"));
+        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
+        let session = open_review_impl(&storage, target).unwrap();
+        let mut review = session.review;
+
+        // User marks file.txt viewed. The FE persists an entry with an empty hash;
+        // save runs immediately, while the file is still at V1.
+        review.viewed.push(ViewedEntry { file: "file.txt".into(), diff_hash: String::new() });
+        save_review_impl(&DiffCache::default(), &storage, review.clone()).unwrap();
+
+        // The file changes to V2 before the next refresh (e.g. an agent edits it).
+        write(dir.path(), "file.txt", "line1\nV2\nline2\n");
+
+        // Refresh reconciles the review the FE holds in memory — which still carries
+        // the empty hash. It must still drop the viewed entry, because the file
+        // changed since the user marked it viewed.
+        let refreshed = refresh_review_impl(&storage, review).unwrap();
+        assert_eq!(refreshed.review.viewed.len(), 0, "a file changed after being viewed must be un-viewed on refresh");
     }
 
     #[test]
@@ -602,7 +725,7 @@ mod tests {
 
         let mut review = session.review.clone();
         review.comments.push(Comment { id: "c1".into(), scope: CommentScope::Line, anchor: None, body: "hi".into(), stale: false, resolved: false, commit: None, created_at: "t".into(), updated_at: "t".into() });
-        save_review_impl_with_registry(&storage, &reg_store, review).unwrap();
+        save_review_impl_with_registry(&DiffCache::default(), &storage, &reg_store, review).unwrap();
 
         let reg = reg_store.load().unwrap();
         let entry = reg.reviews.iter().find(|e| e.id == session.review.id).unwrap();
@@ -645,5 +768,38 @@ mod tests {
 
         assert!(storage.load(&session.review.id).unwrap().is_none());
         assert!(reg_store.load().unwrap().reviews.iter().all(|e| e.id != session.review.id));
+    }
+}
+
+#[cfg(test)]
+mod telemetry_tests {
+    use super::telemetry_allowed_from_env;
+
+    #[test]
+    fn allowed_by_default() {
+        assert!(telemetry_allowed_from_env(None, None));
+    }
+
+    #[test]
+    fn do_not_track_disables() {
+        assert!(!telemetry_allowed_from_env(Some("1"), None));
+        assert!(!telemetry_allowed_from_env(Some("true"), None));
+        assert!(!telemetry_allowed_from_env(Some("TRUE"), None));
+    }
+
+    #[test]
+    fn do_not_track_zero_is_not_opt_out() {
+        assert!(telemetry_allowed_from_env(Some("0"), None));
+    }
+
+    #[test]
+    fn delta_telemetry_off_disables() {
+        assert!(!telemetry_allowed_from_env(None, Some("0")));
+        assert!(!telemetry_allowed_from_env(None, Some("false")));
+    }
+
+    #[test]
+    fn delta_telemetry_on_stays_enabled() {
+        assert!(telemetry_allowed_from_env(None, Some("1")));
     }
 }

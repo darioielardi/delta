@@ -22,6 +22,11 @@ const SUMMARY: DiffSummary = {
     // Sparse changes far apart → a long unchanged middle that folds. (#10)
     { path: "src/config/limits.ts", status: "modified", additions: 2, deletions: 2, binary: false },
     { path: "src/config/env.ts", status: "modified", additions: 2, deletions: 0, binary: false },
+    // Pure rename (no content change) → header shows old → new; body shows the
+    // "renamed without changes" placeholder with a Show content reveal. (#rename)
+    { path: "src/auth/token.ts", oldPath: "src/auth/session-token.ts", status: "renamed", additions: 0, deletions: 0, binary: false },
+    // Moved + renamed with edits → full old → new path in the header alongside +/−. (#rename)
+    { path: "src/core/http.ts", oldPath: "src/api/client.ts", status: "renamed", additions: 3, deletions: 1, binary: false },
     { path: "src/legacy/cache.ts", status: "deleted", additions: 0, deletions: 9, binary: false },
     { path: "src/legacy/memstore.ts", status: "deleted", additions: 0, deletions: 13, binary: false },
     { path: "tests/auth/session.test.ts", status: "added", additions: 14, deletions: 0, binary: false },
@@ -29,7 +34,7 @@ const SUMMARY: DiffSummary = {
     { path: "package.json", status: "modified", additions: 3, deletions: 1, binary: false },
     { path: "pnpm-lock.yaml", status: "modified", additions: 3, deletions: 0, binary: false },
     { path: "docs/auth-sessions.md", status: "added", additions: 12, deletions: 0, binary: false },
-    { path: "README.md", status: "added", additions: 6, deletions: 0, binary: false },
+    { path: "README.md", status: "added", additions: 15, deletions: 0, binary: false },
     { path: "assets/logo.png", status: "added", additions: 0, deletions: 0, binary: true },
   ],
 };
@@ -70,8 +75,6 @@ const FILES: Record<string, FileDiff> = {
   "src/auth/session.ts": {
     oldFileName: "src/auth/session.ts",
     newFileName: "src/auth/session.ts",
-    oldLang: "typescript",
-    newLang: "typescript",
     status: "modified",
     binary: false,
     oldContent:
@@ -82,8 +85,6 @@ const FILES: Record<string, FileDiff> = {
   "src/auth/login.ts": {
     oldFileName: "src/auth/login.ts",
     newFileName: "src/auth/login.ts",
-    oldLang: "typescript",
-    newLang: "typescript",
     status: "modified",
     binary: false,
     oldContent: "export function login(token) {\n  if (!token) return null\n  return verify(token)\n}\n",
@@ -92,36 +93,34 @@ const FILES: Record<string, FileDiff> = {
   },
   "src/auth/tokens.ts": {
     oldFileName: null, newFileName: "src/auth/tokens.ts",
-    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    status: "added", binary: false,
     oldContent: null,
     newContent:
       `import { sign, verify } from "jsonwebtoken"\nimport { env } from "../config/env"\n\nexport interface TokenPair {\n  access: string\n  refresh: string\n}\n\nexport function issue(userId: string): TokenPair {\n  const access = sign({ sub: userId }, env.JWT_SECRET, { expiresIn: "15m" })\n  const refresh = sign({ sub: userId, kind: "refresh" }, env.JWT_SECRET, { expiresIn: "30d" })\n  return { access, refresh }\n}\n\nexport function rotate(refresh: string): TokenPair {\n  const claims = verify(refresh, env.JWT_SECRET, { clockTolerance: 5 }) as { sub: string; kind?: string }\n  if (claims.kind !== "refresh") throw new Error("not a refresh token")\n  return issue(claims.sub)\n}\n`,
   },
   "src/auth/middleware.ts": {
     oldFileName: null, newFileName: "src/auth/middleware.ts",
-    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    status: "added", binary: false,
     oldContent: null,
     newContent:
       `import type { Request, Response, NextFunction } from "express"\nimport { sessionStore } from "../store"\n\nexport async function requireSession(req: Request, res: Response, next: NextFunction) {\n  const userId = req.header("x-user-id")\n  if (!userId) return res.status(401).json({ error: "no session" })\n  const session = await sessionStore.read(userId)\n  if (!session) return res.status(401).json({ error: "session expired" })\n  req.session = session\n  next()\n}\n`,
   },
   "src/store/sessionStore.ts": {
     oldFileName: null, newFileName: "src/store/sessionStore.ts",
-    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    status: "added", binary: false,
     oldContent: null,
     newContent:
       `import type { Session } from "../auth/types"\nimport { db } from "../db/client"\nimport { env } from "../config/env"\n\nexport async function read(userId: string): Promise<Session | null> {\n  const row = await db.sessions.findById(userId)\n  if (!row) return null\n  if (Date.now() - row.touchedAt > env.SESSION_TTL_MS) {\n    await db.sessions.delete(userId)\n    return null\n  }\n  return row.session\n}\n\nexport async function write(userId: string, session: Session): Promise<void> {\n  await db.sessions.upsert({ userId, session, touchedAt: Date.now() })\n}\n\nexport async function evict(userId: string): Promise<void> {\n  await db.sessions.delete(userId)\n}\n`,
   },
   "src/store/index.ts": {
     oldFileName: null, newFileName: "src/store/index.ts",
-    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    status: "added", binary: false,
     oldContent: null,
     newContent: `export * as sessionStore from "./sessionStore"\nexport { db } from "../db/client"\n`,
   },
   "src/api/routes.ts": {
     oldFileName: "src/api/routes.ts",
     newFileName: "src/api/routes.ts",
-    oldLang: "typescript",
-    newLang: "typescript",
     status: "modified",
     binary: false,
     oldContent: ROUTES_OLD,
@@ -129,7 +128,7 @@ const FILES: Record<string, FileDiff> = {
   },
   "src/api/handlers/session.ts": {
     oldFileName: null, newFileName: "src/api/handlers/session.ts",
-    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    status: "added", binary: false,
     oldContent: null,
     newContent:
       `import type { Request, Response } from "express"\nimport { sessionStore } from "../../store"\nimport { issue, rotate } from "../../auth/tokens"\n\nexport async function create(req: Request, res: Response) {\n  const { userId } = req.body\n  const tokens = issue(userId)\n  await sessionStore.write(userId, { userId, createdAt: Date.now() })\n  res.json(tokens)\n}\n\nexport async function refresh(req: Request, res: Response) {\n  try {\n    res.json(rotate(req.body.refresh))\n  } catch {\n    res.status(401).json({ error: "invalid refresh token" })\n  }\n}\n\nexport async function revoke(req: Request, res: Response) {\n  await sessionStore.evict(req.params.userId)\n  res.status(204).end()\n}\n`,
@@ -148,23 +147,46 @@ const FILES: Record<string, FileDiff> = {
     };
     return {
       oldFileName: "src/config/limits.ts", newFileName: "src/config/limits.ts",
-      oldLang: "typescript", newLang: "typescript", status: "modified", binary: false,
+      status: "modified", binary: false,
       oldContent: file(3, 30_000), newContent: file(5, 45_000),
     };
   })(),
   "src/config/env.ts": {
     oldFileName: "src/config/env.ts", newFileName: "src/config/env.ts",
-    oldLang: "typescript", newLang: "typescript", status: "modified", binary: false,
+    status: "modified", binary: false,
     oldContent: `export const env = {\n  PORT: Number(process.env.PORT ?? 3000),\n  DATABASE_URL: process.env.DATABASE_URL ?? "",\n}\n`,
     newContent: `export const env = {\n  PORT: Number(process.env.PORT ?? 3000),\n  DATABASE_URL: process.env.DATABASE_URL ?? "",\n  JWT_SECRET: process.env.JWT_SECRET ?? "dev-secret",\n  SESSION_TTL_MS: Number(process.env.SESSION_TTL_MS ?? 7_200_000),\n}\n`,
+  },
+  // Pure rename: identical old/new content (only the path changed). Exercises the
+  // same-dir header collapse (session-token.ts → token.ts) + the body placeholder.
+  "src/auth/token.ts": (() => {
+    const content =
+      "export interface Token {\n  value: string\n  expiresAt: number\n}\n\nexport function isExpired(t: Token): boolean {\n  return Date.now() > t.expiresAt\n}\n";
+    return {
+      oldFileName: "src/auth/session-token.ts",
+      newFileName: "src/auth/token.ts",
+      status: "renamed",
+      binary: false,
+      oldContent: content,
+      newContent: content,
+    };
+  })(),
+  // Moved + renamed with edits: different directory, a few changed lines. Exercises
+  // the full old → new path header alongside the +/− counts and real diff rows.
+  "src/core/http.ts": {
+    oldFileName: "src/api/client.ts",
+    newFileName: "src/core/http.ts",
+    status: "renamed",
+    binary: false,
+    oldContent: "export async function get(url: string) {\n  const res = await fetch(url)\n  return res.json()\n}\n",
+    newContent:
+      "export async function get(url: string, init?: RequestInit) {\n  const res = await fetch(url, init)\n  if (!res.ok) throw new Error(`HTTP ${res.status}`)\n  return res.json()\n}\n",
   },
   // Deleted file: only old content exists. Used to verify deleted files are
   // hidden behind a reveal (item 3) rather than rendered/collapsed like others.
   "src/legacy/cache.ts": {
     oldFileName: "src/legacy/cache.ts",
     newFileName: null,
-    oldLang: "typescript",
-    newLang: null,
     status: "deleted",
     binary: false,
     oldContent:
@@ -173,40 +195,40 @@ const FILES: Record<string, FileDiff> = {
   },
   "src/legacy/memstore.ts": {
     oldFileName: "src/legacy/memstore.ts", newFileName: null,
-    oldLang: "typescript", newLang: null, status: "deleted", binary: false,
+    status: "deleted", binary: false,
     oldContent:
       `const sessions = new Map()\n\nexport function get(key) {\n  return sessions.get(key)\n}\n\nexport function put(key, value) {\n  sessions.set(key, value)\n}\n\nexport function drop(key) {\n  sessions.delete(key)\n}\n`,
     newContent: null,
   },
   "tests/auth/session.test.ts": {
     oldFileName: null, newFileName: "tests/auth/session.test.ts",
-    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    status: "added", binary: false,
     oldContent: null,
     newContent:
       `import { describe, it, expect } from "vitest"\nimport { read, write, evict } from "../../src/store/sessionStore"\n\ndescribe("sessionStore", () => {\n  it("round-trips a session", async () => {\n    await write("u1", { userId: "u1", createdAt: Date.now() })\n    expect(await read("u1")).not.toBeNull()\n  })\n\n  it("evicts on demand", async () => {\n    await write("u2", { userId: "u2", createdAt: Date.now() })\n    await evict("u2")\n    expect(await read("u2")).toBeNull()\n  })\n})\n`,
   },
   "tests/auth/login.test.ts": {
     oldFileName: null, newFileName: "tests/auth/login.test.ts",
-    oldLang: null, newLang: "typescript", status: "added", binary: false,
+    status: "added", binary: false,
     oldContent: null,
     newContent:
       `import { describe, it, expect } from "vitest"\nimport { login } from "../../src/auth/login"\n\ndescribe("login", () => {\n  it("rejects an empty token", () => {\n    expect(login("")).toBeNull()\n  })\n})\n`,
   },
   "package.json": {
     oldFileName: "package.json", newFileName: "package.json",
-    oldLang: "json", newLang: "json", status: "modified", binary: false,
+    status: "modified", binary: false,
     oldContent: `{\n  "name": "delta-api",\n  "version": "0.3.0",\n  "dependencies": {\n    "express": "^4.19.0"\n  }\n}\n`,
     newContent: `{\n  "name": "delta-api",\n  "version": "0.4.0",\n  "dependencies": {\n    "express": "^4.19.0",\n    "jsonwebtoken": "^9.0.2"\n  }\n}\n`,
   },
   "pnpm-lock.yaml": {
     oldFileName: "pnpm-lock.yaml", newFileName: "pnpm-lock.yaml",
-    oldLang: "yaml", newLang: "yaml", status: "modified", binary: false,
+    status: "modified", binary: false,
     oldContent: `lockfileVersion: '9.0'\n\nimporters:\n  .:\n    dependencies:\n      express:\n        specifier: ^4.19.0\n        version: 4.19.2\n`,
     newContent: `lockfileVersion: '9.0'\n\nimporters:\n  .:\n    dependencies:\n      express:\n        specifier: ^4.19.0\n        version: 4.19.2\n      jsonwebtoken:\n        specifier: ^9.0.2\n        version: 9.0.2\n`,
   },
   "docs/auth-sessions.md": {
     oldFileName: null, newFileName: "docs/auth-sessions.md",
-    oldLang: null, newLang: "markdown", status: "added", binary: false,
+    status: "added", binary: false,
     oldContent: null,
     newContent:
       `# Session handling\n\nSessions are persisted via src/store/sessionStore.ts and expire after\nSESSION_TTL_MS of inactivity.\n\n## Flow\n\n1. POST /sessions issues an access + refresh token pair.\n2. The access token lasts 15m; rotate it with the refresh token.\n3. The requireSession middleware guards protected routes.\n\nThe legacy in-memory cache under src/legacy/ is removed.\n`,
@@ -214,19 +236,15 @@ const FILES: Record<string, FileDiff> = {
   "README.md": {
     oldFileName: null,
     newFileName: "README.md",
-    oldLang: null,
-    newLang: "markdown",
     status: "added",
     binary: false,
     oldContent: null,
-    newContent: `# delta\n\nReview code diffs and leave structured comments for Claude.\n\n## Auth\n\nSessions now persist in a store; see docs/auth-sessions.md.\n`,
+    newContent: "# delta\n\nReview code diffs and leave structured comments for Claude.\n\n## Features\n\n- [x] Unified & split diffs\n- [x] Inline comments\n- [ ] Rich markdown preview\n\n| Shortcut | Action |\n| --- | --- |\n| `j` / `k` | Next / prev file |\n| `v` | Toggle viewed |\n\n~~Old workflow~~ is now the new workflow.\n",
   },
   // Binary file: exercises the "Unsupported file" treatment in the diff view.
   "assets/logo.png": {
     oldFileName: null,
     newFileName: "assets/logo.png",
-    oldLang: null,
-    newLang: null,
     status: "added",
     binary: true,
     oldContent: null,
@@ -459,7 +477,6 @@ const REGISTRY: Registry = {
 // (file count) on the dev:mock URL; absent, the small fixture above is served
 // and nothing changes. Deterministic (index-based, no random) so runs compare.
 // ---------------------------------------------------------------------------
-const LANG: Record<string, string> = { ts: "typescript", tsx: "typescript", css: "css", md: "markdown", json: "json" };
 const DIRS = [
   "src/auth", "src/api/handlers", "src/components/ui", "src/components/forms",
   "src/lib/util", "src/hooks", "src/pages/admin", "src/pages/dashboard/widgets",
@@ -503,13 +520,13 @@ function genLarge(fileCount: number): { summary: DiffSummary; files: Record<stri
   for (let i = 0; i < fileCount; i++) {
     const ext = EXTS[i % EXTS.length];
     const path = `${DIRS[i % DIRS.length]}/module${String(i).padStart(3, "0")}.${ext}`;
-    const giant = i % 17 === 8; // a few genuinely huge files that auto-collapse
+    const giant = i % 17 === 8; // a few genuinely huge files that show the "Show diff" placeholder
     const n = giant ? 900 + (i % 4) * 200 : 150 + (i % 9) * 40; // non-giant 150..470 lines, stays expanded
     const churn = giant ? 1 : 0.4;
     const changed = churn >= 1 ? n : Math.max(1, Math.round(n * churn));
     files.push({ path, status: "modified", additions: changed + 4, deletions: changed, binary: false });
     fileDiffs[path] = {
-      oldFileName: path, newFileName: path, oldLang: LANG[ext], newLang: LANG[ext],
+      oldFileName: path, newFileName: path,
       status: "modified", binary: false,
       oldContent: genFile(path, n, 0, churn, ext), newContent: genFile(path, n, 1, churn, ext),
     };
@@ -671,6 +688,13 @@ export function installMockBackend(): void {
       case "open_in_editor":
         console.info("[delta mock] open_in_editor", args);
         return undefined as T;
+      case "updater_try_acquire":
+        // Never reached in mock mode (useUpdater bails on !isTauri), but keep the
+        // IPC surface mirrored. The sole caller always wins the gate.
+        return true as T;
+      case "telemetry_allowed":
+        // Mock/browser mode is never a real, permitted client.
+        return false as T;
       default:
         throw new Error(`mockBackend: unhandled command "${cmd}"`);
     }

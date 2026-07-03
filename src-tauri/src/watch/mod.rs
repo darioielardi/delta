@@ -115,6 +115,12 @@ pub fn start(app: &AppHandle, label: &str, worktree: &Path) {
             }
         }
         if git_meta || !paths.is_empty() {
+            // Drop the cached diff snapshot for this worktree before telling the
+            // window to refresh, so the refetch rebuilds against the new content
+            // instead of serving the memoized (now-stale) working-tree diff. (#perf)
+            if let Some(cache) = app.try_state::<crate::git::cache::DiffCache>() {
+                cache.invalidate(&root.to_string_lossy());
+            }
             let _ = app.emit_to(
                 EventTarget::webview_window(label_str.as_str()),
                 "fs:changed",

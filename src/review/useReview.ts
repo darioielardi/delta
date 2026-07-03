@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { track } from "@/analytics";
 import { api } from "../api";
 import type { Anchor, Comment, CommentScope, Review } from "../types";
 
@@ -72,6 +73,7 @@ export function useReview(initial: Review | null) {
       updatedAt: now,
     };
     mutate((r) => ({ ...r, comments: [...r.comments, comment] }), body.trim() === "" ? "none" : "now");
+    if (body.trim() !== "") track("comment_added");
     return comment.id;
   }, [mutate]);
 
@@ -79,10 +81,12 @@ export function useReview(initial: Review | null) {
   // immediately rather than debounced. (#r2)
   const updateCommentBody = useCallback((id: string, body: string) => {
     const now = new Date().toISOString();
+    const prev = latest.current?.comments.find((c) => c.id === id);
     mutate(
       (r) => ({ ...r, comments: r.comments.map((c) => (c.id === id ? { ...c, body, updatedAt: now } : c)) }),
       "now",
     );
+    if (prev && prev.body.trim() === "" && body.trim() !== "") track("comment_added");
   }, [mutate]);
 
   const deleteComment = useCallback((id: string) => {
@@ -95,6 +99,7 @@ export function useReview(initial: Review | null) {
       (r) => ({ ...r, comments: r.comments.map((c) => (c.id === id ? { ...c, resolved: !c.resolved, updatedAt: now } : c)) }),
       "now",
     );
+    track("comment_resolved");
   }, [mutate]);
 
   const toggleViewed = useCallback((file: string, diffHash: string) => {

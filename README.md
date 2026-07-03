@@ -2,7 +2,7 @@
 
 <img src="src/assets/delta-mark.png" width="96" height="96" alt="delta" />
 
-# delta
+# Delta
 
 **Review code diffs. Leave structured comments for your agents.**
 
@@ -12,7 +12,7 @@
 
 ---
 
-**delta** is a fast, beautiful desktop app for reviewing git changes. Read the
+**Delta** is a fast, beautiful desktop app for reviewing git changes. Read the
 diff, drop comments on the exact lines that matter, then copy the whole review
 as clean Markdown your AI coding agent can act on.
 
@@ -34,7 +34,7 @@ as clean Markdown your AI coding agent can act on.
 
 ## 🤖 Copy for agents
 
-The reason **delta** exists. Every comment becomes a self-contained instruction with
+The reason **Delta** exists. Every comment becomes a self-contained instruction with
 its location and the code it refers to, grouped by file — so an agent has
 everything it needs without the original diff in front of it:
 
@@ -97,6 +97,16 @@ work. (`pnpm tauri dev` works too, but shares the release's identity.)
 
 Architecture and conventions live in [CLAUDE.md](CLAUDE.md). PRs welcome — keep
 changes scoped and the tests green.
+
+## Privacy
+
+Delta collects **anonymous** usage statistics (which features are used, app
+version, OS) to guide development — via [Aptabase](https://aptabase.com), which
+stores no personal data, cookies, or device identifiers. It **never** sends your
+code, file names, repository names, branch names, or comment text.
+
+Turn it off in **Settings → Usage analytics**, or set `DELTA_TELEMETRY=0` (or the
+standard `DO_NOT_TRACK=1`) in the environment.
 
 ## Built with
 

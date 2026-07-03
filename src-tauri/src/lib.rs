@@ -24,7 +24,32 @@ pub fn run() {
     // (`cli`/`ipc`): a CLI invocation forwards over the socket or `open -b`s the
     // bundle, which Launch Services single-instances. The app is only entered via
     // LS/dock/dev, so the old in-process TTY guard is gone.
-    let builder = tauri::Builder::default();
+
+    // The Aptabase plugin (release builds only) starts its flush loop with
+    // `tokio::spawn` inside its Tauri setup hook, which requires an ambient Tokio
+    // runtime — Tauri does NOT enter one around plugin setup, so without this the
+    // release app panics on launch ("there is no reactor running, must be called
+    // from the context of a Tokio 1.x runtime"; tauri#10289). Enter a runtime for
+    // the whole app lifetime; `_tokio_guard` (declared last) drops before
+    // `_tokio_rt` when `run()` returns at exit. Debug builds skip it — no plugin is
+    // registered there.
+    #[cfg(not(debug_assertions))]
+    let _tokio_rt = tokio::runtime::Runtime::new().expect("failed to build Tokio runtime");
+    #[cfg(not(debug_assertions))]
+    let _tokio_guard = _tokio_rt.enter();
+
+    #[cfg_attr(debug_assertions, allow(unused_mut))]
+    let mut builder = tauri::Builder::default();
+
+    // Anonymous usage analytics — release builds only, and only when a key was
+    // compiled in (see scripts/build-release-dmg.sh). option_env! bakes the key at
+    // compile time; a debug build strips this block entirely, so `tauri dev`,
+    // `dev:app`, and tests never register the plugin or emit anything.
+    #[cfg(not(debug_assertions))]
+    if let Some(key) = option_env!("APTABASE_KEY") {
+        builder = builder.plugin(tauri_plugin_aptabase::Builder::new(key).build());
+    }
+
     builder
         // Restore size/position but NOT visibility — windows are created hidden
         // and shown by the frontend after first paint (cold-start flash fix), so
@@ -39,8 +64,12 @@ pub fn run() {
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(crate::watch::Watchers::default())
         .manage(crate::walkthrough::ChildRegistry::default())
+        .manage(crate::commands::UpdaterGate::default())
+        .manage(crate::git::cache::DiffCache::default())
         .invoke_handler(tauri::generate_handler![
             commands::compute_diff,
             commands::get_file_diff,
@@ -62,7 +91,9 @@ pub fn run() {
             commands::claude_status,
             commands::generate_walkthrough,
             commands::cancel_walkthrough,
-            commands::open_in_editor
+            commands::open_in_editor,
+            commands::updater_try_acquire,
+            commands::telemetry_allowed
         ])
         .setup(|app| {
             let args: Vec<String> = std::env::args().skip(1).collect();
@@ -77,8 +108,11 @@ pub fn run() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             match event {
-                // A window is gone: stop its watcher, and if the last review
-                // window just closed, return to the launcher. (#9 cleanup, #14)
+                // A window is gone: stop its watcher. We deliberately do NOT resurrect
+                // the launcher when the last window closes — the pop-up was unwanted
+                // (#9 cleanup, #14, #31). On macOS the process is kept alive by the
+                // ExitRequested arm below; other platforms have no dock/tray to recover
+                // a windowless process, so exit to avoid an orphan.
                 tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } => {
                     crate::watch::stop(app_handle, &label);
                     let remaining = app_handle
@@ -86,9 +120,20 @@ pub fn run() {
                         .into_keys()
                         .filter(|l| l != &label)
                         .count();
-                    if remaining == 0 && label.starts_with("review-") {
-                        let _ = crate::launch::open_home_window(app_handle);
+                    if remaining == 0 {
+                        #[cfg(not(target_os = "macos"))]
+                        app_handle.exit(0);
                     }
+                }
+                // macOS: closing the last window must not quit the app. Tauri exits by
+                // default once no windows remain (ExitRequested → ControlFlow::Exit unless
+                // prevented), so keep the process alive: the `delta` shim's socket-forward
+                // stays warm (#23) and a dock-click reopens home (Reopen arm below).
+                // `code.is_none()` is the implicit last-window close; an explicit Cmd-Q or
+                // `app.exit()` carries `Some(code)` and is honored so the app stays quittable.
+                #[cfg(target_os = "macos")]
+                tauri::RunEvent::ExitRequested { api, code, .. } if code.is_none() => {
+                    api.prevent_exit();
                 }
                 // macOS: clicking the dock icon with no open windows reopens home.
                 #[cfg(target_os = "macos")]

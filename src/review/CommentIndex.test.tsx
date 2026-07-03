@@ -18,4 +18,16 @@ describe("CommentIndex", () => {
     fireEvent.click(screen.getByText("line note"));
     expect(onJump).toHaveBeenCalledWith(expect.objectContaining({ id: "l" }));
   });
+
+  it("ignores stale on resolved comments — no header count, no entry badge", () => {
+    const mixed: Comment[] = [
+      { id: "open", scope: "line", anchor: { file: "src/a.ts", side: "new", startLine: 10, endLine: null, snippet: "x" }, body: "open stale", stale: true, resolved: false, createdAt: "t", updatedAt: "t" },
+      { id: "res", scope: "line", anchor: { file: "src/b.ts", side: "new", startLine: 20, endLine: null, snippet: "y" }, body: "resolved stale", stale: true, resolved: true, createdAt: "t", updatedAt: "t" },
+    ];
+    render(<CommentIndex open onOpenChange={() => {}} comments={mixed} onJump={() => {}} />);
+    // Header counts only the open stale comment, not the resolved one.
+    expect(screen.getByText(/1 stale/)).toBeInTheDocument();
+    // Only the open comment carries the "⚠ stale" entry badge.
+    expect(screen.getAllByText("⚠ stale")).toHaveLength(1);
+  });
 });

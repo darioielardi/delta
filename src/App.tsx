@@ -13,6 +13,9 @@ import { onNotice, type Notice } from "./lib/notify";
 import { useApplyTheme } from "./theme";
 import { useApplyCodeFont } from "./codeFont";
 import { DevBadge } from "@/components/DevBadge";
+import { useUpdater } from "@/updater/useUpdater";
+import { UpdateBanner } from "@/updater/UpdateBanner";
+import { initAnalytics, track } from "@/analytics";
 
 function readLabel(): string | null {
   if (import.meta.env.VITE_MOCK_IPC) return null;
@@ -44,6 +47,8 @@ export default function App() {
   // notify() channel so non-component actions can raise it from any call site. (#add-repo-nonrepo)
   const [notice, setNotice] = useState<Notice | null>(null);
   useEffect(() => onNotice(setNotice), []);
+  const { status, version, progress, download, restart } = useUpdater();
+  const [updateDismissed, setUpdateDismissed] = useState(false);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -91,6 +96,8 @@ export default function App() {
           const home = await WebviewWindow.getByLabel("home");
           if (home) await home.close();
         }
+        await initAnalytics();
+        track("app_started");
       } catch {
         /* not in a Tauri window / not permitted — ignore */
       }
@@ -118,6 +125,16 @@ export default function App() {
         message={notice?.message}
         onClose={() => setNotice(null)}
       />
+      {!updateDismissed && (
+        <UpdateBanner
+          status={status}
+          version={version}
+          progress={progress}
+          onDownload={download}
+          onRestart={() => void restart()}
+          onDismiss={() => setUpdateDismissed(true)}
+        />
+      )}
       <DevBadge />
     </>
   );

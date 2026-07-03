@@ -59,7 +59,7 @@ export function Home({ onOpenSettings }: { onOpenSettings?: () => void }) {
         <div className="flex w-full max-w-lg flex-col items-center">
           {/* Brand mark + wordmark */}
           <DeltaMark className="mb-2 size-16" />
-          <h1 className="text-[22px] font-semibold tracking-tight">delta</h1>
+          <h1 className="text-[22px] font-semibold tracking-tight">Delta</h1>
           <p className="mt-1 text-center text-[13px] text-muted-foreground">Review diffs. Leave structured comments for agents.</p>
 
           {/* Decide once data is known so neither view flashes the other on a cold

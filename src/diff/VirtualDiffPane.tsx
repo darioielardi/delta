@@ -17,18 +17,26 @@
 // Supports unified + split, line/range/file comments, word-level intra-line diff,
 // jump-to-comment, and the viewed toggle.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { Check, ChevronDown, ChevronRight, ChevronUp, Copy, ExternalLink, Eye, FileQuestion, FileX, MessageSquarePlus, Plus } from "lucide-react";
+import { track } from "@/analytics";
+import { ArrowLeftRight, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, Code as CodeIcon, Copy, ExternalLink, Eye, FileQuestion, FileText, FileX, MessageSquarePlus, Plus, WrapText } from "lucide-react";
 import { getSyntaxLineTemplate } from "@git-diff-view/file";
 import { SplitSide } from "@git-diff-view/react";
 import { Button } from "@/components/ui/button";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api } from "../api";
 import { getEditorPref } from "../editor";
 import { toDiffFile } from "./toDiffFile";
+import { RenameLabel } from "./RenameLabel";
 import { CommentThread } from "../review/CommentThread";
+import Markdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { isMarkdownPath } from "./isMarkdownPath";
 import { DiffFind } from "./DiffFind";
+import { findPrefillFromSelection } from "./findSelection";
 import type { Anchor, Comment, FileDiff, FileEntry, Side, Target } from "../types";
 import type { DiffLayout } from "./useDiffLayout";
 import { useFileDiffCache } from "./useFileDiffCache";
+import { wrapsByDefault, paneColsFor, visualLinesForCols, buildRowOffsets } from "./wrap";
 import { anchorScrollTopOnCollapse } from "./anchorScroll";
 import { useCodeFont, rowHeightFor } from "../codeFont";
 
@@ -38,12 +46,18 @@ const HEADER_H = 40; // sticky file header (border-box); content is vertically c
 // set on the wrapper; the JS row height drives the windowing math and must match).
 // CH_PX is calibrated at 13px and scaled with the chosen size.
 const CH_PX = 7.85; // ≈ width of one mono char at 13px (SF Mono/Menlo) — only used to decide whether a file overflows the pane (→ enable horizontal scroll); layout itself uses exact `ch` units (#hscroll)
+// Fixed non-code width per row: gutters + marker + code padding. Mirrors the
+// constants in `rowPx`/`colWidthCss` below — the available code width (→ wrap
+// column count) is the card body minus this chrome. (#wrap)
+const UNIFIED_CHROME = 124; // unified: old# + new# + marker + pr-3
+const SPLIT_COL_CHROME = 60; // one split column: gutter + pr-3
 // Left-accent colors for changed lines, mirroring the comment-range accent. (#border)
 const ADD_ACCENT = "var(--color-emerald-500)";
 const DEL_ACCENT = "var(--color-rose-500)";
 const OVERSCAN = 1500; // px of rows to render/build beyond the viewport each way
 const GIANT_CHANGED_LINES = 500;
 const EST_BLOCK_H = 96; // placeholder height for a comment thread before it measures
+const EST_PREVIEW_H = 240; // placeholder body height for a markdown preview before it measures (#preview)
 const PLACEHOLDER_BODY_H = 72; // fixed body height for binary / deleted placeholders (#11, shared layout #5, padding #8)
 const CONTEXT = 3; // unchanged lines kept around each change before folding (#10)
 const EXPAND_STEP = 25; // lines revealed per fold expand click (#2)
@@ -79,11 +93,16 @@ const rowCountOf = (m: Model, layout: DiffLayout) => (layout === "split" ? m.spl
 // not rebuilt every render (and safe to read inside memos without being deps).
 const isGiant = (e: FileEntry) => e.additions + e.deletions >= GIANT_CHANGED_LINES;
 const estBodyH = (e: FileEntry, rowH: number) => Math.max(1, Math.round((e.additions + e.deletions) * 1.1) + 6) * rowH;
-// Binary + deleted files render a fixed-height placeholder, never a model — so
-// their reserved height is KNOWN, not estimated. Using this (not estBodyH) as the
-// offset fallback keeps them exact even after a bodyHeights reset (layout flip),
-// when a placeholder section can't re-report (its effect deps don't change). (#9)
-const estReserved = (e: FileEntry, rowH: number) => (e.binary || e.status === "deleted" ? PLACEHOLDER_BODY_H : estBodyH(e, rowH));
+// A rename with no content change is shown as a placeholder (like deleted/binary), so
+// its reserved height is the fixed placeholder height, not an estimate. Keyed on
+// status+counts (not oldPath) so this and the render branch below can't diverge. (#rename)
+const isRenameOnly = (e: FileEntry) => e.status === "renamed" && e.additions === 0 && e.deletions === 0;
+// Binary, deleted, and (un-revealed) giant files render a fixed-height placeholder
+// instead of a model — so their reserved height is KNOWN, not estimated. Using this
+// (not estBodyH) as the offset fallback keeps them exact even after a bodyHeights
+// reset (layout flip), when a placeholder section can't re-report (its effect deps
+// don't change) — and for a revealed giant, its reported body height overrides this. (#9)
+const estReserved = (e: FileEntry, rowH: number) => (e.binary || e.status === "deleted" || isGiant(e) || isRenameOnly(e) ? PLACEHOLDER_BODY_H : estBodyH(e, rowH));
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -132,7 +151,14 @@ function occurrencesOf(re: RegExp, text: string): { col: number; len: number }[]
 // The code area: highlighted line + a brighter tint over exactly the changed
 // characters (word-level diff). Monospace ⇒ char N is at N`ch`, so the overlay
 // lines up without splitting tokens.
-function Code({ html, range, changeBg, marks }: { html: string; range: ChangeRange; changeBg: string; marks?: Mark[] }) {
+function Code({ html, range, changeBg, marks, wrap }: { html: string; range: ChangeRange; changeBg: string; marks?: Mark[]; wrap?: boolean }) {
+  if (wrap) {
+    return (
+      <code className="diff-line-syntax-raw relative flex-1 whitespace-pre-wrap break-all pr-3">
+        <span className="relative whitespace-pre-wrap break-all" dangerouslySetInnerHTML={{ __html: html }} />
+      </code>
+    );
+  }
   return (
     <code className="diff-line-syntax-raw relative flex-1 whitespace-pre pr-3">
       {range && range.length > 0 && (
@@ -164,7 +190,7 @@ const railBg = (tint: string | null) => (tint ? `linear-gradient(${tint}, ${tint
 const mix = (color: string, pct: number) => `color-mix(in oklch, ${color} ${pct}%, transparent)`;
 
 // Unified row: old# · new# · marker · code, hover `+` to comment, gutters drag-select.
-function Row({ model, index, top, selected, highlighted, onComment, marks }: { model: Model; index: number; top: number; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
+function Row({ model, index, top, height, wrap, selected, highlighted, onComment, marks }: { model: Model; index: number; top: number; height: number; wrap: boolean; selected: boolean; highlighted: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
   const line = model.getUnifiedLine(index);
   const hasOld = line.oldLineNumber != null, hasNew = line.newLineNumber != null;
   const kind = hasOld && hasNew ? "ctx" : hasNew ? "add" : hasOld ? "del" : "hunk";
@@ -185,22 +211,24 @@ function Row({ model, index, top, selected, highlighted, onComment, marks }: { m
   // green/red edge mirroring the comment accent. (#border)
   const accent = highlighted ? "var(--primary)" : kind === "add" ? ADD_ACCENT : kind === "del" ? DEL_ACCENT : undefined;
   return (
-    <div data-row-index={index} className="group absolute left-0 flex items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height: "var(--code-lh,22px)", width: "var(--rw)", minWidth: "100%", background: tint ?? undefined }}>
-      {kind !== "hunk" && (
-        <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 ${addBtnCls}`}>
-          <Plus className="size-3.5" strokeWidth={2.5} />
-        </button>
-      )}
+    <div data-row-index={index} className="group absolute left-0 flex items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height, width: wrap ? "100%" : "var(--rw)", minWidth: "100%", background: tint ?? undefined }}>
       {/* Sticky rail: pins the line-number gutters + marker to the left on
           horizontal scroll and masks the code scrolling under it. Opaque bg-code,
           or the row tint composited over it so the fill reaches the left edge.
-          The changed/commented accent rides the rail. (#2/#3) */}
+          The changed/commented accent rides the rail. The hover `+` comment button
+          lives here too so it stays pinned while the code scrolls under it — as an
+          absolute child of the row it otherwise translates with the code. (#2/#3/#hscroll) */}
       <div className="sticky left-0 z-[1] flex items-stretch bg-code" style={{ background: railBg(tint), boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
         <span data-gutter="old" className={gutterCls}>{hasOld ? line.oldLineNumber : ""}</span>
         <span data-gutter="new" className={gutterCls}>{hasNew ? line.newLineNumber : ""}</span>
         <span className={`w-4 shrink-0 select-none text-center ${markerColor}`}>{marker}</span>
+        {kind !== "hunk" && (
+          <button type="button" onClick={() => onComment(side, (hasNew ? line.newLineNumber : line.oldLineNumber)!)} aria-label={`comment on line ${hasNew ? line.newLineNumber : line.oldLineNumber}`} title="Comment (drag line numbers for a range)" className={`left-[5.25rem] top-1/2 ${addBtnCls}`}>
+            <Plus className="size-3.5" strokeWidth={2.5} />
+          </button>
+        )}
       </div>
-      <Code html={html} range={kind === "hunk" ? undefined : range} changeBg={kind === "add" ? "bg-emerald-400/25" : "bg-rose-400/25"} marks={marks} />
+      <Code html={html} range={kind === "hunk" ? undefined : range} changeBg={kind === "add" ? "bg-emerald-400/25" : "bg-rose-400/25"} marks={marks} wrap={wrap} />
     </div>
   );
 }
@@ -209,7 +237,7 @@ function Row({ model, index, top, selected, highlighted, onComment, marks }: { m
 // gutter is a sticky rail (like the unified row) so it stays pinned and masks the
 // code that scrolls under it on horizontal scroll. The two columns are separate
 // scroll containers (synced), so each side scrolls within its own half. (#2/#10)
-function SplitColCell({ model, side, index, top, changed, highlighted, selected, onComment, marks }: { model: Model; side: Side; index: number; top: number; changed: boolean; highlighted: boolean; selected: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
+function SplitColCell({ model, side, index, top, height, wrap, changed, highlighted, selected, onComment, marks }: { model: Model; side: Side; index: number; top: number; height: number; wrap: boolean; changed: boolean; highlighted: boolean; selected: boolean; onComment: (side: Side, line: number) => void; marks?: RowMark[] }) {
   const line = side === "old" ? model.getSplitLeftLine(index) : model.getSplitRightLine(index);
   const has = line.lineNumber != null;
   const ln = line.lineNumber!;
@@ -226,16 +254,16 @@ function SplitColCell({ model, side, index, top, changed, highlighted, selected,
   const range = changed ? changeRangeOf(line.diff) : undefined;
   const accent = changed ? (side === "old" ? DEL_ACCENT : ADD_ACCENT) : highlighted ? "var(--primary)" : undefined;
   return (
-    <div data-row-index={index} className="group absolute left-0 flex w-full items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height: "var(--code-lh,22px)", background: tint ?? undefined }}>
-      {has && (
-        <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-12 top-1/2 ${addBtnCls}`}>
-          <Plus className="size-3.5" strokeWidth={2.5} />
-        </button>
-      )}
+    <div data-row-index={index} className="group absolute left-0 flex w-full items-stretch font-mono text-[length:var(--code-fs,13px)] leading-[var(--code-lh,22px)]" style={{ top, height, background: tint ?? undefined }}>
       <div className="sticky left-0 z-[1] flex items-stretch bg-code" style={{ background: railBg(tint), boxShadow: accent ? `inset 3px 0 0 ${accent}` : undefined }}>
         <span data-gutter={side} className={gutterCls}>{has ? ln : ""}</span>
+        {has && (
+          <button type="button" onClick={() => onComment(side, ln)} aria-label={`comment on ${side} line ${ln}`} title="Comment (drag line numbers for a range)" className={`left-12 top-1/2 ${addBtnCls}`}>
+            <Plus className="size-3.5" strokeWidth={2.5} />
+          </button>
+        )}
       </div>
-      {has ? <Code html={html} range={range} changeBg={side === "old" ? "bg-rose-400/25" : "bg-emerald-400/25"} marks={marks} /> : <span className="flex-1" />}
+      {has ? <Code html={html} range={range} changeBg={side === "old" ? "bg-rose-400/25" : "bg-emerald-400/25"} marks={marks} wrap={wrap} /> : <span className="flex-1" />}
     </div>
   );
 }
@@ -247,11 +275,12 @@ type VisualRow = { kind: "line"; index: number } | { kind: "fold"; start: number
 // Stand-in for a folded run of unchanged lines. A single reveal control shows the
 // direction that has adjacent shown code to extend from — ↓ (down) when there's
 // code above the gap, ↑ (up) when there's code below; a gap anchored to both file
-// ends shows both. Clicking the label expands the whole gap. The blue tint reads
+// ends shows both. Clicking the label reveals the next step; alt-click reveals the
+// whole gap. The blue tint reads
 // as "collapsed, expandable" — clearly not code. The bg spans the full row width
 // (var(--rw)) so it never truncates on horizontal scroll, like changed rows.
 // (#3/#4)
-function FoldRow({ top, count, showDown, showUp, onDown, onUp, onAll }: { top: number; count: number; showDown: boolean; showUp: boolean; onDown: () => void; onUp: () => void; onAll: () => void }) {
+function FoldRow({ top, count, showDown, showUp, onDown, onUp, onExpand, onAll }: { top: number; count: number; showDown: boolean; showUp: boolean; onDown: () => void; onUp: () => void; onExpand: () => void; onAll: () => void }) {
   // Either direction reveals at most the remaining gap, so don't promise 25 when
   // fewer are left.
   const step = Math.min(EXPAND_STEP, count);
@@ -273,7 +302,7 @@ function FoldRow({ top, count, showDown, showUp, onDown, onUp, onAll }: { top: n
           </button>
         )}
       </div>
-      <button type="button" onClick={onAll} title="Expand all hidden lines" className="sticky left-24 flex flex-1 items-center px-3 text-left tabular-nums transition-colors hover:text-foreground">
+      <button type="button" onClick={(e) => (e.altKey ? onAll() : onExpand())} title={`Show ${step} more line${step === 1 ? "" : "s"} · alt-click to expand all`} className="sticky left-24 flex flex-1 items-center px-3 text-left tabular-nums transition-colors hover:text-foreground">
         {count} hidden line{count === 1 ? "" : "s"}
       </button>
     </div>
@@ -301,18 +330,47 @@ function CommentBlock({ id, top, comments, onEdit, onDelete, onToggleResolved, o
   );
 }
 
+// A rendered markdown preview of a file's new content, shown in place of the diff
+// when the user toggles Preview. Variable height — measured with a ResizeObserver
+// and reported up, exactly like CommentBlock, so the file participates in the
+// pane's offset math. delta-comment-ui flips the mono/app-color wrapper back to the
+// sans prose treatment (same as comment bodies). (#preview)
+function PreviewBody({ content, onHeight }: { content: string; onHeight: (h: number) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const report = () => onHeight(el.offsetHeight);
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onHeight, content]);
+  return (
+    <div ref={ref} className="delta-comment-ui p-12">
+      <div className="prose prose-sm max-w-none break-words prose-pre:my-1.5 prose-pre:text-[12px] prose-code:text-[12px]">
+        <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+      </div>
+    </div>
+  );
+}
+
 interface Block { id: string; index: number; comments: Comment[] }
 
 const VFileSection = memo(function VFileSection({
-  entry, theme, layout, cache, collapsed, viewed, headerSolo, repoPath, onToggleCollapse, onToggleViewed, view, paneW, rowH, chPx, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment, reportBodyHeight, registerRef,
+  entry, theme, layout, cache, collapsed, viewed, previewing, onSetPreview, headerSolo, repoPath, onToggleCollapse, onToggleViewed, wrap, onToggleWrap, view, paneW, rowH, chPx, query, caseSensitive, wholeWord, activeMatch, onMatches, forceModel, comments, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment, reportBodyHeight,
 }: {
   entry: FileEntry; theme: "light" | "dark"; layout: DiffLayout;
   cache: ReturnType<typeof useFileDiffCache>;
   collapsed: boolean; viewed: boolean;
   headerSolo: boolean; // body fully scrolled under the stuck header → round its bottom corners (#6)
   repoPath: string; // absolute repo/worktree root — joined with entry.path to open in an editor (#editor)
+  previewing: boolean; // rendered markdown preview instead of the diff (state lifted to the pane so it survives scroll-unmount) (#preview)
+  onSetPreview: (path: string, on: boolean) => void;
   onToggleCollapse: (path: string) => void;
   onToggleViewed: (path: string) => void;
+  wrap: boolean;
+  onToggleWrap: (path: string) => void;
   view: [number, number] | null; // body-relative visible window [top, bottom] px, or null off-screen
   paneW: number; // diff pane client width — decides if a file overflows → horizontal scroll (#hscroll)
   rowH: number; // code row height (px), from the font-size pref; must match the --code-lh the rows render at
@@ -329,11 +387,7 @@ const VFileSection = memo(function VFileSection({
   onDeleteComment: (id: string) => void;
   onToggleResolvedComment: (id: string) => void;
   reportBodyHeight: (path: string, h: number) => void;
-  registerRef: (path: string, el: HTMLDivElement | null) => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { registerRef(entry.path, ref.current); return () => registerRef(entry.path, null); }, [entry.path]);
-
   // Split view renders the two sides as separate horizontal-scroll columns;
   // mirror one's scrollLeft onto the other so the old/new sides stay aligned. The
   // guard flag avoids the feedback loop between the two onScroll handlers. (#10)
@@ -351,20 +405,43 @@ const VFileSection = memo(function VFileSection({
   }, []);
 
   // Binary files have no textual diff; deleted files hide their (removed) content
-  // behind a reveal so the pane isn't dominated by deletions. Both render a fixed-
-  // height placeholder instead of a diff model — restoring the classic pane's
-  // treatment that the virtual refactor dropped. (#11)
+  // behind a reveal so the pane isn't dominated by deletions; giant files (many
+  // changed lines) hide their diff behind a reveal so a huge parse/render isn't paid
+  // until asked. All three render a fixed-height placeholder instead of a diff model
+  // — restoring the classic pane's treatment that the virtual refactor dropped. (#11)
   const isBinary = entry.binary;
   const isDeleted = entry.status === "deleted";
   const [revealed, setRevealed] = useState(false);
-  const showPlaceholder = !collapsed && (isBinary || (isDeleted && !revealed));
+  // Rendered markdown preview: added/modified markdown files only (deleted has no
+  // new content; binary has none). `previewing` is held by the pane (survives the
+  // card unmounting when scrolled off-screen); only the measured height is local. (#preview)
+  const canPreview = isMarkdownPath(entry.path) && !isBinary && !isDeleted;
+  const [previewH, setPreviewH] = useState(0);
+  const onPreviewHeight = useCallback((h: number) => {
+    setPreviewH((prev) => (Math.abs(prev - h) < 1 ? prev : h));
+  }, []);
+  const bigHidden = isGiant(entry) && !revealed; // giant, not yet revealed → placeholder
+  // Previewing takes precedence over every diff placeholder (incl. a giant's "Show
+  // diff") — a previewed file shows rendered content, not a placeholder.
+  const showPlaceholder = !collapsed && !previewing && (isBinary || (isDeleted && !revealed) || bigHidden || (isRenameOnly(entry) && !revealed));
 
   // Build the model when on-screen, or whenever find is active (forceModel) so
-  // every searchable file contributes matches even while off-screen/collapsed.
-  const wantModel = !isBinary && (!isDeleted || revealed) && (forceModel || (view != null && !collapsed));
-  const fd = useFileDiffCacheEntry(cache, entry.path, wantModel);
+  // every searchable file contributes matches even while off-screen/collapsed — but a
+  // hidden giant only builds under forceModel, so scrolling past it stays cheap. (#11)
+  const wantModel = !isBinary && (!isDeleted || revealed) && (!isRenameOnly(entry) || revealed) && (forceModel || (!bigHidden && view != null && !collapsed));
+  const fd = useFileDiffCacheEntry(cache, entry.path, wantModel || previewing);
   const model = useMemo(() => (fd && wantModel ? buildModel(fd, theme, layout) : null), [fd, theme, layout, wantModel]);
   const rowCount = model ? rowCountOf(model, layout) : 0;
+
+  // Switch between the raw diff and the rendered preview. Turning preview on for a
+  // collapsed card expands it first (a preview of a collapsed card is meaningless),
+  // mirroring the comment button's reveal. Content loads via the cache hook above
+  // (wantModel || previewing).
+  const setPreview = useCallback((on: boolean) => {
+    if (on === previewing) return;
+    if (on && collapsed) onToggleCollapse(entry.path);
+    onSetPreview(entry.path, on);
+  }, [previewing, collapsed, entry.path, onToggleCollapse, onSetPreview]);
 
   // Horizontal scroll (#hscroll): rows are widened to the file's longest line so
   // long code can scroll instead of clipping. Width is exact `ch` (mono) + fixed
@@ -384,6 +461,7 @@ const VFileSection = memo(function VFileSection({
   const colWidthCss = `calc(60px + ${maxCols}ch)`; // one split column's content width (gutter + code) (#10)
   const rowPx = (layout === "split" ? 120 : 124) + maxCols * chPx * (layout === "split" ? 2 : 1);
   const wide = paneW > 0 && rowPx > paneW - 2 * PAD - 2; // card is inset by PAD each side, minus its 1px borders
+  const hScroll = wide && !wrap; // wrapping and horizontal scroll are mutually exclusive (#wrap)
 
   // Comment blocks: file-scope → index -1 (top); line/range → the row they anchor.
   const blocks = useMemo<Block[]>(() => {
@@ -493,6 +571,34 @@ const VFileSection = memo(function VFileSection({
   }, [model, layout, rowCount, commentedRows, rangeRows, expansions]);
   const visualCount = visualRows.length;
 
+  // Wrapping geometry (#wrap). Available code width = card body (pane minus the
+  // PAD inset each side and the card's 1px borders) minus the row chrome. When
+  // wrap is off, or width is unknown, every row is 1 line high → identical to the
+  // old `v * rowH` arithmetic.
+  const bodyW = paneW > 0 ? paneW - 2 * PAD - 2 : 0;
+  const unifiedCols = wrap ? paneColsFor(bodyW - UNIFIED_CHROME, chPx) : 0;
+  const splitColCols = wrap ? paneColsFor(bodyW / 2 - SPLIT_COL_CHROME, chPx) : 0;
+  const rowLines = useMemo(() => {
+    const out = new Array<number>(visualCount).fill(1);
+    if (!model || !wrap) return out;
+    for (let v = 0; v < visualCount; v++) {
+      const vr = visualRows[v];
+      if (vr.kind !== "line") continue; // fold rows never wrap
+      if (layout === "split") {
+        const l = model.getSplitLeftLine(vr.index), r = model.getSplitRightLine(vr.index);
+        const ll = l.lineNumber != null ? visualLinesForCols((l.value ?? "").length, splitColCols) : 1;
+        const rl = r.lineNumber != null ? visualLinesForCols((r.value ?? "").length, splitColCols) : 1;
+        out[v] = Math.max(ll, rl);
+      } else {
+        const line = model.getUnifiedLine(vr.index);
+        out[v] = visualLinesForCols((line.value ?? "").length, unifiedCols);
+      }
+    }
+    return out;
+  }, [model, wrap, layout, visualRows, visualCount, unifiedCols, splitColCols]);
+  const rowTops = useMemo(() => buildRowOffsets(rowLines, rowH), [rowLines, rowH]);
+  const rowPxOf = (v: number) => rowLines[v] * rowH;
+
   // In-code find (#find): scan SHOWN lines for the query. Matches map to model
   // rows (folded/hidden lines are skipped). `fileMatches` feeds the global list;
   // `marksByRow` drives the per-row highlight overlays. y is the row's body-top
@@ -508,7 +614,7 @@ const VFileSection = memo(function VFileSection({
       if (!occ.length) return;
       const vr = modelToVisual.get(i);
       if (vr == null) return; // line folded away — not visible, skip
-      const y = vr * rowH;
+      const y = rowTops[vr];
       let arr = mbr.get(i);
       if (!arr) mbr.set(i, (arr = []));
       for (const o of occ) {
@@ -531,7 +637,7 @@ const VFileSection = memo(function VFileSection({
       }
     }
     return { fileMatches: fm, marksByRow: mbr };
-  }, [model, q, caseSensitive, wholeWord, layout, rowCount, modelToVisual, entry.path]);
+  }, [model, q, caseSensitive, wholeWord, layout, rowCount, modelToVisual, entry.path, rowTops]);
   useEffect(() => { onMatches(entry.path, fileMatches); }, [entry.path, fileMatches, onMatches]);
   // The active match's row gets its matching mark flagged active (cheap, at render).
   const rowMarks = (mi: number): RowMark[] | undefined => {
@@ -550,12 +656,18 @@ const VFileSection = memo(function VFileSection({
   // running sum below can break early. (#10)
   const blockVa = (b: Block) => (b.index < 0 ? -1 : modelToVisual.get(b.index) ?? 0);
   const commentAbove = (v: number) => { let s = 0; for (const b of blocks) { if (blockVa(b) < v) s += heightOf(b); else break; } return s; };
-  const visualRowTop = (v: number) => v * rowH + commentAbove(v);
+  const visualRowTop = (v: number) => rowTops[v] + commentAbove(v);
   const totalCommentH = blocks.reduce((s, b) => s + heightOf(b), 0);
-  const bodyH = collapsed ? 0 : showPlaceholder ? PLACEHOLDER_BODY_H : visualCount * rowH + totalCommentH;
+  const bodyH = collapsed
+    ? 0
+    : previewing
+      ? (previewH || EST_PREVIEW_H)
+      : showPlaceholder
+        ? PLACEHOLDER_BODY_H
+        : rowTops[visualCount] + totalCommentH;
   // Report a definite height once it's known — model built, or a fixed-height
   // placeholder shown — so the parent's offsets are exact. (#10/#11)
-  useEffect(() => { if (model || showPlaceholder) reportBodyHeight(entry.path, bodyH); }, [model, showPlaceholder, isBinary, entry.path, bodyH, reportBodyHeight]);
+  useEffect(() => { if (model || showPlaceholder || previewing) reportBodyHeight(entry.path, bodyH); }, [model, showPlaceholder, previewing, isBinary, entry.path, bodyH, reportBodyHeight]);
 
   // Create a line/range anchor and add an (empty) comment, mirroring the classic renderer.
   const commentLine = useCallback((side: Side, lineNumber: number) => {
@@ -606,6 +718,9 @@ const VFileSection = memo(function VFileSection({
   const slash = entry.path.lastIndexOf("/");
   const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : "";
   const base = slash >= 0 ? entry.path.slice(slash + 1) : entry.path;
+  // A rename with a distinct old path → header shows `old → new` instead of just the
+  // name. `oldPath` is set by the backend only when it differs from the new path.
+  const isRenamed = entry.status === "renamed" && !!entry.oldPath;
 
   // Copy the file name (basename) to the clipboard, flashing a ✓ on the button.
   // Selection is disabled app-wide for a native feel, so this is the quick way to
@@ -635,7 +750,7 @@ const VFileSection = memo(function VFileSection({
   // each column with its own static scroll ref so the two stay independently
   // scrollable + synced. (#10)
   const splitColumnInner = (side: Side) => (
-    <div className="relative h-full" style={{ width: colWidthCss, minWidth: "100%" }}>
+    <div className="relative h-full" style={{ width: wrap ? "100%" : colWidthCss, minWidth: "100%" }}>
       {model && renderVisual.map((v) => {
         const vr = visualRows[v];
         if (vr.kind !== "line") return null;
@@ -647,7 +762,7 @@ const VFileSection = memo(function VFileSection({
           : rightHas && (!leftHas || !!changeRangeOf(right.diff));
         return (
           <SplitColCell
-            key={idx} model={model} side={side} index={idx} top={visualRowTop(v)}
+            key={idx} model={model} side={side} index={idx} top={visualRowTop(v)} height={rowPxOf(v)} wrap={wrap}
             changed={changed} highlighted={rangeRows.has(idx)} selected={idx >= selLo && idx <= selHi}
             onComment={commentLine} marks={rowMarks(idx)?.filter((m) => m.side === side)}
           />
@@ -659,7 +774,7 @@ const VFileSection = memo(function VFileSection({
   return (
     // Borders live on the header + body, not this wrapper, so a stuck header can
     // float with a canvas GAP above it (the wrapper is transparent there). (#7)
-    <div ref={ref} data-file={entry.path} className="rounded-lg shadow-xs dark:shadow-none">
+    <div data-file={entry.path} className="rounded-lg shadow-xs dark:shadow-none">
       {/* Canvas backdrop pinned exactly behind the sticky header (z below it).
           The header's rounded top corners are transparent at the notch; without
           this, code rows scrolling under the header peek through those corners.
@@ -686,10 +801,14 @@ const VFileSection = memo(function VFileSection({
           <ChevronRight className={`size-4 transition-transform duration-200 ${collapsed ? "" : "rotate-90"}`} />
         </span>
         <span className={`pointer-events-none relative flex min-w-0 flex-1 items-center gap-1 ${viewed ? "opacity-55 group-hover/h:opacity-100" : ""}`}>
-          <span className="min-w-0 truncate text-[13px]">
-            {dir && <span className="text-muted-foreground">{dir}</span>}
-            <span className="font-medium text-foreground">{base}</span>
-          </span>
+          {isRenamed ? (
+            <RenameLabel oldPath={entry.oldPath!} newPath={entry.path} className="text-[13px]" />
+          ) : (
+            <span className="min-w-0 truncate text-[13px]">
+              {dir && <span className="text-muted-foreground">{dir}</span>}
+              <span className="font-medium text-foreground">{base}</span>
+            </span>
+          )}
           {/* Reveals on header hover (and keyboard focus); ✓ flashes after a copy. */}
           <button
             type="button"
@@ -705,54 +824,118 @@ const VFileSection = memo(function VFileSection({
           {entry.additions > 0 && <span className="text-emerald-500">+{entry.additions}</span>}{" "}
           {entry.deletions > 0 && <span className="text-rose-500">−{entry.deletions}</span>}
         </span>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => { void api.openInEditor(getEditorPref(), repoPath, entry.path).catch((e) => console.error("open in editor:", e)); }}
-          aria-label={`open ${entry.path} in editor`}
-          title="Open in editor"
-          className="relative h-6 shrink-0 px-2 text-muted-foreground hover:text-foreground"
-        >
-          <ExternalLink className="size-4" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            // A deleted file hides its content behind a reveal, and the file-comment
-            // form renders inside the (model-built) body — so reveal first, else the
-            // comment this click creates would sit hidden behind the placeholder. (#11)
-            if (isDeleted && !revealed) { setRevealed(true); void cache.load(entry.path); }
-            onAddFileComment(entry.path, "");
-          }}
-          aria-label={`comment on ${entry.path}`}
-          title="Comment on file"
-          className="relative h-6 shrink-0 px-2 text-muted-foreground hover:text-foreground"
-        >
-          <MessageSquarePlus className="size-4" />
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => onToggleViewed(entry.path)}
-          aria-pressed={viewed}
-          aria-label={`viewed ${entry.path}`}
-          title="Mark viewed"
-          className={`delta-ui-font relative h-6 shrink-0 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
-        >
-          <span className={`flex size-4 items-center justify-center rounded-[5px] border transition-colors ${viewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80"}`}>
-            {viewed && <Check className="size-3" strokeWidth={3} />}
-          </span>
-          Viewed
-        </Button>
+        {/* Control cluster, grouped by role: view toggles (hold state, light up
+            in --primary) · actions (one-shot, never lit) · Viewed (review state,
+            pinned to the edge). Hairline dividers separate the groups so a control's
+            position is predictable. The cluster is `relative` so it (and its buttons)
+            paint above — and take clicks from — the absolute collapse target. (#card) */}
+        <div className="relative ml-2 flex shrink-0 items-center gap-1">
+          {/* View: how the file is displayed. */}
+          <div className="flex items-center gap-1">
+            {canPreview && (
+              // Diff / rendered-preview switch. The selected segment adopts the same
+              // --primary "on" accent as an active Wrap, so all view toggles read alike. (#preview)
+              <ToggleGroup
+                type="single"
+                size="sm"
+                value={previewing ? "preview" : "diff"}
+                onValueChange={(v) => v && setPreview(v === "preview")}
+                aria-label={`view mode for ${entry.path}`}
+                className="gap-0.5 rounded-md bg-muted/70 p-0.5"
+              >
+                <ToggleGroupItem value="diff" aria-label="Diff view" title="Diff" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-primary/10 data-[state=on]:text-primary"><CodeIcon className="size-4" /></ToggleGroupItem>
+                <ToggleGroupItem value="preview" aria-label="Rich preview" title="Preview" className="size-6 rounded-[5px] border-0 p-0 text-muted-foreground hover:text-foreground data-[state=on]:bg-primary/10 data-[state=on]:text-primary"><BookOpen className="size-4" /></ToggleGroupItem>
+              </ToggleGroup>
+            )}
+            {/* Wrap is a diff-view setting with no meaning in the rendered preview,
+                so it's disabled there. Active → the shared --primary pill. */}
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onToggleWrap(entry.path)}
+              disabled={previewing}
+              aria-pressed={wrap}
+              aria-label={`wrap lines ${entry.path}`}
+              title="Wrap lines"
+              className={`h-7 px-2 ${wrap ? "bg-primary/10 text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              <WrapText className="size-4" />
+            </Button>
+          </div>
+          <span aria-hidden className="mx-1 h-5 w-px bg-border/60" />
+          {/* Actions: one-shot, never carry persistent state. */}
+          <div className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => { void api.openInEditor(getEditorPref(), repoPath, entry.path).catch((e) => console.error("open in editor:", e)); }}
+              aria-label={`open ${entry.path} in editor`}
+              title="Open in editor"
+              className="h-7 px-2 text-muted-foreground hover:text-foreground"
+            >
+              <ExternalLink className="size-4" />
+            </Button>
+            {/* While previewing there are no line anchors to attach to, so commenting is
+                disabled rather than hidden. The title lives on the wrapping span so the
+                native tooltip still shows over the disabled (pointer-events-none) button,
+                and the span absorbs the click so it can't fall through to the collapse
+                target behind it. (#preview) */}
+            <span
+              className="relative shrink-0"
+              title={previewing ? "Switch to Diff to add a comment" : "Comment on file"}
+            >
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={previewing}
+                onClick={() => {
+                  // A deleted or giant file hides its content behind a reveal, and the
+                  // file-comment form renders inside the (model-built) body — so reveal first,
+                  // else the comment this click creates would sit hidden behind the placeholder. (#11)
+                  if ((isDeleted || isGiant(entry) || isRenameOnly(entry)) && !revealed) { setRevealed(true); void cache.load(entry.path); }
+                  onAddFileComment(entry.path, "");
+                }}
+                aria-label={previewing ? `commenting disabled while previewing ${entry.path}` : `comment on ${entry.path}`}
+                className="h-7 px-2 text-muted-foreground hover:text-foreground"
+              >
+                <MessageSquarePlus className="size-4" />
+              </Button>
+            </span>
+          </div>
+          <span aria-hidden className="mx-1 h-5 w-px bg-border/60" />
+          {/* Review state: the per-file "done" checkpoint, pinned to the edge. */}
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => onToggleViewed(entry.path)}
+            aria-pressed={viewed}
+            aria-label={`viewed ${entry.path}`}
+            title="Mark viewed"
+            className={`delta-ui-font h-7 gap-1.5 px-2 text-[12px] ${viewed ? "text-primary hover:text-primary" : "text-muted-foreground hover:text-foreground"}`}
+          >
+            <span className={`flex size-4 items-center justify-center rounded-[5px] border transition-colors ${viewed ? "border-primary bg-primary text-primary-foreground" : "border-border/80"}`}>
+              {viewed && <Check className="size-3" strokeWidth={3} />}
+            </span>
+            Viewed
+          </Button>
+        </div>
       </div>
       {!collapsed && (
         <div
-          className={`relative rounded-b-lg border-x border-b border-border bg-code ${layout !== "split" && wide ? `overflow-x-auto overflow-y-hidden ${HIDE_SCROLLBAR}` : "overflow-hidden"}`}
-          style={{ height: bodyH, overscrollBehaviorY: "auto" /* always chain a vertical wheel to the pane, not only over h-scrollable files — the app-wide overscroll-behavior:none otherwise traps it on every card (#hscroll) */, "--rw": rowWidthCss } as CSSProperties}
+          className="relative overflow-hidden rounded-b-lg border-x border-b border-border bg-code"
+          style={{ height: bodyH, overscrollBehaviorY: "auto" /* always chain a vertical wheel to the pane, not only over h-scrollable files — the app-wide overscroll-behavior:none otherwise traps it on every card (#hscroll) */, "--rw": wrap ? "100%" : rowWidthCss } as CSSProperties}
           onPointerDown={onGutterPointerDown}
         >
-          {isBinary ? (
+          {previewing ? (
+            fd?.newContent != null ? (
+              <PreviewBody content={fd.newContent} onHeight={onPreviewHeight} />
+            ) : (
+              <div className="delta-ui-font flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
+                <BookOpen className="size-4 shrink-0 opacity-70" />
+                <span>Loading preview…</span>
+              </div>
+            )
+          ) : isBinary ? (
             <div className="delta-ui-font flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
               <FileQuestion className="size-4 shrink-0 opacity-70" />
               <span>Unsupported file — binary or non-text content.</span>
@@ -769,6 +952,30 @@ const VFileSection = memo(function VFileSection({
                 <Eye className="size-4" /> Show deleted content
               </button>
             </div>
+          ) : bigHidden ? (
+            <div className="delta-ui-font flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
+              <FileText className="size-4 shrink-0 opacity-70" />
+              <span>Large file — {entry.additions + entry.deletions} changed lines, hidden by default.</span>
+              <button
+                type="button"
+                onClick={() => { setRevealed(true); void cache.load(entry.path); }}
+                className="flex h-7 items-center gap-1.5 rounded-md px-2 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <Eye className="size-4" /> Show diff
+              </button>
+            </div>
+          ) : isRenameOnly(entry) && !revealed ? (
+            <div className="delta-ui-font flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
+              <ArrowLeftRight className="size-4 shrink-0 text-sky-500/80" />
+              <span>File renamed without changes</span>
+              <button
+                type="button"
+                onClick={() => { setRevealed(true); void cache.load(entry.path); }}
+                className="flex h-7 items-center gap-1.5 rounded-md px-2 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <Eye className="size-4" /> Show content
+              </button>
+            </div>
           ) : (
             <>
               {/* Code: unified renders one column of rows; split renders the two
@@ -780,7 +987,7 @@ const VFileSection = memo(function VFileSection({
                   <div
                     ref={oldColRef}
                     onScroll={() => syncCols("old")}
-                    className={`absolute inset-y-0 left-0 w-1/2 overflow-x-auto overflow-y-hidden border-r border-border/60 ${HIDE_SCROLLBAR}`}
+                    className={`absolute inset-y-0 left-0 w-1/2 ${wrap ? "overflow-x-hidden" : "overflow-x-auto"} overflow-y-hidden border-r border-border/60 ${HIDE_SCROLLBAR}`}
                     style={{ overscrollBehaviorY: "auto" }}
                   >
                     {splitColumnInner("old")}
@@ -788,19 +995,28 @@ const VFileSection = memo(function VFileSection({
                   <div
                     ref={newColRef}
                     onScroll={() => syncCols("new")}
-                    className={`absolute inset-y-0 left-1/2 w-1/2 overflow-x-auto overflow-y-hidden ${HIDE_SCROLLBAR}`}
+                    className={`absolute inset-y-0 left-1/2 w-1/2 ${wrap ? "overflow-x-hidden" : "overflow-x-auto"} overflow-y-hidden ${HIDE_SCROLLBAR}`}
                     style={{ overscrollBehaviorY: "auto" }}
                   >
                     {splitColumnInner("new")}
                   </div>
                 </>
               ) : (
-                renderVisual.map((v) => {
-                  const vr = visualRows[v];
-                  if (vr.kind !== "line") return null;
-                  const hl = rangeRows.has(vr.index);
-                  return <Row key={vr.index} model={model} index={vr.index} top={visualRowTop(v)} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} marks={rowMarks(vr.index)} />;
-                })
+                // Unified: only the code rows scroll horizontally, inside this inner
+                // layer. Fold rows + comment blocks live in the non-scrolling body
+                // below, so they stay put when the code scrolls sideways — mirrors how
+                // split renders them outside its scroll columns. (#hscroll)
+                <div
+                  className={`absolute inset-0 ${hScroll ? `overflow-x-auto overflow-y-hidden ${HIDE_SCROLLBAR}` : "overflow-hidden"}`}
+                  style={{ overscrollBehaviorY: "auto" }}
+                >
+                  {renderVisual.map((v) => {
+                    const vr = visualRows[v];
+                    if (vr.kind !== "line") return null;
+                    const hl = rangeRows.has(vr.index);
+                    return <Row key={vr.index} model={model} index={vr.index} top={visualRowTop(v)} height={rowPxOf(v)} wrap={wrap} selected={vr.index >= selLo && vr.index <= selHi} highlighted={hl} onComment={commentLine} marks={rowMarks(vr.index)} />;
+                  })}
+                </div>
               ))}
               {/* Folds (full row width) — shared by both layouts; in split the body
                   doesn't scroll, so the bg fills the visible card width. (#3/#4) */}
@@ -812,10 +1028,13 @@ const VFileSection = memo(function VFileSection({
                 // a gap touching both file ends (no anchor) shows both. (#4)
                 const canDown = vr.start > 0, canUp = vr.end < rowCount - 1;
                 const both = !canDown && !canUp;
-                return <FoldRow key={`fold-${vr.start}`} top={visualRowTop(v)} count={vr.count} showDown={canDown || both} showUp={canUp || both} onDown={() => growFold(key, "top")} onUp={() => growFold(key, "bottom")} onAll={() => growFold(key, "all")} />;
+                // Plain label click reveals the next step in the primary direction —
+                // top-down where there's code above (matches ↓), else bottom-up (↑). (#2)
+                const primary = canDown ? "top" : "bottom";
+                return <FoldRow key={`fold-${vr.start}`} top={visualRowTop(v)} count={vr.count} showDown={canDown || both} showUp={canUp || both} onDown={() => growFold(key, "top")} onUp={() => growFold(key, "bottom")} onExpand={() => growFold(key, primary)} onAll={() => growFold(key, "all")} />;
               })}
               {model && blocks.map((b) => (
-                <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + rowH} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onToggleResolved={onToggleResolvedComment} onHeight={onHeight} />
+                <CommentBlock key={b.id} id={b.id} top={b.index < 0 ? 0 : visualRowTop(blockVa(b)) + rowPxOf(blockVa(b))} comments={b.comments} onEdit={onEditComment} onDelete={onDeleteComment} onToggleResolved={onToggleResolvedComment} onHeight={onHeight} />
               ))}
             </>
           )}
@@ -833,11 +1052,14 @@ function useFileDiffCacheEntry(cache: ReturnType<typeof useFileDiffCache>, path:
 }
 
 export function VirtualDiffPane({
-  target, files, theme, layout, viewedFiles, comments, jump, invalidate, onVisibleFileChange, onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment,
+  target, files, theme, layout, viewedFiles, comments, jump, prefetch, invalidate, onVisibleFileChange, onToggleViewed, onAddComment, onAddFileComment, onEditComment, onDeleteComment, onToggleResolvedComment,
 }: {
   target: Target; files: FileEntry[]; theme: "light" | "dark"; layout: DiffLayout;
   viewedFiles: Set<string>; comments: Comment[];
   jump?: { file: string; commentId?: string; n: number } | null;
+  // Hover-prefetch signal from the files tree: warm this file's diff (load only, no
+  // scroll) so a subsequent click paints instantly. The nonce re-fires it. (#jump-preload)
+  prefetch?: { file: string; n: number } | null;
   // Reload signal from the header Refresh button: { paths: null } reloads all
   // mounted files, otherwise just the listed ones. The nonce re-fires it. (#12)
   invalidate?: { paths: string[] | null; n: number } | null;
@@ -856,7 +1078,28 @@ export function VirtualDiffPane({
   // the wrapper below). At the default 13px this is 22 — identical to before.
   const { size: codeSize } = useCodeFont();
   const rowH = rowHeightFor(codeSize);
-  const chPx = (CH_PX * codeSize) / 13; // overflow check only; scales with size
+  // Measure the real mono advance (px/char) for the code font at the current
+  // size, so wrap-column math matches what the browser actually fits. Falls back
+  // to the CH_PX estimate until the probe is measured on first layout. (#wrap)
+  const measureRef = useRef<HTMLSpanElement>(null);
+  const [measuredCh, setMeasuredCh] = useState(0);
+  // Re-measure on ANY change to the probe's box — code font size, family, or
+  // browser zoom all change the mono advance and thus how many columns fit per
+  // wrapped line. A stale advance under-counts wrapped lines → row overlap, so
+  // observe the probe directly rather than enumerating font deps. (#wrap)
+  useLayoutEffect(() => {
+    const el = measureRef.current;
+    if (!el) return;
+    const measure = () => {
+      const w = el.getBoundingClientRect().width / 200; // 200-char probe
+      setMeasuredCh((prev) => (w > 0 && Math.abs(w - prev) > 0.01 ? w : prev));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const chPx = measuredCh || (CH_PX * codeSize) / 13;
 
   // Drop + reload changed files when the user hits Refresh; a fresh FileDiff
   // invalidates its cached model (WeakMap-keyed) so the section rebuilds. (#12)
@@ -867,11 +1110,15 @@ export function VirtualDiffPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [invalidate?.n]);
 
+  // Hover-prefetch: the files tree fires this (debounced) as the pointer rests on a
+  // row, so the diff is warm before a click lands — the skeleton-free way to avoid a
+  // blank card. Load only; never scrolls. cache.load no-ops if loaded/inflight. (#jump-preload)
+  useEffect(() => {
+    if (prefetch) void cache.load(prefetch.file);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefetch?.n]);
+
   const paneRef = useRef<HTMLDivElement>(null);
-  const sectionRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const registerRef = useCallback((path: string, el: HTMLDivElement | null) => {
-    if (el) sectionRefs.current.set(path, el); else sectionRefs.current.delete(path);
-  }, []);
   const jumpPin = useRef<string | null>(null);
   const jumpPinTimer = useRef(0);
   const jumpTimer = useRef(0);
@@ -907,7 +1154,16 @@ export function VirtualDiffPane({
     function onKey(e: KeyboardEvent) {
       if ((e.key === "f" || e.key === "F") && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
         e.preventDefault();
+        // Seed the query from a selection made inside the diff pane (#find),
+        // like an editor's find box. Scoped to paneRef so a selection in a
+        // comment/tree doesn't leak in; multi-line selections are skipped.
+        const sel = window.getSelection();
+        const node = sel?.anchorNode ?? null;
+        const prefill =
+          node && paneRef.current?.contains(node) ? findPrefillFromSelection(sel!.toString()) : null;
         setFindOpen(true);
+        track("find_used");
+        if (prefill != null) setQuery(prefill);
         requestAnimationFrame(() => { findInputRef.current?.focus(); findInputRef.current?.select(); });
       } else if (e.key === "Escape" && findOpen) {
         setFindOpen(false); setQuery("");
@@ -936,12 +1192,36 @@ export function VirtualDiffPane({
   if (prevLayout !== layout) { setPrevLayout(layout); setBodyHeights({}); }
 
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
-  const collapsedFor = useCallback((e: FileEntry) => overrides[e.path] ?? (viewedFiles.has(e.path) || isGiant(e)), [overrides, viewedFiles]);
+  // Giant files no longer auto-collapse — they render an expanded card with a
+  // "Show diff" placeholder instead (see bigHidden). Only viewed files collapse by
+  // default; everything else follows the manual override. (#11)
+  const collapsedFor = useCallback((e: FileEntry) => overrides[e.path] ?? viewedFiles.has(e.path), [overrides, viewedFiles]);
   const toggleCollapse = useCallback((path: string) => {
-    const e = files.find((f) => f.path === path);
-    const cur = overrides[path] ?? (e ? viewedFiles.has(path) || isGiant(e) : false);
+    const cur = overrides[path] ?? viewedFiles.has(path);
     setOverrides((o) => ({ ...o, [path]: !cur }));
-  }, [files, overrides, viewedFiles]);
+  }, [overrides, viewedFiles]);
+
+  // Per-file line-wrap override (session-only, like the collapse overrides above):
+  // resolved wrap = explicit override, else the extension default. Not persisted.
+  const [wrapOverrides, setWrapOverrides] = useState<Record<string, boolean>>({});
+  const wrapFor = useCallback((e: FileEntry) => wrapOverrides[e.path] ?? wrapsByDefault(e.path), [wrapOverrides]);
+  const toggleWrap = useCallback((path: string) => {
+    const cur = wrapOverrides[path] ?? wrapsByDefault(path);
+    setWrapOverrides((o) => ({ ...o, [path]: !cur }));
+  }, [wrapOverrides]);
+
+  // Preview (rendered markdown vs raw diff) is per-file UI state held here, not in
+  // VFileSection — off-screen cards unmount (virtualization), which would otherwise
+  // reset the toggle when a previewed file scrolls out of view and back. (#preview)
+  const [previewingFiles, setPreviewingFiles] = useState<Set<string>>(new Set());
+  const setFilePreview = useCallback((path: string, on: boolean) => {
+    setPreviewingFiles((prev) => {
+      if (prev.has(path) === on) return prev;
+      const next = new Set(prev);
+      if (on) next.add(path); else next.delete(path);
+      return next;
+    });
+  }, []);
 
   // When viewed flips, drop any manual collapse override so the section follows
   // viewed (collapse on view / expand on un-view), matching the classic pane.
@@ -1065,7 +1345,10 @@ export function VirtualDiffPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [navNonce]);
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect): the measured height decides which file
+  // sections mount (below), so measuring before paint means the first frame already
+  // has the real window — no blank flash, no first-paint fallback needed. (#vfiles)
+  useLayoutEffect(() => {
     const pane = paneRef.current;
     if (!pane) return;
     setViewportH(pane.clientHeight);
@@ -1078,7 +1361,9 @@ export function VirtualDiffPane({
     // the per-file horizontal-overflow test, so DEBOUNCE it: a comments open/close
     // animates the pane width over ~200ms, and updating viewportW every frame would
     // re-render every on-screen file section. Rows reflow natively meanwhile;
-    // commit width once the resize settles. (#pane-anim)
+    // commit width once the resize settles. (#pane-anim) (Wrapped files reflow
+    // their text immediately but re-allocate row height only at settle, so a
+    // wrapped row may briefly overlap mid-resize.)
     let wTimer = 0;
     const ro = new ResizeObserver(() => {
       setViewportH(pane.clientHeight);
@@ -1100,7 +1385,11 @@ export function VirtualDiffPane({
 
   // Jump: file → scroll + pin its offset; comment → center the comment node, both
   // held as files above resolve (offsets shift). Released after settle / user input.
-  useEffect(() => {
+  // useLayoutEffect (not useEffect): the jump scrolls the pane and syncs scrollTop so
+  // the target section mounts + renders. Running it before paint means React flushes
+  // that mount in the same frame as the scroll — a passive effect would let the browser
+  // paint the scrolled-but-unmounted frame first, which is the residual click flash. (#jump-preload)
+  useLayoutEffect(() => {
     if (!jump) return;
     const { file, commentId } = jump;
     const i = files.findIndex((f) => f.path === file);
@@ -1114,7 +1403,10 @@ export function VirtualDiffPane({
       const attempt = (tries: number) => {
         const node = pane.querySelector(`[data-comment-id="${CSS.escape(commentId)}"]`) as HTMLElement | null;
         if (node) { node.scrollIntoView({ block: "center" }); return; }
-        (sectionRefs.current.get(file) ?? (pane.querySelector(`[data-file="${CSS.escape(file)}"]`) as HTMLElement | null))?.scrollIntoView({ block: "start" });
+        // The target file may not be mounted yet (off-screen sections render nothing),
+        // so scroll to its offset to materialize it — once its model builds, all its
+        // comment blocks render and the next attempt finds + centers the node. (#vfiles)
+        pane.scrollTop = Math.max(0, Math.min(offsets[i] - PAD, pane.scrollHeight - pane.clientHeight));
         if (tries < 40) jumpTimer.current = window.setTimeout(() => attempt(tries + 1), 40);
       };
       attempt(0);
@@ -1129,8 +1421,18 @@ export function VirtualDiffPane({
       };
     }
 
+    // Preload the target's diff now (like the comment-jump branch above) so the card
+    // isn't blank when the scroll lands: the fetch overlaps the scroll + mount instead
+    // of only starting once the section mounts on arrival. Cheap — cache.load no-ops
+    // if it's already loaded/inflight. (#jump-preload)
+    void cache.load(file);
     jumpPin.current = file;
     pane.scrollTop = Math.max(0, Math.min(offsets[i] - PAD, pane.scrollHeight - pane.clientHeight));
+    // Sync the row-window this commit instead of waiting for the rAF-gated onScroll:
+    // a distant jump lands outside the old window, so without this the target section
+    // stays unmounted for ~1 frame — the brief blank flash on click. Mirrors the
+    // collapse-anchor's setScrollTop above. (#jump-preload)
+    setScrollTop(pane.scrollTop);
     const release = () => { jumpPin.current = null; clearTimeout(jumpPinTimer.current); };
     jumpPinTimer.current = window.setTimeout(release, 1500);
     pane.addEventListener("wheel", release, { passive: true, once: true });
@@ -1210,6 +1512,14 @@ export function VirtualDiffPane({
           "--fold-fs": `${Math.max(10, codeSize - 1)}px`,
         } as CSSProperties}
       >
+        <span
+          ref={measureRef}
+          aria-hidden
+          className="pointer-events-none absolute font-mono text-[length:var(--code-fs,13px)]"
+          style={{ visibility: "hidden", whiteSpace: "pre", left: -9999, top: 0 }}
+        >
+          {"0".repeat(200)}
+        </span>
         {/* Opaque cap over the canvas gap above a stuck file header: without it,
             diff rows scrolling up peek through the strip between the pane's top
             edge and the header (which sticks at top:PAD). Layered BETWEEN content
@@ -1222,6 +1532,18 @@ export function VirtualDiffPane({
           const bh = collapsed ? 0 : (bodyHeights[entry.path] ?? estReserved(entry, rowH));
           const sectionTop = offsets[i], bodyTop = sectionTop + HEADER_H;
           const onScreen = viewportH > 0 && !collapsed && bodyTop + bh > top0 && bodyTop < bot0;
+          // Collapsed (viewed) files are a header-only card with no body, so `onScreen`
+          // (which also gates the row window below) is false for them — but the header
+          // must still render when near the viewport, or a viewed file vanishes into an
+          // empty gap where its card sits (worst at the top when the first files are
+          // viewed). (#gap)
+          const headerVisible = viewportH > 0 && collapsed && sectionTop < bot0 && sectionTop + HEADER_H > top0;
+          // Mount a section only when near the viewport (expanded body OR collapsed
+          // header); off-screen files render nothing, so the wrapper's fixed height:total
+          // (not the sum of children) holds the scroll range and the pane stays
+          // O(on-screen), not O(files). find forces every file to mount for matches, and
+          // jump-to-comment scrolls to offsets[i] to materialize a target on demand. (#vfiles)
+          if (!(onScreen || headerVisible || findActive)) return null;
           const view: [number, number] | null = onScreen ? [Math.max(0, top0 - bodyTop), Math.max(0, bot0 - bodyTop)] : null;
           // Header is "solo" when its body has fully scrolled up under the stuck
           // header (nothing renders right below it) — round its bottom corners so
@@ -1232,9 +1554,11 @@ export function VirtualDiffPane({
               <VFileSection
                 entry={entry} theme={theme} layout={layout} cache={cache}
                 collapsed={collapsed} viewed={viewedFiles.has(entry.path)}
+                previewing={previewingFiles.has(entry.path)} onSetPreview={setFilePreview}
                 headerSolo={headerSolo}
                 repoPath={target.repoPath}
                 onToggleCollapse={toggleCollapse} onToggleViewed={onToggleViewed}
+                wrap={wrapFor(entry)} onToggleWrap={toggleWrap}
                 view={view} paneW={viewportW} rowH={rowH} chPx={chPx}
                 query={findActive ? query : ""}
                 caseSensitive={caseSensitive} wholeWord={wholeWord}
@@ -1243,7 +1567,7 @@ export function VirtualDiffPane({
                 forceModel={findActive}
                 comments={view || findActive ? (commentsByFile.get(entry.path) ?? noComments) : noComments}
                 onAddComment={onAddComment} onAddFileComment={onAddFileComment} onEditComment={onEditComment} onDeleteComment={onDeleteComment} onToggleResolvedComment={onToggleResolvedComment}
-                reportBodyHeight={reportBodyHeight} registerRef={registerRef}
+                reportBodyHeight={reportBodyHeight}
               />
             </div>
           );

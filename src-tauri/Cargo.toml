@@ -32,8 +32,15 @@ similar = "2"
 chrono = { version = "0.4", features = ["clock"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-window-state = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 notify = "6"
 ignore = "0.4"
+tauri-plugin-aptabase = "1.0.0"
+# tauri-plugin-aptabase 1.0.0 starts its flush loop with `tokio::spawn` in its
+# Tauri setup hook, which needs an ambient Tokio runtime that lib.rs::run() enters
+# (release builds only, matching the plugin's own gate).
+tokio = { version = "1", features = ["rt-multi-thread"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

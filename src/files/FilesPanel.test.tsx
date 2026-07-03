@@ -61,4 +61,27 @@ describe("FilesPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: /viewed src\/a\.ts/i }));
     expect(onToggleViewed).toHaveBeenCalledWith("src/a.ts");
   });
+
+  it("labels a renamed file with its old path via a tooltip", () => {
+    const renamed: FileEntry[] = [
+      { path: "src/auth/token.ts", oldPath: "src/auth/session.ts", status: "renamed", additions: 0, deletions: 0, binary: false },
+    ];
+    render(<FilesPanel files={renamed} selected={null} onSelect={() => {}} viewedFiles={new Set()} onToggleViewed={() => {}} />);
+    expect(screen.getByTitle("Renamed from src/auth/session.ts")).toBeInTheDocument();
+  });
+
+  it("prefetches a file's diff after the pointer rests on its row (debounced)", () => {
+    vi.useFakeTimers();
+    try {
+      const onPrefetch = vi.fn();
+      render(<FilesPanel files={files} selected={null} onSelect={() => {}} onPrefetch={onPrefetch} viewedFiles={new Set()} onToggleViewed={() => {}} />);
+      // mouseOver is what React uses to synthesize onMouseEnter (mouseenter doesn't bubble).
+      fireEvent.mouseOver(screen.getByText("a.ts"));
+      expect(onPrefetch).not.toHaveBeenCalled(); // debounced, not fired on entry
+      vi.advanceTimersByTime(110);
+      expect(onPrefetch).toHaveBeenCalledWith("src/a.ts");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
