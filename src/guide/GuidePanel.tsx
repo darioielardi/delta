@@ -464,7 +464,6 @@ function StepProgress({ groups, viewedFiles, activeGroupId }: { groups: WalkGrou
           <div className="h-full rounded-full bg-primary transition-[width]" style={{ width: `${total ? (doneCount / total) * 100 : 0}%` }} />
         </div>
       )}
-      <span className="text-[11px] tabular-nums text-muted-foreground">{doneCount}/{total}</span>
     </div>
   );
 }
