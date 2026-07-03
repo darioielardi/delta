@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from "react";
-import { trackEvent } from "@aptabase/tauri";
+import { invoke } from "@tauri-apps/api/core";
 import { api } from "./api";
 
 // The fixed event taxonomy. Feature names + bucketed/numeric props only — never
@@ -105,16 +105,25 @@ export function shouldTrack(): boolean {
 export function track(event: EventName, props?: Props): void {
   if (!shouldTrack()) return;
   try {
-    // Aptabase's trackEvent Props type only accepts string | number. Our public
-    // Props type intentionally also allows boolean, for callers' convenience and
+    // Aptabase's track_event props only accept string | number. Our public Props
+    // type intentionally also allows boolean, for callers' convenience and
     // forward-compatibility, so stringify booleans here at the call boundary
-    // before handing off to the SDK. (#analytics)
+    // before handing off to the plugin. (#analytics)
     const aptabaseProps = props
       ? Object.fromEntries(
           Object.entries(props).map(([k, v]) => [k, typeof v === "boolean" ? String(v) : v]),
         )
       : undefined;
-    void trackEvent(event, aptabaseProps);
+    // Invoke the aptabase plugin command directly via the Tauri v2 IPC. The
+    // `@aptabase/tauri` npm package is Tauri v1-only (its `invoke` posts to the
+    // removed `window.__TAURI_IPC__` bridge), so under Tauri v2 every call
+    // silently rejected and nothing ever reached the Rust plugin. The command
+    // contract (`plugin:aptabase|track_event`, `{ name, props }`) is stable.
+    void invoke("plugin:aptabase|track_event", { name: event, props: aptabaseProps }).catch(
+      () => {
+        /* analytics must never break the app */
+      },
+    );
   } catch {
     /* analytics must never break the app */
   }
