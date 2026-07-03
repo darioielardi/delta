@@ -69,10 +69,14 @@ function Row({ node, depth, top, h }: { node: TreeNode; depth: number; top: numb
   const isViewed = !isDir && node.entry ? h.viewedFiles.has(node.entry.path) : false;
   const commentN = !isDir && node.entry ? h.commentCounts.get(node.entry.path) ?? 0 : 0;
   const paddingLeft = h.flat ? FLAT_PL : depth * INDENT + ROW_PL;
+  // Renamed file → tooltip names the source path (the sky icon already flags the
+  // rename; the old path isn't shown inline to keep the narrow rows uncluttered).
+  const renamedFrom = !isDir && node.entry?.status === "renamed" && node.entry.oldPath ? node.entry.oldPath : null;
 
   return (
     <div
       data-path={node.path}
+      title={renamedFrom ? `Renamed from ${renamedFrom}` : undefined}
       className={`group absolute inset-x-0 flex h-[26px] select-none items-center gap-1.5 rounded-md pr-1.5 ${active ? "bg-accent" : "hover:bg-foreground/[0.05]"} ${isViewed ? "opacity-65" : ""}`}
       style={{ top, paddingLeft }}
       onClick={() => (isDir ? h.onToggleDir(node.path) : h.onSelectFile(node.path))}

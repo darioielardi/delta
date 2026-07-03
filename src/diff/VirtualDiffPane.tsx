@@ -17,7 +17,7 @@
 // Supports unified + split, line/range/file comments, word-level intra-line diff,
 // jump-to-comment, and the viewed toggle.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
-import { BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, Code as CodeIcon, Copy, ExternalLink, Eye, FileQuestion, FileText, FileX, MessageSquarePlus, Plus, WrapText } from "lucide-react";
+import { ArrowLeftRight, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, Code as CodeIcon, Copy, ExternalLink, Eye, FileQuestion, FileText, FileX, MessageSquarePlus, Plus, WrapText } from "lucide-react";
 import { getSyntaxLineTemplate } from "@git-diff-view/file";
 import { SplitSide } from "@git-diff-view/react";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api } from "../api";
 import { getEditorPref } from "../editor";
 import { toDiffFile } from "./toDiffFile";
+import { RenameLabel } from "./RenameLabel";
 import { CommentThread } from "../review/CommentThread";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -91,12 +92,16 @@ const rowCountOf = (m: Model, layout: DiffLayout) => (layout === "split" ? m.spl
 // not rebuilt every render (and safe to read inside memos without being deps).
 const isGiant = (e: FileEntry) => e.additions + e.deletions >= GIANT_CHANGED_LINES;
 const estBodyH = (e: FileEntry, rowH: number) => Math.max(1, Math.round((e.additions + e.deletions) * 1.1) + 6) * rowH;
+// A rename with no content change is shown as a placeholder (like deleted/binary), so
+// its reserved height is the fixed placeholder height, not an estimate. Keyed on
+// status+counts (not oldPath) so this and the render branch below can't diverge. (#rename)
+const isRenameOnly = (e: FileEntry) => e.status === "renamed" && e.additions === 0 && e.deletions === 0;
 // Binary, deleted, and (un-revealed) giant files render a fixed-height placeholder
 // instead of a model — so their reserved height is KNOWN, not estimated. Using this
 // (not estBodyH) as the offset fallback keeps them exact even after a bodyHeights
 // reset (layout flip), when a placeholder section can't re-report (its effect deps
 // don't change) — and for a revealed giant, its reported body height overrides this. (#9)
-const estReserved = (e: FileEntry, rowH: number) => (e.binary || e.status === "deleted" || isGiant(e) ? PLACEHOLDER_BODY_H : estBodyH(e, rowH));
+const estReserved = (e: FileEntry, rowH: number) => (e.binary || e.status === "deleted" || isGiant(e) || isRenameOnly(e) ? PLACEHOLDER_BODY_H : estBodyH(e, rowH));
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -417,12 +422,12 @@ const VFileSection = memo(function VFileSection({
   const bigHidden = isGiant(entry) && !revealed; // giant, not yet revealed → placeholder
   // Previewing takes precedence over every diff placeholder (incl. a giant's "Show
   // diff") — a previewed file shows rendered content, not a placeholder.
-  const showPlaceholder = !collapsed && !previewing && (isBinary || (isDeleted && !revealed) || bigHidden);
+  const showPlaceholder = !collapsed && !previewing && (isBinary || (isDeleted && !revealed) || bigHidden || (isRenameOnly(entry) && !revealed));
 
   // Build the model when on-screen, or whenever find is active (forceModel) so
   // every searchable file contributes matches even while off-screen/collapsed — but a
   // hidden giant only builds under forceModel, so scrolling past it stays cheap. (#11)
-  const wantModel = !isBinary && (!isDeleted || revealed) && (forceModel || (!bigHidden && view != null && !collapsed));
+  const wantModel = !isBinary && (!isDeleted || revealed) && (!isRenameOnly(entry) || revealed) && (forceModel || (!bigHidden && view != null && !collapsed));
   const fd = useFileDiffCacheEntry(cache, entry.path, wantModel || previewing);
   const model = useMemo(() => (fd && wantModel ? buildModel(fd, theme, layout) : null), [fd, theme, layout, wantModel]);
   const rowCount = model ? rowCountOf(model, layout) : 0;
@@ -712,6 +717,9 @@ const VFileSection = memo(function VFileSection({
   const slash = entry.path.lastIndexOf("/");
   const dir = slash >= 0 ? entry.path.slice(0, slash + 1) : "";
   const base = slash >= 0 ? entry.path.slice(slash + 1) : entry.path;
+  // A rename with a distinct old path → header shows `old → new` instead of just the
+  // name. `oldPath` is set by the backend only when it differs from the new path.
+  const isRenamed = entry.status === "renamed" && !!entry.oldPath;
 
   // Copy the file name (basename) to the clipboard, flashing a ✓ on the button.
   // Selection is disabled app-wide for a native feel, so this is the quick way to
@@ -792,10 +800,14 @@ const VFileSection = memo(function VFileSection({
           <ChevronRight className={`size-4 transition-transform duration-200 ${collapsed ? "" : "rotate-90"}`} />
         </span>
         <span className={`pointer-events-none relative flex min-w-0 flex-1 items-center gap-1 ${viewed ? "opacity-55 group-hover/h:opacity-100" : ""}`}>
-          <span className="min-w-0 truncate text-[13px]">
-            {dir && <span className="text-muted-foreground">{dir}</span>}
-            <span className="font-medium text-foreground">{base}</span>
-          </span>
+          {isRenamed ? (
+            <RenameLabel oldPath={entry.oldPath!} newPath={entry.path} className="text-[13px]" />
+          ) : (
+            <span className="min-w-0 truncate text-[13px]">
+              {dir && <span className="text-muted-foreground">{dir}</span>}
+              <span className="font-medium text-foreground">{base}</span>
+            </span>
+          )}
           {/* Reveals on header hover (and keyboard focus); ✓ flashes after a copy. */}
           <button
             type="button"
@@ -879,7 +891,7 @@ const VFileSection = memo(function VFileSection({
                   // A deleted or giant file hides its content behind a reveal, and the
                   // file-comment form renders inside the (model-built) body — so reveal first,
                   // else the comment this click creates would sit hidden behind the placeholder. (#11)
-                  if ((isDeleted || isGiant(entry)) && !revealed) { setRevealed(true); void cache.load(entry.path); }
+                  if ((isDeleted || isGiant(entry) || isRenameOnly(entry)) && !revealed) { setRevealed(true); void cache.load(entry.path); }
                   onAddFileComment(entry.path, "");
                 }}
                 aria-label={previewing ? `commenting disabled while previewing ${entry.path}` : `comment on ${entry.path}`}
@@ -949,6 +961,18 @@ const VFileSection = memo(function VFileSection({
                 className="flex h-7 items-center gap-1.5 rounded-md px-2 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
               >
                 <Eye className="size-4" /> Show diff
+              </button>
+            </div>
+          ) : isRenameOnly(entry) && !revealed ? (
+            <div className="delta-ui-font flex h-full items-center gap-3 pl-5 pr-3 text-[13px] text-muted-foreground">
+              <ArrowLeftRight className="size-4 shrink-0 text-sky-500/80" />
+              <span>File renamed without changes</span>
+              <button
+                type="button"
+                onClick={() => { setRevealed(true); void cache.load(entry.path); }}
+                className="flex h-7 items-center gap-1.5 rounded-md px-2 text-muted-foreground transition-colors hover:bg-foreground/[0.06] hover:text-foreground"
+              >
+                <Eye className="size-4" /> Show content
               </button>
             </div>
           ) : (
