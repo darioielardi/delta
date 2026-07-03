@@ -88,12 +88,12 @@ export default function App() {
       try {
         await w.show();
         await w.setFocus();
-        await initAnalytics();
-        track("app_started");
         if (isReview) {
           const home = await WebviewWindow.getByLabel("home");
           if (home) await home.close();
         }
+        await initAnalytics();
+        track("app_started");
       } catch {
         /* not in a Tauri window / not permitted — ignore */
       }

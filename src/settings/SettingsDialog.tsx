@@ -85,7 +85,7 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
         <div className="flex items-start justify-between border-b border-border/70 px-5 py-4">
           <div>
             <h2 id="settings-title" className="font-heading text-[15px] font-medium leading-none">Settings</h2>
-            <p className="mt-1.5 text-[12px] text-muted-foreground">Appearance and editor preferences.</p>
+            <p className="mt-1.5 text-[12px] text-muted-foreground">Appearance, editor, and privacy preferences.</p>
           </div>
           <button
             type="button"

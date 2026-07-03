@@ -105,9 +105,10 @@ export function shouldTrack(): boolean {
 export function track(event: EventName, props?: Props): void {
   if (!shouldTrack()) return;
   try {
-    // Aptabase's Props type is string | number only; stringify booleans so our
-    // richer public signature (Tasks 4-6 depend on the boolean prop type) still
-    // reaches the SDK. (#analytics)
+    // Aptabase's trackEvent Props type only accepts string | number. Our public
+    // Props type intentionally also allows boolean, for callers' convenience and
+    // forward-compatibility, so stringify booleans here at the call boundary
+    // before handing off to the SDK. (#analytics)
     const aptabaseProps = props
       ? Object.fromEntries(
           Object.entries(props).map(([k, v]) => [k, typeof v === "boolean" ? String(v) : v]),

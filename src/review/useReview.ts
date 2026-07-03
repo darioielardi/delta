@@ -73,7 +73,7 @@ export function useReview(initial: Review | null) {
       updatedAt: now,
     };
     mutate((r) => ({ ...r, comments: [...r.comments, comment] }), body.trim() === "" ? "none" : "now");
-    track("comment_added");
+    if (body.trim() !== "") track("comment_added");
     return comment.id;
   }, [mutate]);
 
@@ -81,10 +81,12 @@ export function useReview(initial: Review | null) {
   // immediately rather than debounced. (#r2)
   const updateCommentBody = useCallback((id: string, body: string) => {
     const now = new Date().toISOString();
+    const prev = latest.current?.comments.find((c) => c.id === id);
     mutate(
       (r) => ({ ...r, comments: r.comments.map((c) => (c.id === id ? { ...c, body, updatedAt: now } : c)) }),
       "now",
     );
+    if (prev && prev.body.trim() === "" && body.trim() !== "") track("comment_added");
   }, [mutate]);
 
   const deleteComment = useCallback((id: string) => {
