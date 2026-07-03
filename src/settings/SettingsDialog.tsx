@@ -128,39 +128,6 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
           <div className="h-px bg-border/50" />
 
           <Row
-            label="Usage analytics"
-            hint="Anonymous feature usage only — never your code, file names, or comments. Turn off anytime."
-            control={
-              <ToggleGroup
-                type="single"
-                size="sm"
-                value={telemetry}
-                onValueChange={(v) => v && setTelemetry(v as "on" | "off")}
-                className="gap-0.5 rounded-lg bg-muted/70 p-0.5"
-              >
-                <ToggleGroupItem
-                  value="on"
-                  aria-label="On"
-                  title="Share anonymous usage stats"
-                  className="h-7 gap-1.5 rounded-md border-0 px-2.5 text-[12px] text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"
-                >
-                  On
-                </ToggleGroupItem>
-                <ToggleGroupItem
-                  value="off"
-                  aria-label="Off"
-                  title="Disable usage stats"
-                  className="h-7 gap-1.5 rounded-md border-0 px-2.5 text-[12px] text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"
-                >
-                  Off
-                </ToggleGroupItem>
-              </ToggleGroup>
-            }
-          />
-
-          <div className="h-px bg-border/50" />
-
-          <Row
             label="External editor"
             hint="Used by the “open in editor” buttons."
             control={
@@ -243,6 +210,39 @@ export function SettingsDialog({ open, onOpenChange }: { open: boolean; onOpenCh
                 </select>
                 <Chevron />
               </div>
+            }
+          />
+
+          <div className="h-px bg-border/50" />
+
+          <Row
+            label="Usage analytics"
+            hint="Anonymous feature usage only."
+            control={
+              <ToggleGroup
+                type="single"
+                size="sm"
+                value={telemetry}
+                onValueChange={(v) => v && setTelemetry(v as "on" | "off")}
+                className="gap-0.5 rounded-lg bg-muted/70 p-0.5"
+              >
+                <ToggleGroupItem
+                  value="on"
+                  aria-label="On"
+                  title="Share anonymous usage stats"
+                  className="h-7 gap-1.5 rounded-md border-0 px-2.5 text-[12px] text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+                >
+                  On
+                </ToggleGroupItem>
+                <ToggleGroupItem
+                  value="off"
+                  aria-label="Off"
+                  title="Disable usage stats"
+                  className="h-7 gap-1.5 rounded-md border-0 px-2.5 text-[12px] text-muted-foreground hover:text-foreground data-[state=on]:bg-card data-[state=on]:text-foreground data-[state=on]:shadow-sm"
+                >
+                  Off
+                </ToggleGroupItem>
+              </ToggleGroup>
             }
           />
         </div>
