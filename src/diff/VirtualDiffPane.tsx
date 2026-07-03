@@ -30,6 +30,7 @@ import { RenameLabel } from "./RenameLabel";
 import { CommentThread } from "../review/CommentThread";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { markdownComponents } from "@/lib/markdownLink";
 import { isMarkdownPath } from "./isMarkdownPath";
 import { DiffFind } from "./DiffFind";
 import { findPrefillFromSelection } from "./findSelection";
@@ -349,7 +350,7 @@ function PreviewBody({ content, onHeight }: { content: string; onHeight: (h: num
   return (
     <div ref={ref} className="delta-comment-ui p-12">
       <div className="prose prose-sm max-w-none break-words prose-pre:my-1.5 prose-pre:text-[12px] prose-code:text-[12px]">
-        <Markdown remarkPlugins={[remarkGfm]}>{content}</Markdown>
+        <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{content}</Markdown>
       </div>
     </div>
   );

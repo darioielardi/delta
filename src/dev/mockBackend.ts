@@ -147,7 +147,7 @@ const FILES: Record<string, FileDiff> = {
     status: "added",
     binary: false,
     oldContent: null,
-    newContent: "# delta\n\nReview code diffs and leave structured comments for Claude.\n\n## Features\n\n- [x] Unified & split diffs\n- [x] Inline comments\n- [ ] Rich markdown preview\n\n| Shortcut | Action |\n| --- | --- |\n| `j` / `k` | Next / prev file |\n| `v` | Toggle viewed |\n\n~~Old workflow~~ is now the new workflow.\n",
+    newContent: "# delta\n\nReview code diffs and leave structured comments for Claude.\n\n## Features\n\n- [x] Unified & split diffs\n- [x] Inline comments\n- [ ] Rich markdown preview\n\n| Shortcut | Action |\n| --- | --- |\n| `j` / `k` | Next / prev file |\n| `v` | Toggle viewed |\n\n~~Old workflow~~ is now the new workflow.\n\n## Links\n\nSee the [homepage](https://example.com), the [contributing guide](./CONTRIBUTING.md), or jump to [Features](#features). Clicking these must not break the app.\n",
   },
   // Binary file: exercises the "Unsupported file" treatment in the diff view.
   "assets/logo.png": {
