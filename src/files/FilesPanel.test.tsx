@@ -62,6 +62,14 @@ describe("FilesPanel", () => {
     expect(onToggleViewed).toHaveBeenCalledWith("src/a.ts");
   });
 
+  it("labels a renamed file with its old path via a tooltip", () => {
+    const renamed: FileEntry[] = [
+      { path: "src/auth/token.ts", oldPath: "src/auth/session.ts", status: "renamed", additions: 0, deletions: 0, binary: false },
+    ];
+    render(<FilesPanel files={renamed} selected={null} onSelect={() => {}} viewedFiles={new Set()} onToggleViewed={() => {}} />);
+    expect(screen.getByTitle("Renamed from src/auth/session.ts")).toBeInTheDocument();
+  });
+
   it("prefetches a file's diff after the pointer rests on its row (debounced)", () => {
     vi.useFakeTimers();
     try {
