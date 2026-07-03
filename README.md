@@ -98,6 +98,16 @@ work. (`pnpm tauri dev` works too, but shares the release's identity.)
 Architecture and conventions live in [CLAUDE.md](CLAUDE.md). PRs welcome — keep
 changes scoped and the tests green.
 
+## Privacy
+
+Delta collects **anonymous** usage statistics (which features are used, app
+version, OS) to guide development — via [Aptabase](https://aptabase.com), which
+stores no personal data, cookies, or device identifiers. It **never** sends your
+code, file names, repository names, branch names, or comment text.
+
+Turn it off in **Settings → Usage analytics**, or set `DELTA_TELEMETRY=0` (or the
+standard `DO_NOT_TRACK=1`) in the environment.
+
 ## Built with
 
 [Tauri 2](https://tauri.app) · [React 19](https://react.dev) · [Vite](https://vite.dev) · [Tailwind v4](https://tailwindcss.com) · [@git-diff-view](https://github.com/MrWangJustToDo/git-diff-view)

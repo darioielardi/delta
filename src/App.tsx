@@ -14,6 +14,7 @@ import { useApplyCodeFont } from "./codeFont";
 import { DevBadge } from "@/components/DevBadge";
 import { useUpdater } from "@/updater/useUpdater";
 import { UpdateBanner } from "@/updater/UpdateBanner";
+import { initAnalytics, track } from "@/analytics";
 
 function readLabel(): string | null {
   if (import.meta.env.VITE_MOCK_IPC) return null;
@@ -91,6 +92,8 @@ export default function App() {
           const home = await WebviewWindow.getByLabel("home");
           if (home) await home.close();
         }
+        await initAnalytics();
+        track("app_started");
       } catch {
         /* not in a Tauri window / not permitted — ignore */
       }

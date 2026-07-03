@@ -23,7 +23,18 @@ pub fn run() {
     // (`cli`/`ipc`): a CLI invocation forwards over the socket or `open -b`s the
     // bundle, which Launch Services single-instances. The app is only entered via
     // LS/dock/dev, so the old in-process TTY guard is gone.
-    let builder = tauri::Builder::default();
+    #[cfg_attr(debug_assertions, allow(unused_mut))]
+    let mut builder = tauri::Builder::default();
+
+    // Anonymous usage analytics — release builds only, and only when a key was
+    // compiled in (see scripts/build-release-dmg.sh). option_env! bakes the key at
+    // compile time; a debug build strips this block entirely, so `tauri dev`,
+    // `dev:app`, and tests never register the plugin or emit anything.
+    #[cfg(not(debug_assertions))]
+    if let Some(key) = option_env!("APTABASE_KEY") {
+        builder = builder.plugin(tauri_plugin_aptabase::Builder::new(key).build());
+    }
+
     builder
         // Restore size/position but NOT visibility — windows are created hidden
         // and shown by the frontend after first paint (cold-start flash fix), so
@@ -61,7 +72,8 @@ pub fn run() {
             commands::install_cli,
             commands::cli_status,
             commands::open_in_editor,
-            commands::updater_try_acquire
+            commands::updater_try_acquire,
+            commands::telemetry_allowed
         ])
         .setup(|app| {
             let args: Vec<String> = std::env::args().skip(1).collect();

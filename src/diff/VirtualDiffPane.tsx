@@ -17,6 +17,7 @@
 // Supports unified + split, line/range/file comments, word-level intra-line diff,
 // jump-to-comment, and the viewed toggle.
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { track } from "@/analytics";
 import { ArrowLeftRight, BookOpen, Check, ChevronDown, ChevronRight, ChevronUp, Code as CodeIcon, Copy, ExternalLink, Eye, FileQuestion, FileText, FileX, MessageSquarePlus, Plus, WrapText } from "lucide-react";
 import { getSyntaxLineTemplate } from "@git-diff-view/file";
 import { SplitSide } from "@git-diff-view/react";
@@ -1161,6 +1162,7 @@ export function VirtualDiffPane({
         const prefill =
           node && paneRef.current?.contains(node) ? findPrefillFromSelection(sel!.toString()) : null;
         setFindOpen(true);
+        track("find_used");
         if (prefill != null) setQuery(prefill);
         requestAnimationFrame(() => { findInputRef.current?.focus(); findInputRef.current?.select(); });
       } else if (e.key === "Escape" && findOpen) {

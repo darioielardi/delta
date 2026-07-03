@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { track } from "@/analytics";
 
 export type DiffLayout = "unified" | "split";
 
@@ -24,6 +25,7 @@ export function useDiffLayout(): [DiffLayout, (l: DiffLayout) => void] {
   const setLayout = useCallback((l: DiffLayout) => {
     localStorage.setItem(KEY, l);
     setLayoutState(l);
+    track("diff_layout_changed", { layout: l });
   }, []);
 
   return [layout, setLayout];

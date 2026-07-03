@@ -28,6 +28,7 @@
     "prepare": "husky"
   },
   "dependencies": {
+    "@aptabase/tauri": "^0.4.1",
     "@git-diff-view/file": "0.1.6",
     "@git-diff-view/react": "0.1.6",
     "@hugeicons/core-free-icons": "^4.2.1",
