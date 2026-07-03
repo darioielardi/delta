@@ -16,6 +16,11 @@ const SUMMARY: DiffSummary = {
     { path: "src/api/routes.ts", status: "modified", additions: 2, deletions: 2, binary: false },
     // Sparse changes far apart → a long unchanged middle that folds. (#10)
     { path: "src/config/limits.ts", status: "modified", additions: 2, deletions: 2, binary: false },
+    // Pure rename (no content change) → header shows old → new; body shows the
+    // "renamed without changes" placeholder with a Show content reveal. (#rename)
+    { path: "src/auth/token.ts", oldPath: "src/auth/session-token.ts", status: "renamed", additions: 0, deletions: 0, binary: false },
+    // Moved + renamed with edits → full old → new path in the header alongside +/−. (#rename)
+    { path: "src/core/http.ts", oldPath: "src/api/client.ts", status: "renamed", additions: 3, deletions: 1, binary: false },
     { path: "src/legacy/cache.ts", status: "deleted", additions: 0, deletions: 9, binary: false },
     { path: "README.md", status: "added", additions: 15, deletions: 0, binary: false },
     { path: "assets/logo.png", status: "added", additions: 0, deletions: 0, binary: true },
@@ -100,6 +105,31 @@ const FILES: Record<string, FileDiff> = {
       oldContent: file(3, 30_000), newContent: file(5, 45_000),
     };
   })(),
+  // Pure rename: identical old/new content (only the path changed). Exercises the
+  // same-dir header collapse (session-token.ts → token.ts) + the body placeholder.
+  "src/auth/token.ts": (() => {
+    const content =
+      "export interface Token {\n  value: string\n  expiresAt: number\n}\n\nexport function isExpired(t: Token): boolean {\n  return Date.now() > t.expiresAt\n}\n";
+    return {
+      oldFileName: "src/auth/session-token.ts",
+      newFileName: "src/auth/token.ts",
+      status: "renamed",
+      binary: false,
+      oldContent: content,
+      newContent: content,
+    };
+  })(),
+  // Moved + renamed with edits: different directory, a few changed lines. Exercises
+  // the full old → new path header alongside the +/− counts and real diff rows.
+  "src/core/http.ts": {
+    oldFileName: "src/api/client.ts",
+    newFileName: "src/core/http.ts",
+    status: "renamed",
+    binary: false,
+    oldContent: "export async function get(url: string) {\n  const res = await fetch(url)\n  return res.json()\n}\n",
+    newContent:
+      "export async function get(url: string, init?: RequestInit) {\n  const res = await fetch(url, init)\n  if (!res.ok) throw new Error(`HTTP ${res.status}`)\n  return res.json()\n}\n",
+  },
   // Deleted file: only old content exists. Used to verify deleted files are
   // hidden behind a reveal (item 3) rather than rendered/collapsed like others.
   "src/legacy/cache.ts": {

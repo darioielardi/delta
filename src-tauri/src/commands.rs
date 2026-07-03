@@ -114,10 +114,11 @@ pub fn refresh_review_impl(storage: &dyn Storage, mut review: Review) -> Result<
     Ok(session)
 }
 
-pub fn save_review_impl(storage: &dyn Storage, mut review: Review) -> Result<(), String> {
+pub fn save_review_impl(cache: &DiffCache, storage: &dyn Storage, mut review: Review) -> Result<(), String> {
     // Stamp a content baseline onto freshly-toggled viewed entries now, while the
     // files are still at the version the user saw — see stamp_viewed_baselines.
-    stamp_viewed_baselines(&mut review);
+    // Served from the diff cache (a map read), not a fresh whole-repo diff per entry.
+    stamp_viewed_baselines(cache, &mut review);
     storage.save(&review)
 }
 
@@ -191,8 +192,8 @@ pub fn refresh_review_impl_with_registry(storage: &dyn Storage, reg_store: &dyn 
     Ok(session)
 }
 
-pub fn save_review_impl_with_registry(storage: &dyn Storage, reg_store: &dyn RegistryStore, review: Review) -> Result<(), String> {
-    save_review_impl(storage, review.clone())?;
+pub fn save_review_impl_with_registry(cache: &DiffCache, storage: &dyn Storage, reg_store: &dyn RegistryStore, review: Review) -> Result<(), String> {
+    save_review_impl(cache, storage, review.clone())?;
     sync_registry_after_save(reg_store, &review);
     Ok(())
 }
@@ -260,9 +261,19 @@ pub async fn refresh_review(app: tauri::AppHandle, review: Review) -> Result<Rev
 }
 
 #[tauri::command]
-pub fn save_review(app: tauri::AppHandle, review: Review) -> Result<(), String> {
-    let storage = JsonStorage::new(reviews_dir(&app)?);
-    save_review_impl_with_registry(&storage, &reg_store(&app)?, review)
+pub async fn save_review(app: tauri::AppHandle, review: Review, cache: tauri::State<'_, DiffCache>) -> Result<(), String> {
+    // Async + spawn_blocking (like the diff commands) so persistence never runs on
+    // the main thread — a sync command here froze the UI on every comment/viewed save.
+    let cache = cache.inner().clone();
+    let reviews = reviews_dir(&app)?;
+    let reg_path = registry_path(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let storage = JsonStorage::new(reviews.clone());
+        let reg = JsonRegistryStore::new(reg_path, reviews);
+        save_review_impl_with_registry(&cache, &storage, &reg, review)
+    })
+    .await
+    .map_err(|e| format!("save_review task: {e}"))?
 }
 
 #[tauri::command]
@@ -565,7 +576,7 @@ mod tests {
         let snapshot = Snapshot { base_oid: "abc123".into(), head_oid: None, captured_at: now.clone() };
         let review = Review::new("0123456789abcdef".into(), target, snapshot, now);
 
-        save_review_impl(&storage, review.clone()).unwrap();
+        save_review_impl(&DiffCache::default(), &storage, review.clone()).unwrap();
         let loaded = storage.load(&review.id).unwrap();
         assert!(loaded.is_some());
         assert_eq!(loaded.unwrap().id, "0123456789abcdef");
@@ -604,7 +615,7 @@ mod tests {
 
         // The FE toggles "viewed" with an empty hash (it doesn't compute the baseline).
         review.viewed.push(ViewedEntry { file: "file.txt".into(), diff_hash: String::new() });
-        save_review_impl(&storage, review.clone()).unwrap();
+        save_review_impl(&DiffCache::default(), &storage, review.clone()).unwrap();
 
         // Save must have stamped the baseline from the file's current content.
         let persisted = storage.load(&review.id).unwrap().unwrap();
@@ -628,7 +639,7 @@ mod tests {
         // User marks file.txt viewed. The FE persists an entry with an empty hash;
         // save runs immediately, while the file is still at V1.
         review.viewed.push(ViewedEntry { file: "file.txt".into(), diff_hash: String::new() });
-        save_review_impl(&storage, review.clone()).unwrap();
+        save_review_impl(&DiffCache::default(), &storage, review.clone()).unwrap();
 
         // The file changes to V2 before the next refresh (e.g. an agent edits it).
         write(dir.path(), "file.txt", "line1\nV2\nline2\n");
@@ -668,7 +679,7 @@ mod tests {
 
         let mut review = session.review.clone();
         review.comments.push(Comment { id: "c1".into(), scope: CommentScope::Line, anchor: None, body: "hi".into(), stale: false, resolved: false, commit: None, created_at: "t".into(), updated_at: "t".into() });
-        save_review_impl_with_registry(&storage, &reg_store, review).unwrap();
+        save_review_impl_with_registry(&DiffCache::default(), &storage, &reg_store, review).unwrap();
 
         let reg = reg_store.load().unwrap();
         let entry = reg.reviews.iter().find(|e| e.id == session.review.id).unwrap();
