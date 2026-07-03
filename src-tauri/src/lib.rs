@@ -23,6 +23,20 @@ pub fn run() {
     // (`cli`/`ipc`): a CLI invocation forwards over the socket or `open -b`s the
     // bundle, which Launch Services single-instances. The app is only entered via
     // LS/dock/dev, so the old in-process TTY guard is gone.
+
+    // The Aptabase plugin (release builds only) starts its flush loop with
+    // `tokio::spawn` inside its Tauri setup hook, which requires an ambient Tokio
+    // runtime — Tauri does NOT enter one around plugin setup, so without this the
+    // release app panics on launch ("there is no reactor running, must be called
+    // from the context of a Tokio 1.x runtime"; tauri#10289). Enter a runtime for
+    // the whole app lifetime; `_tokio_guard` (declared last) drops before
+    // `_tokio_rt` when `run()` returns at exit. Debug builds skip it — no plugin is
+    // registered there.
+    #[cfg(not(debug_assertions))]
+    let _tokio_rt = tokio::runtime::Runtime::new().expect("failed to build Tokio runtime");
+    #[cfg(not(debug_assertions))]
+    let _tokio_guard = _tokio_rt.enter();
+
     #[cfg_attr(debug_assertions, allow(unused_mut))]
     let mut builder = tauri::Builder::default();
 

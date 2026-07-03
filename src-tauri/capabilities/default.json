@@ -12,6 +12,7 @@
     "core:window:allow-close",
     "opener:default",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "aptabase:allow-track-event"
   ]
 }
