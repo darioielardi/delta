@@ -169,6 +169,19 @@ pub fn adopt_persisted_viewed_hashes(incoming: &mut Review, persisted: &Review) 
     }
 }
 
+/// Comments are owned by the save path, not the refresh path. The review the
+/// frontend hands to `refresh_review` can lag its own state — `reviewRef` is
+/// updated in a post-commit effect, so a refresh firing right after a comment is
+/// added carries the *older* comment list. Trusting it would let the refresh
+/// persist that reduced set and silently drop the new comment (the diff-refresh
+/// data-loss bug). Reconcile against the authoritative on-disk comments instead:
+/// a comment the frontend added but hasn't saved yet is absent here, but it stays
+/// safe in the frontend's memory (its own save lands independently, and the
+/// frontend re-merges the refreshed state onto its live comments when applied).
+pub fn restore_persisted_comments(incoming: &mut Review, persisted: &Review) {
+    incoming.comments = persisted.comments.clone();
+}
+
 fn file_side_content(target: &Target, file: &str, side: Side) -> Option<String> {
     let fd = get_file_diff(target, file).ok()?;
     match side {

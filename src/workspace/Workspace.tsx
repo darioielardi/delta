@@ -16,6 +16,7 @@ import { flattenTreeFiles } from "../files/buildTree";
 import { VirtualDiffPane } from "../diff/VirtualDiffPane";
 import { CommentIndex } from "../review/CommentIndex";
 import { prefetchPicker } from "../picker/pickerData";
+import { mergeRefreshedReview } from "../review/mergeRefreshedReview";
 import { useReview } from "../review/useReview";
 import { useResolvedTheme } from "../theme";
 import { useDiffLayout } from "../diff/useDiffLayout";
@@ -241,7 +242,10 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     const p = pendingRef.current;
     if (!p) return;
     sigRef.current = reviewSig(p.session.summary, p.session.review);
-    setReview(p.session.review);
+    // Merge, don't replace: the session's comment set was captured when the fs
+    // change was first detected, so a wholesale swap would drop comments added
+    // since (and lose live body edits). (#comment-loss)
+    setReview((prev) => (prev ? mergeRefreshedReview(prev, p.session.review) : p.session.review));
     setSummary(p.session.summary);
     setRepoName(p.session.repoName);
     setDiffInval({ paths: p.paths, n: ++invalNonce.current });
@@ -257,7 +261,9 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     try {
       const session = await api.refreshReview(cur);
       sigRef.current = reviewSig(session.summary, session.review);
-      setReview(session.review);
+      // Merge, don't replace, so a comment added between the refresh request and
+      // its response is never dropped from state. (#comment-loss)
+      setReview((prev) => (prev ? mergeRefreshedReview(prev, session.review) : session.review));
       setSummary(session.summary);
       setRepoName(session.repoName);
       setDiffInval({ paths: null, n: ++invalNonce.current });
