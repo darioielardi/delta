@@ -3,15 +3,14 @@
 // also the "what next" surface that reappears when the last review window closes.
 // The macOS traffic lights float over the top-left; the top strip is an invisible
 // drag region (no header chrome, no border). (#8)
-import { useEffect, useState } from "react";
 import { api } from "./api";
 import { ReviewPicker } from "./picker/ReviewPicker";
 import { FirstRun } from "./picker/FirstRun";
 import { addRepo } from "./picker/pickerActions";
-import { loadPicker, peekPickerCache } from "./picker/pickerData";
+import { usePickerData } from "./picker/usePickerData";
 import { DeltaMark } from "@/components/DeltaMark";
 import { Settings } from "lucide-react";
-import type { PickerData, PickerWorktree, ReviewEntry } from "./types";
+import type { PickerWorktree, ReviewEntry } from "./types";
 
 const openReview = (r: ReviewEntry) => void api.openTarget(r.target.repoPath, r.target.mode, r.target.base ?? undefined);
 const openWorktree = (w: PickerWorktree) => void api.openTarget(w.path, "all-changes");
@@ -25,13 +24,9 @@ async function deleteReview(r: ReviewEntry) {
 export function Home({ onOpenSettings }: { onOpenSettings?: () => void }) {
   // Decide here (not inside ReviewPicker) whether the launcher has anything to
   // list, so the empty state can replace the whole picker — search, list, and
-  // footer — with the FirstRun panel. Seeds from the shared cache for an instant
-  // first paint; the picker reuses the same cache, so this adds no extra wait.
-  const [data, setData] = useState<PickerData | null>(() => peekPickerCache());
-  useEffect(() => {
-    // react-doctor-disable-next-line react-hooks-js/set-state-in-effect
-    void loadPicker().then(setData).catch(() => {});
-  }, []);
+  // footer — with the FirstRun panel. Shares the picker's data source, so this
+  // adds no extra wait and refreshes on focus alongside the list. (#refresh)
+  const data = usePickerData();
   const noRepos = data != null && data.recents.length === 0 && data.worktrees.length === 0;
 
   return (
