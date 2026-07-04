@@ -11,7 +11,7 @@ use crate::launch::{
 };
 use crate::registry::model::{Registry, RepoEntry, ReviewEntry, WorktreeEntry};
 use crate::review::model::{review_id, Review, Snapshot};
-use crate::review::reconcile::{adopt_persisted_viewed_hashes, reconcile, stamp_viewed_baselines, ReviewSession};
+use crate::review::reconcile::{adopt_persisted_viewed_hashes, reconcile, restore_persisted_comments, stamp_viewed_baselines, ReviewSession};
 use crate::storage::{JsonRegistryStore, JsonStorage, RegistryStore, Storage};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -108,6 +108,7 @@ pub fn refresh_review_impl(storage: &dyn Storage, mut review: Review) -> Result<
     // Adopt them so a file changed since it was viewed is correctly un-viewed here.
     if let Ok(Some(persisted)) = storage.load(&review.id) {
         adopt_persisted_viewed_hashes(&mut review, &persisted);
+        restore_persisted_comments(&mut review, &persisted);
     }
     let session = reconcile(review)?;
     storage.save(&session.review)?;
@@ -598,6 +599,80 @@ mod tests {
         assert!(!refreshed.summary.files.is_empty());
         let persisted = storage.load(&session.review.id).unwrap();
         assert!(persisted.is_some());
+    }
+
+    #[test]
+    fn refresh_keeps_persisted_comments_when_frontend_copy_is_stale() {
+        use crate::storage::{JsonStorage, Storage};
+
+        let (dir, _repo) = repo_with_commit();
+        write(dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
+        let store_dir = tempfile::TempDir::new().unwrap();
+        let storage = JsonStorage::new(store_dir.path().join("reviews"));
+        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
+
+        let note = |id: &str, body: &str| Comment {
+            id: id.into(), scope: CommentScope::General, anchor: None, body: body.into(),
+            stale: false, resolved: false, commit: None, created_at: "t".into(), updated_at: "t".into(),
+        };
+        let ids = |cs: &[Comment]| cs.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+
+        // Two comments are created and persisted — the on-disk review is the source of truth.
+        let mut review = open_review_impl(&storage, target).unwrap().review;
+        review.comments = vec![note("c1", "first"), note("c2", "second")];
+        save_review_impl(&DiffCache::default(), &storage, review.clone()).unwrap();
+
+        // The frontend hands refresh a STALE copy missing the second comment — its
+        // reviewRef lagged a just-added comment. A refresh (fired on any fs event)
+        // must not persist this reduced set and drop the comment.
+        let mut stale = review.clone();
+        stale.comments = vec![note("c1", "first")];
+
+        let refreshed = refresh_review_impl(&storage, stale).unwrap();
+
+        assert_eq!(ids(&refreshed.review.comments), vec!["c1", "c2"], "refresh must not drop a persisted comment missing from a stale FE copy");
+        let persisted = storage.load(&review.id).unwrap().unwrap();
+        assert_eq!(ids(&persisted.comments), vec!["c1", "c2"], "the on-disk review must still hold both comments after refresh");
+    }
+
+    #[test]
+    fn refresh_keeps_file_scoped_comments_and_marks_gone_ones_stale_not_dropped() {
+        use crate::review::model::{Anchor, Side};
+        use crate::storage::{JsonStorage, Storage};
+
+        // file.txt is in the diff; other.txt is not touched, so it's absent from it.
+        let (dir, _repo) = repo_with_commit();
+        write(dir.path(), "file.txt", "line1\nCHANGED\nline2\n");
+        let store_dir = tempfile::TempDir::new().unwrap();
+        let storage = JsonStorage::new(store_dir.path().join("reviews"));
+        let target = Target { repo_path: dir.path().to_str().unwrap().into(), worktree: None, mode: DiffMode::Uncommitted, base: None, commit: None };
+
+        // A file-scoped comment: an anchor with a file + side but no line/snippet.
+        let file_note = |id: &str, file: &str| Comment {
+            id: id.into(),
+            scope: CommentScope::File,
+            anchor: Some(Anchor { file: file.into(), side: Side::New, start_line: None, end_line: None, snippet: None }),
+            body: "note".into(), stale: false, resolved: false, commit: None,
+            created_at: "t".into(), updated_at: "t".into(),
+        };
+        let ids = |cs: &[Comment]| cs.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
+
+        let mut review = open_review_impl(&storage, target).unwrap().review;
+        review.comments = vec![file_note("in-diff", "file.txt"), file_note("gone", "other.txt")];
+        save_review_impl(&DiffCache::default(), &storage, review.clone()).unwrap();
+
+        // Stale FE copy dropped both file-scoped comments.
+        let mut stale = review.clone();
+        stale.comments = vec![];
+
+        let refreshed = refresh_review_impl(&storage, stale).unwrap();
+
+        // Both survive on disk; the one whose file left the diff is flagged stale, not removed.
+        assert_eq!(ids(&refreshed.review.comments), vec!["in-diff", "gone"], "file-scoped comments must not be dropped by a refresh");
+        let by_id = |id: &str| refreshed.review.comments.iter().find(|c| c.id == id).unwrap();
+        assert!(!by_id("in-diff").stale, "a file-scoped comment on a file still in the diff stays fresh");
+        assert!(by_id("gone").stale, "a file-scoped comment whose file left the diff is marked stale — but kept");
+        assert_eq!(storage.load(&review.id).unwrap().unwrap().comments.len(), 2, "both file-scoped comments persist");
     }
 
     #[test]
