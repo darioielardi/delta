@@ -506,6 +506,36 @@ mod tests {
     }
 
     #[test]
+    fn list_worktrees_sees_worktree_added_by_git_cli_after_first_enumeration() {
+        // Reproduces the real path: a worktree created via the git CLI AFTER the app
+        // already enumerated once must appear on the next enumeration. Each call opens
+        // a fresh handle, so this asserts the enumeration is genuinely live (not cached).
+        let (dir, _repo) = repo_with_commit();
+        let root = dir.path().to_str().unwrap();
+        assert_eq!(list_worktrees(root).unwrap().len(), 1, "main only before add");
+
+        let wt_path = dir
+            .path()
+            .parent()
+            .unwrap()
+            .join(format!("{}--cli", dir.path().file_name().unwrap().to_string_lossy()));
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir.path())
+            .args(["worktree", "add", "-b", "feat/cli"])
+            .arg(&wt_path)
+            .output()
+            .expect("run git worktree add");
+        assert!(out.status.success(), "git worktree add: {}", String::from_utf8_lossy(&out.stderr));
+
+        let second = list_worktrees(root).unwrap();
+        let branches: Vec<&str> = second.iter().map(|w| w.branch.as_str()).collect();
+        let _ = std::fs::remove_dir_all(&wt_path);
+        assert_eq!(second.len(), 2, "new CLI worktree must appear; got {branches:?}");
+        assert!(branches.contains(&"feat/cli"), "got {branches:?}");
+    }
+
+    #[test]
     fn repo_entry_has_name_default_branch_and_worktrees() {
         let (dir, _repo) = repo_with_commit();
         let entry = repo_entry(dir.path().to_str().unwrap()).unwrap();

@@ -4,11 +4,11 @@
 // which supply their own chrome.
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { rankReviews, rankWorktrees } from "./fuzzy";
-import { loadPicker, peekPickerCache } from "./pickerData";
+import { usePickerData } from "./usePickerData";
 import { relTime, worktreeIdentity, worktreeMeta } from "./pickerUi";
 import { MessageSquare, TriangleAlert, Check, FolderPlus } from "lucide-react";
 import { Kbd } from "@/components/ui/kbd";
-import type { PickerData, PickerWorktree, ReviewEntry, Target } from "../types";
+import type { PickerWorktree, ReviewEntry, Target } from "../types";
 
 export interface ReviewPickerProps {
   /** Current review's target, excluded from the recents (⌘K frame). Omit on Home. */
@@ -70,8 +70,9 @@ function worktreeNode(w: PickerWorktree): ReactNode {
 }
 
 export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo, onDeleteReview }: ReviewPickerProps) {
-  // Seed from the module cache so a reopen paints instantly; the effect revalidates.
-  const [data, setData] = useState<PickerData | null>(() => peekPickerCache());
+  // Seeds from the shared cache for an instant reopen, then revalidates on mount and
+  // whenever the window regains focus, so freshly-created worktrees show up. (#refresh)
+  const data = usePickerData();
   const [query, setQuery] = useState("");
   const [sel, setSel] = useState(0);
   const [scrollTop, setScrollTop] = useState(0);
@@ -82,11 +83,6 @@ export function ReviewPicker({ current, onOpenReview, onOpenWorktree, onAddRepo,
   // it can't hijack keyboard selection when a row scrolls under a still cursor.
   const lastPointer = useRef<{ x: number; y: number } | null>(null);
 
-  useEffect(() => {
-    // Stale-while-revalidate: cached data (if any) already rendered; refetch to update.
-    // react-doctor-disable-next-line react-hooks-js/set-state-in-effect
-    void loadPicker().then(setData).catch(() => setData((d) => d ?? { recents: [], worktrees: [] }));
-  }, []);
   useEffect(() => {
     inputRef.current?.focus();
   }, []);

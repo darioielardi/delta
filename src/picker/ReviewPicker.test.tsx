@@ -68,4 +68,29 @@ describe("ReviewPicker", () => {
     await waitFor(() => expect(screen.getByText(/no repos yet/i)).toBeInTheDocument());
     expect(screen.getByRole("button", { name: /add a repo/i })).toBeInTheDocument();
   });
+
+  it("revalidates worktrees when the window regains focus", async () => {
+    // A worktree created after the picker mounted (e.g. `git worktree add`) only shows
+    // if the picker refetches; returning to the window is that trigger. (#refresh)
+    const WITH_NEW: PickerData = {
+      ...DATA,
+      worktrees: [
+        ...DATA.worktrees,
+        { path: "/r/demo-fresh", branch: "fresh/wt", isMain: false, lastCommitAt: "2026-06-27T09:00:00Z", dirty: false, repoName: "demo", repoId: "r1" },
+      ],
+    };
+    let calls = 0;
+    __setInvokeForDev(async (cmd: string) => {
+      if (cmd !== "list_picker") throw new Error(`unexpected ${cmd}`);
+      calls += 1;
+      return structuredClone(calls === 1 ? DATA : WITH_NEW) as never;
+    });
+    render(<ReviewPicker onOpenReview={() => {}} onOpenWorktree={() => {}} onAddRepo={() => {}} onDeleteReview={() => {}} />);
+    await waitFor(() => expect(screen.getByText("spike/idea")).toBeInTheDocument());
+    expect(screen.queryByText("fresh/wt")).not.toBeInTheDocument();
+
+    fireEvent(window, new Event("focus"));
+
+    await waitFor(() => expect(screen.getByText("fresh/wt")).toBeInTheDocument());
+  });
 });
