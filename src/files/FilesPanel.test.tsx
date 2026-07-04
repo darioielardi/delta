@@ -70,6 +70,32 @@ describe("FilesPanel", () => {
     expect(screen.getByTitle("Renamed from src/auth/session.ts")).toBeInTheDocument();
   });
 
+  it("does not scroll the tree when a folder is collapsed or expanded", () => {
+    // Collapsing/expanding a folder reshapes the tree but must not move the
+    // scroller — the active file only follows selection/keyboard/scroll-spy,
+    // never a folder toggle. (regression: folder toggle yanked the pane back
+    // to the out-of-view active file)
+    const scrollSpy = vi.spyOn(Element.prototype, "scrollTo").mockImplementation(() => {});
+    try {
+      const multi: FileEntry[] = [
+        { path: "lib/c.ts", status: "modified", additions: 1, deletions: 0, binary: false },
+        { path: "lib/d.ts", status: "modified", additions: 1, deletions: 0, binary: false },
+        { path: "src/a.ts", status: "modified", additions: 1, deletions: 0, binary: false },
+        { path: "src/b.ts", status: "modified", additions: 1, deletions: 0, binary: false },
+      ];
+      // src/a.ts is the active file; lib/ is a sibling folder that doesn't contain it.
+      render(<FilesPanel files={multi} selected="src/a.ts" onSelect={() => {}} viewedFiles={new Set()} onToggleViewed={() => {}} />);
+      // Mount scrolls the initially-selected file into view — that's expected; only
+      // the folder toggles below must leave the scroller untouched.
+      scrollSpy.mockClear();
+      fireEvent.click(screen.getByText("lib")); // collapse
+      fireEvent.click(screen.getByText("lib")); // expand
+      expect(scrollSpy).not.toHaveBeenCalled();
+    } finally {
+      scrollSpy.mockRestore();
+    }
+  });
+
   it("prefetches a file's diff after the pointer rests on its row (debounced)", () => {
     vi.useFakeTimers();
     try {

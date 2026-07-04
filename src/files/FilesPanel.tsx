@@ -157,6 +157,10 @@ export function FilesPanel({
   const scrollRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Last activePath the scroll-into-view effect acted on, so it can tell a real
+  // selection change from a pure tree reshape (collapse/expand/refresh) and only
+  // scroll for the former.
+  const lastActive = useRef<string | null>(null);
   // Row-windowing state (#virtual): only rows within [scrollTop, +viewportH] mount.
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportH, setViewportH] = useState(0);
@@ -234,13 +238,18 @@ export function FilesPanel({
     return out;
   }, [roots, collapsed, searching]);
 
-  // Keep the active row in view. It may be windowed out of the DOM, so its offset is
-  // computed from ROW_H (index math) rather than measured — leaves ~one row of
-  // padding, honors reduced-motion else glides, so the highlight tracks keyboard nav,
-  // clicks, and scroll-spy smoothly. Re-runs on tree reshape too, but only nudges if
-  // the active row actually fell out of view. (#r3/#virtual)
+  // Bring the active row into view when the *selection* changes — keyboard nav,
+  // clicks, scroll-spy. It may be windowed out of the DOM, so its offset is computed
+  // from ROW_H (index math) rather than measured; leaves ~one row of padding and
+  // honors reduced-motion else glides. `visible` stays in the deps so the index is
+  // fresh if the tree reshaped in the same render, but a pure reshape (folder
+  // collapse/expand, refresh) leaves activePath unchanged and must NOT move the
+  // scroller — so bail unless activePath actually changed. (#r3/#virtual)
   useEffect(() => {
     if (!activePath) return;
+    const selectionChanged = lastActive.current !== activePath;
+    lastActive.current = activePath;
+    if (!selectionChanged) return; // tree reshaped, not a new selection — leave scroll put
     const el = scrollRef.current;
     if (!el) return;
     const idx = visible.findIndex((r) => r.node.path === activePath);
