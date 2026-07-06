@@ -23,6 +23,7 @@ import { useDiffLayout } from "../diff/useDiffLayout";
 import { useResizableWidth, usePaneResize, PaneResizer, FILE_PANE } from "../lib/resizablePane";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert, Columns2, Copy, ExternalLink, GitBranch, MessageSquare, RefreshCw, Rows2, Search, Settings } from "lucide-react";
 import { getEditorPref } from "../editor";
+import { copyText } from "../lib/clipboard";
 import { worktreeName } from "../lib/utils";
 import {
   DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
@@ -333,7 +334,7 @@ export function Workspace({ target, onOpenPalette, onOpenSettings }: { target: T
     try {
       setError(null);
       const md = await api.exportReview(review);
-      await navigator.clipboard.writeText(md);
+      await copyText(md);
       track("copy_for_agents", { comment_count: review.comments.length });
       flashCopy("ok");
     } catch (e) {
