@@ -10,6 +10,7 @@
     "core:window:allow-set-focus",
     "core:window:allow-set-title",
     "core:window:allow-close",
+    "clipboard-manager:allow-write-text",
     "opener:default",
     "updater:default",
     "process:allow-restart",

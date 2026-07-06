@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { track } from "@/analytics";
 import { api } from "../api";
+import { copyText } from "../lib/clipboard";
 
 export type CliPhase = "checking" | "idle" | "installed" | "working" | "linked" | "pathUpdated" | "manual" | "error" | "hidden";
 
@@ -83,7 +84,7 @@ export function useCliInstall(): CliInstall {
 
   async function copyCommand() {
     try {
-      await navigator.clipboard.writeText(detail);
+      await copyText(detail);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {

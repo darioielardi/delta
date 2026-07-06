@@ -41,6 +41,7 @@ tauri-plugin-aptabase = "1.0.0"
 # Tauri setup hook, which needs an ambient Tokio runtime that lib.rs::run() enters
 # (release builds only, matching the plugin's own gate).
 tokio = { version = "1", features = ["rt-multi-thread"] }
+tauri-plugin-clipboard-manager = "2"
 
 [dev-dependencies]
 tempfile = "3"
