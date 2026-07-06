@@ -2,21 +2,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Kbd } from "@/components/ui/kbd";
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, FileCode, FileJson, FileText, Check, List, ListTree, MessageSquare, Search, X } from "lucide-react";
-import type { FileEntry, FileStatus } from "../types";
+import { ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, Check, List, ListTree, MessageSquare, Search, X } from "lucide-react";
+import type { FileEntry } from "../types";
 import { buildTree, type TreeNode } from "./buildTree";
-
-const STATUS_COLOR: Record<FileStatus, string> = {
-  added: "text-emerald-500",
-  modified: "text-amber-500",
-  deleted: "text-rose-500",
-  renamed: "text-sky-500",
-};
-
-const CODE_EXT = new Set([
-  "ts", "tsx", "js", "jsx", "mjs", "cjs", "rs", "go", "py", "rb", "java", "kt", "swift",
-  "c", "cc", "cpp", "h", "hpp", "css", "scss", "html", "vue", "svelte", "sh", "toml", "yml", "yaml",
-]);
+import { FileGlyph } from "./fileGlyph";
 
 // Stable empty set so search-mode (force-open) rendering doesn't allocate per render.
 const NO_COLLAPSE: Set<string> = new Set();
@@ -38,13 +27,6 @@ const ROW_PL = 4;         // base row padding-left in tree mode (old pl-1 = 0.25
 const FLAT_PL = 10;       // list-mode padding-left (old pl-2.5 = 0.625rem)
 const TREE_PAD_Y = 6;     // top/bottom breathing room in the scroller (old py-1.5)
 const OVERSCAN_ROWS = 16; // rows rendered beyond the viewport each way
-
-function FileGlyph({ name, status }: { name: string; status: FileStatus }) {
-  const ext = name.slice(name.lastIndexOf(".") + 1).toLowerCase();
-  const Icon = ext === "json" ? FileJson : CODE_EXT.has(ext) ? FileCode : FileText;
-  // Icon colored by git status — one glyph carries both file type and change kind.
-  return <Icon className={`size-3.5 shrink-0 ${STATUS_COLOR[status]}`} />;
-}
 
 interface RowHandlers {
   activePath: string | null;
@@ -138,7 +120,7 @@ function Row({ node, depth, top, h }: { node: TreeNode; depth: number; top: numb
 }
 
 export function FilesPanel({
-  files, selected, onSelect, onPrefetch, viewedFiles, onToggleViewed, commentCounts,
+  files, selected, onSelect, onPrefetch, viewedFiles, onToggleViewed, commentCounts, padBottom,
 }: {
   files: FileEntry[];
   selected: string | null;
@@ -149,6 +131,9 @@ export function FilesPanel({
   onToggleViewed: (file: string) => void;
   // Per-file comment counts → a small badge on rows that have any. (#1)
   commentCounts?: Map<string, number>;
+  // Reserve space at the bottom of the scroll list so a floating control (the
+  // walkthrough pill) never hides the last file. (#guide)
+  padBottom?: boolean;
 }) {
   const [mode, setMode] = useState<"tree" | "list">("tree");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -370,7 +355,10 @@ export function FilesPanel({
   const rowCount = visible.length;
   const firstRow = Math.max(0, Math.floor((scrollTop - TREE_PAD_Y) / ROW_H) - OVERSCAN_ROWS);
   const lastRow = Math.min(rowCount, Math.ceil((scrollTop - TREE_PAD_Y + winH) / ROW_H) + OVERSCAN_ROWS);
-  const totalH = rowCount * ROW_H + TREE_PAD_Y * 2;
+  // padBottom reserves ~pb-16 of extra scroll room so the floating walkthrough pill
+  // never hides the last row — the virtualized spacer, not container padding, owns
+  // vertical space here. (#guide)
+  const totalH = rowCount * ROW_H + TREE_PAD_Y * 2 + (padBottom ? 64 : 0);
 
   return (
     // Top + left padding mirrors the diff pane's card inset (PAD) so the three

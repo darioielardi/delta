@@ -8,6 +8,7 @@ mod launch;
 mod registry;
 mod review;
 mod storage;
+mod walkthrough;
 mod watch;
 
 #[cfg(debug_assertions)]
@@ -66,6 +67,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(crate::watch::Watchers::default())
+        .manage(crate::walkthrough::ChildRegistry::default())
         .manage(crate::commands::UpdaterGate::default())
         .manage(crate::git::cache::DiffCache::default())
         .invoke_handler(tauri::generate_handler![
@@ -77,6 +79,7 @@ pub fn run() {
             commands::save_review,
             commands::export_review,
             commands::open_target,
+            commands::open_guide,
             commands::rewatch_window,
             commands::list_registry,
             commands::list_picker,
@@ -85,6 +88,9 @@ pub fn run() {
             commands::delete_review,
             commands::install_cli,
             commands::cli_status,
+            commands::claude_status,
+            commands::generate_walkthrough,
+            commands::cancel_walkthrough,
             commands::open_in_editor,
             commands::updater_try_acquire,
             commands::telemetry_allowed
