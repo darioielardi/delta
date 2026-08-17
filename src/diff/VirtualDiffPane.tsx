@@ -38,6 +38,7 @@ import type { Anchor, Comment, FileDiff, FileEntry, Side, Target } from "../type
 import type { DiffLayout } from "./useDiffLayout";
 import { useFileDiffCache } from "./useFileDiffCache";
 import { wrapsByDefault, paneColsFor, visualLinesForCols, buildRowOffsets } from "./wrap";
+import { splitRowChanged, splitSideChanged } from "./splitChanged";
 import { anchorScrollTopOnCollapse } from "./anchorScroll";
 import { useCodeFont, rowHeightFor } from "../codeFont";
 
@@ -536,11 +537,7 @@ const VFileSection = memo(function VFileSection({
     const m2v = new Map<number, number>();
     if (!model) return { visualRows: rows, modelToVisual: m2v };
     const isChanged = (i: number): boolean => {
-      if (layout === "split") {
-        const left = model.getSplitLeftLine(i), right = model.getSplitRightLine(i);
-        const lh = left.lineNumber != null, rh = right.lineNumber != null;
-        return (lh && (!rh || !!changeRangeOf(left.diff))) || (rh && (!lh || !!changeRangeOf(right.diff)));
-      }
+      if (layout === "split") return splitRowChanged(model.getSplitLeftLine(i), model.getSplitRightLine(i));
       const l = model.getUnifiedLine(i);
       return !(l.oldLineNumber != null && l.newLineNumber != null); // add / del / hunk
     };
@@ -756,11 +753,7 @@ const VFileSection = memo(function VFileSection({
         const vr = visualRows[v];
         if (vr.kind !== "line") return null;
         const idx = vr.index;
-        const left = model.getSplitLeftLine(idx), right = model.getSplitRightLine(idx);
-        const leftHas = left.lineNumber != null, rightHas = right.lineNumber != null;
-        const changed = side === "old"
-          ? leftHas && (!rightHas || !!changeRangeOf(left.diff))
-          : rightHas && (!leftHas || !!changeRangeOf(right.diff));
+        const changed = splitSideChanged(side === "old" ? model.getSplitLeftLine(idx) : model.getSplitRightLine(idx));
         return (
           <SplitColCell
             key={idx} model={model} side={side} index={idx} top={visualRowTop(v)} height={rowPxOf(v)} wrap={wrap}
